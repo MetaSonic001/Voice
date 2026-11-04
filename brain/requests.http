@@ -1,0 +1,258 @@
+### AU SFB Brain - request collection
+### Use with the VS Code "REST Client" extension or JetBrains HTTP client (click "Send Request").
+### Or open http://127.0.0.1:8000/docs and try the same calls there.
+
+@base = http://127.0.0.1:8000
+@kb = ../Sample Questions/Knowledge Base
+
+### ───────── Health ─────────
+GET {{base}}/health/ready
+
+### Stats: documents, searchable chunks, questions, outcomes, latency (last 24h)
+GET {{base}}/v1/stats
+
+### ───────── Upload the knowledge base ─────────
+POST {{base}}/v1/documents
+Content-Type: multipart/form-data; boundary=b
+
+--b
+Content-Disposition: form-data; name="file"; filename="CASA+TD KB.docx"
+
+< {{kb}}/CASA+TD KB.docx
+--b
+Content-Disposition: form-data; name="category"
+
+deposits
+--b--
+
+### Rates sheet (PDF)
+POST {{base}}/v1/documents
+Content-Type: multipart/form-data; boundary=b
+
+--b
+Content-Disposition: form-data; name="file"; filename="rates-at-a-glance.pdf"
+
+< {{kb}}/rates-at-a-glance_23rdApr'2026 - Copy.pdf
+--b
+Content-Disposition: form-data; name="category"
+
+rates
+--b
+Content-Disposition: form-data; name="effective_from"
+
+2026-04-23
+--b--
+
+### Only the non-personal sheet of the dummy data, as knowledge
+POST {{base}}/v1/documents
+Content-Type: multipart/form-data; boundary=b
+
+--b
+Content-Disposition: form-data; name="file"; filename="Inbound_Voice_Agent_Dummy_Data.xlsx"
+
+< ../Sample Questions/Inbound_Voice_Agent_Dummy_Data.xlsx
+--b
+Content-Disposition: form-data; name="title"
+
+Account to debit card mapping
+--b
+Content-Disposition: form-data; name="sheets"
+
+Acct Debit card Mapping
+--b--
+
+### ───────── Inspect ─────────
+GET {{base}}/v1/documents
+
+### One document: versions, ingestion report (replace the id)
+GET {{base}}/v1/documents/DOCUMENT_ID
+
+### Exactly how it was chunked
+GET {{base}}/v1/documents/DOCUMENT_ID/chunks
+
+### Background jobs
+GET {{base}}/v1/jobs
+
+### ───────── Ask ─────────
+POST {{base}}/v1/ask
+Content-Type: application/json
+
+{"question": "What is the annual fee for the Zenith+ credit card?"}
+
+###
+POST {{base}}/v1/ask
+Content-Type: application/json
+
+{"question": "मैं senior citizen हूँ। एक साल की FD पर अभी सबसे अच्छा interest rate कितना है?"}
+
+###
+POST {{base}}/v1/ask
+Content-Type: application/json
+
+{"question": "Laksya card ka annual fee kab maaf hota hai?"}
+
+### Personal request -> routed to verification (Phase B)
+POST {{base}}/v1/ask
+Content-Type: application/json
+
+{"question": "Mera balance kitna hai?"}
+
+### Search only (what retrieval finds, with dense/keyword/rerank scores)
+POST {{base}}/v1/search
+Content-Type: application/json
+
+{"query": "senior citizen FD rate 3 years"}
+
+### ───────── Follow-ups in a session ─────────
+POST {{base}}/v1/sessions
+Content-Type: application/json
+
+{}
+
+###
+POST {{base}}/v1/ask
+Content-Type: application/json
+
+{"question": "What is the FD interest rate for 2 years?", "session_id": "SESSION_ID"}
+
+###
+POST {{base}}/v1/ask
+Content-Type: application/json
+
+{"question": "And for senior citizens?", "session_id": "SESSION_ID"}
+
+###
+GET {{base}}/v1/sessions/SESSION_ID
+
+### ───────── Traces: why an answer came out ─────────
+GET {{base}}/v1/traces?limit=20
+
+###
+GET {{base}}/v1/traces?outcome=refused
+
+###
+GET {{base}}/v1/traces/TRACE_ID
+
+### ───────── Lifecycle ─────────
+### Replace content with a new file (new version, atomic swap)
+POST {{base}}/v1/documents/DOCUMENT_ID/versions
+Content-Type: multipart/form-data; boundary=b
+
+--b
+Content-Disposition: form-data; name="file"; filename="CASA+TD KB.docx"
+
+< {{kb}}/CASA+TD KB.docx
+--b--
+
+### Disable (instantly out of search) / enable / rename
+PATCH {{base}}/v1/documents/DOCUMENT_ID
+Content-Type: application/json
+
+{"enabled": false}
+
+### Roll back to version 1
+POST {{base}}/v1/documents/DOCUMENT_ID/versions/1/activate
+
+### Re-index one document (or POST /v1/reindex for all)
+POST {{base}}/v1/documents/DOCUMENT_ID/reindex
+
+### Soft delete (kept for audit) - add ?purge=true to remove permanently
+DELETE {{base}}/v1/documents/DOCUMENT_ID
+
+### ───────── Evaluation ─────────
+POST {{base}}/v1/evals/run
+Content-Type: application/json
+
+{"golden": "v1"}
+
+### Only some questions
+POST {{base}}/v1/evals/run
+Content-Type: application/json
+
+{"golden": "v1", "only": ["en-zenith-fee", "hi-senior-fd-1y"]}
+
+###
+GET {{base}}/v1/evals
+
+###
+GET {{base}}/v1/evals/RUN_ID
+
+### Markdown report
+GET {{base}}/v1/evals/RUN_ID/report
+
+### Compare two runs (e.g. after changing a model or setting)
+GET {{base}}/v1/evals/compare?a=RUN_A&b=RUN_B
+
+### ───────── Metrics (Prometheus) ─────────
+GET {{base}}/metrics
+
+### ───────── Voice (VOICE_ENABLED=true) ─────────
+### Active providers and audio format
+GET {{base}}/v1/voice/providers
+
+### Text -> speech (returns WAV; headers x-first-audio-ms / x-total-ms)
+POST {{base}}/v1/voice/tts
+Content-Type: application/json
+
+{"text": "एफडी पर सीनियर सिटीजन को आधा प्रतिशत ज़्यादा ब्याज मिलता है।", "language": "hi"}
+
+### Speech -> text (any audio file)
+POST {{base}}/v1/voice/stt
+Content-Type: multipart/form-data; boundary=b
+
+--b
+Content-Disposition: form-data; name="file"; filename="q.wav"
+Content-Type: audio/wav
+
+< ./data/audio/q_hi_fd.wav
+--b--
+
+### One full voice turn: audio -> transcript -> answer -> reply audio (base64 WAV) + timings
+POST {{base}}/v1/voice/turn
+Content-Type: multipart/form-data; boundary=b
+
+--b
+Content-Disposition: form-data; name="file"; filename="q.wav"
+Content-Type: audio/wav
+
+< ./data/audio/q_en_digital.wav
+--b--
+
+### Live call: WebSocket ws://127.0.0.1:8000/v1/voice/stream  (use the UI, or `brain voice FILE`)
+
+### ───────── Personal questions (MVP 2): verify, then answer ─────────
+### Test customers (dev only)
+GET {{base}}/v1/demo/callers
+
+### 1. A call from a registered number (Anjali Sharma). Copy "id" into SESSION below.
+POST {{base}}/v1/sessions
+Content-Type: application/json
+
+{"caller_number": "7107420369", "language": "en"}
+
+### 2. A personal question -> a code is sent (auth.simulated_sms shows it in development)
+POST {{base}}/v1/ask
+Content-Type: application/json
+
+{"question": "What is my balance in both accounts?", "session_id": "SESSION"}
+
+### 3. The keypad code -> verified, and the waiting question is answered
+POST {{base}}/v1/auth/verify
+Content-Type: application/json
+
+{"session_id": "SESSION", "code": "123456"}
+
+### Verification status / send a new code / end verification
+GET {{base}}/v1/auth/SESSION
+
+###
+POST {{base}}/v1/auth/resend
+Content-Type: application/json
+
+{"session_id": "SESSION"}
+
+###
+POST {{base}}/v1/auth/end
+Content-Type: application/json
+
+{"session_id": "SESSION"}

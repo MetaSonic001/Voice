@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "brain",
+      "runtimeExecutable": "brain/.venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "brain/app.py"
+      ],
+      "port": 8000
+    },
+    {
+      "name": "ui",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": [
+        "--cwd=C:/Users/shaun/projects/AU Small Finance Bank/Voice/ui",
+        "run",
+        "dev"
+      ],
+      "port": 3000
+    }
+  ]
+}

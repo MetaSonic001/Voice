@@ -1,0 +1,136 @@
+---
+config:
+  flowchart:
+    wrappingWidth: 460
+    nodeSpacing: 40
+    rankSpacing: 55
+---
+flowchart TB
+  %% AU SFB Inbound Voice Agent - architecture flow + tech options (one diagram)
+  %% Part 1 = how a call flows (no tech names). Parts 2-8 = tech options per component.
+  %% Prices are list prices (Nov 2026), ₹88 = $1. Verify before budgeting.
+  %% Layout tip: arrows into or out of a box point at the box (subgraph ID), not at nodes inside it.
+  %% That keeps each box laid out left to right.
+
+  TITLE["<b>AU SFB INBOUND VOICE AGENT</b><br/>Architecture and tech stack"]:::title
+
+  %% ═════════════ PART 1: CALL FLOW ═════════════
+  subgraph FLOW["① HOW A CALL FLOWS (same pipeline for every scenario)"]
+    direction LR
+    CALLER(["📞<br/>Caller"]):::caller
+
+    subgraph AGENT["VOICE AGENT"]
+      direction LR
+      NF["Noise filter<br/>+ VAD"]:::stage
+      STT["STT / ASR<br/><i>ears</i>"]:::stage
+      subgraph BRAIN["BRAIN"]
+        direction LR
+        EOT["End of<br/>turn"]:::brain
+        LT["Language<br/>tracker"]:::brain
+        SM["State machine<br/><i>current step +<br/>allowed actions</i>"]:::brain
+        RD["Redact<br/><i>mask names,<br/>numbers, OTPs</i>"]:::brain
+        LLM["LLM<br/><i>understand +<br/>phrase</i>"]:::brain
+        RB["Response<br/>builder<br/><i>figures, masking</i>"]:::brain
+        EOT --> LT --> SM --> RD --> LLM --> RB
+      end
+      TTS["TTS<br/><i>mouth</i>"]:::stage
+      NF --> STT --> BRAIN --> TTS
+    end
+
+    subgraph SUP["CALLED ON EVERY TURN"]
+      direction TB
+      PG["Policy gateway<br/><i>rules, verification,<br/>confirmation</i>"]:::support
+      GR["Guardrails<br/><i>block unsafe or<br/>off-policy output</i>"]:::support
+      TL["Tools<br/><i>bank data, card actions,<br/>knowledge, transfer</i>"]:::support
+      OB["Observability<br/><i>audit log, latency,<br/>traces</i>"]:::support
+      PG ~~~ GR ~~~ TL ~~~ OB
+    end
+
+    CALLER ==>|"<b>TELEPHONY</b><br/>─────────────<br/><i>Transport: streaming via WebSocket</i>"| AGENT
+    AGENT ==>|"agent's voice back<br/>(same stream)"| CALLER
+    AGENT -.->|"checks and calls"| SUP
+  end
+
+  %% ═════════════ PART 2: RUNNING THE AGENT ═════════════
+  subgraph ROW1["② RUNNING THE AGENT"]
+    direction LR
+    VF["<b>VOICE FRAMEWORK</b><br/>─────────────<br/>✅ <b>Pipecat</b> (open source)<br/>Wires noise → STT → brain → TTS,<br/>handles interruptions, has ready plug-ins<br/>for STT / LLM / TTS / telephony.<br/>Pipecat Flows = our state machine.<br/>Already handles everything we need.<br/><br/>◻ <b>LiveKit Agents</b> (open source)<br/>Needs its own LiveKit media server,<br/>so extra server cost."]:::pick
+    HP["<b>HOSTED PLATFORMS</b> (alternative)<br/>─────────────<br/><b>Vapi · Retell · Bolna</b><br/>They run STT, LLM, TTS and telephony<br/>end to end. We only configure the<br/>agent and upload the KB.<br/><br/>✗ We lose control of the policy gateway:<br/>our rules, internal data access,<br/>security and compliance checks.<br/>≈ $0.10–0.30/min (₹9–26/min) all-in"]:::alt
+    TEL["<b>TELEPHONY</b><br/>─────────────<br/>Exotel · Plivo · Twilio<br/><br/><i>AU to confirm their provider<br/>and setup</i>"]:::neutral
+    VF ~~~ HP ~~~ TEL
+  end
+
+  %% ═════════════ PART 3: EARS AND AUDIO ═════════════
+  subgraph ROW2["③ HEARING THE CALLER"]
+    direction LR
+    AF["<b>AUDIO FRONT-END</b><br/>─────────────<br/><b>RNNoise</b>: cleans background noise<br/><b>Silero VAD</b>: detects speech,<br/>for barge-in and pauses<br/><b>Smart Turn</b> (by Pipecat): knows when<br/>the caller has finished speaking<br/><br/><i>all open source, free</i>"]:::pick
+    STTO["<b>STT / ASR (ears)</b><br/>─────────────<br/>✅ <b>Sarvam</b><br/>₹0.49/min (≈ ₹29/hr)<br/><br/>◻ <b>AWS Transcribe</b><br/><i>backup if Sarvam is down</i><br/>≈ $0.01–0.024/min<br/>(≈ ₹0.9–2.1/min)"]:::pick
+    AF ~~~ STTO
+  end
+
+  %% ═════════════ PART 4: BRAIN AND KNOWLEDGE ═════════════
+  subgraph ROW3["④ THINKING"]
+    direction LR
+    LLMO["<b>LLM</b><br/>─────────────<br/>Gemini · GPT · Claude · Sarvam · Groq<br/><br/>Use whichever handles multilingual best,<br/>especially <b>Hinglish</b>. Test each on<br/>our sample questions and pick.<br/><br/><i>Role: understand + phrase only.<br/>Never decides rules, never makes up figures.</i>"]:::pick
+    KBO["<b>KNOWLEDGE BASE</b><br/>─────────────<br/>✅ <b>Postgres + pgvector</b><br/>Approved answer cards from the KB<br/>and rates sheet, searched by<br/>keywords + meaning<br/><br/>◻ <b>AWS Bedrock Knowledge Bases</b><br/>Overkill for our small KB,<br/>can be explored"]:::pick
+    LLMO ~~~ KBO
+  end
+
+  %% ═════════════ PART 5: SPEAKING ═════════════
+  subgraph ROW4["⑤ SPEAKING BACK"]
+    direction LR
+    TTSO["<b>TTS (mouth)</b><br/>─────────────<br/>✅ <b>Sarvam</b><br/>Bulbul v3: ₹3 / 1K chars<br/>Bulbul v4 Flash: ₹1 / 1K chars<br/><br/>◻ <b>ElevenLabs</b><br/>≈ $0.04 / 1K chars (≈ ₹3.5)<br/><br/>◻ <b>AWS Polly</b><br/><i>backup if Sarvam is down</i><br/>≈ $16 / 1M chars (≈ ₹1.4 / 1K)"]:::pick
+    COST["<b>COST: ONE 3-MIN CALL</b><br/>─────────────<br/>Sarvam STT + LLM + Sarvam TTS<br/>+ telephony + hosting<br/><br/><b>≈ ₹10–14 per call</b><br/>(≈ ₹7.5–10.5 with Bulbul v4 Flash)<br/><br/>1,000 test calls ≈ ₹10–14K"]:::cost
+    TTSO ~~~ COST
+  end
+
+  %% ═════════════ PART 6: RUN, STORE, MEASURE ═════════════
+  subgraph ROW5["⑥ RUN, STORE AND MEASURE"]
+    direction LR
+    API["<b>FastAPI</b><br/>Agent server +<br/>mock bank APIs<br/><i>over unchanged dummy data</i>"]:::ops
+    PGS["<b>Postgres</b><br/>Sessions, bank data,<br/>audit log, KB"]:::ops
+    OBJ["<b>Object storage</b><br/>S3 for call recordings<br/><i>MinIO for local dev</i>"]:::ops
+    LF["<b>Langfuse</b><br/>Evals + LLM traces"]:::ops
+    LAT["<b>Pipecat metrics</b><br/>Latency per turn"]:::ops
+    API ~~~ PGS ~~~ OBJ ~~~ LF ~~~ LAT
+  end
+
+  %% ═════════════ PART 7: AWS ═════════════
+  subgraph ROW6["⑦ WHERE AWS FITS (hosting + security, Mumbai)"]
+    direction LR
+    AW1["<b>Use</b><br/>─────────────<br/><b>EC2 / ECS</b>: runs the agent<br/><b>RDS Postgres</b>: managed database<br/><b>S3</b>: encrypted recordings<br/><b>KMS + Secrets Manager</b>: encryption, API keys<br/><b>CloudWatch + CloudTrail</b>: logs, infra audit"]:::aws
+    AW2["<b>Optional</b><br/>─────────────<br/><b>Bedrock</b>: host the LLM inside AWS<br/><b>Bedrock Guardrails</b>: extra safety filter<br/><b>Transcribe / Polly</b>: STT / TTS options<br/><b>Bedrock Knowledge Bases</b>: overkill for now"]:::aws
+    AW3["<b>Not using</b><br/>─────────────<br/><b>Amazon Connect</b>: no Indian phone numbers<br/><b>Amazon Lex</b>: too rigid for Hinglish"]:::awsno
+    AW1 ~~~ AW2 ~~~ AW3
+  end
+
+  %% ═════════════ PART 8: ALTERNATIVE APPROACH ═════════════
+  subgraph ROW7["⑧ ALTERNATIVE: SPEECH-TO-SPEECH MODELS"]
+    direction LR
+    S2S["<b>Gemini Live · OpenAI Realtime</b><br/>─────────────<br/>One model hears and speaks directly:<br/>no separate STT, LLM or TTS. Fast and natural.<br/>Both support Hindi and can be integrated."]:::alt
+    S2SP["<b>✗ Trade-offs</b><br/>─────────────<br/>Hard to keep deterministic: the model says<br/>figures itself, confirmation steps are harder to enforce.<br/>Auditing is harder."]:::alt
+    S2SC["<b>Cost</b><br/>─────────────<br/>OpenAI Realtime ≈ $0.06–0.11/min (₹5–10)<br/>Gemini Live ≈ $0.02/min (≈ ₹2),<br/>rises as the call gets longer"]:::alt
+    S2S ~~~ S2SP ~~~ S2SC
+  end
+
+  %% ═════════════ SPINE ═════════════
+  TITLE --> FLOW
+  FLOW ==>|"tech options per component"| ROW1
+  ROW1 --> ROW2 --> ROW3 --> ROW4 --> ROW5 --> ROW6 --> ROW7
+
+  %% ═════════════ STYLES ═════════════
+  classDef title fill:#5B2A86,stroke:#5B2A86,color:#ffffff,font-size:20px
+  classDef caller fill:#5B2A86,stroke:#5B2A86,color:#ffffff,font-size:16px
+  classDef stage fill:#ffffff,stroke:#5B2A86,stroke-width:2px,color:#2a1440
+  classDef brain fill:#EDE4F7,stroke:#7B4FC0,color:#2a1440
+  classDef support fill:#E8F0FD,stroke:#3B6FD1,color:#10264d
+  classDef pick fill:#ffffff,stroke:#2E9B57,stroke-width:2px,color:#1d1d1d,text-align:left
+  classDef alt fill:#FFF6EC,stroke:#E08A1E,stroke-dasharray:6 4,color:#3a2400
+  classDef neutral fill:#F4F4F6,stroke:#8A8AA0,color:#222222
+  classDef cost fill:#E3F5E8,stroke:#2E9B57,color:#123d22
+  classDef ops fill:#F2F2F7,stroke:#6E6E8F,color:#222222
+  classDef aws fill:#FFF4E5,stroke:#FF9900,stroke-width:2px,color:#232F3E
+  classDef awsno fill:#FDE8E8,stroke:#C94141,color:#4a1010
+  style BRAIN fill:#F7F2FC,stroke:#7B4FC0
+  style AGENT fill:#FBFAFE,stroke:#5B2A86,stroke-width:2px
+  style SUP fill:#F3F7FE,stroke:#3B6FD1,stroke-dasharray:5 4

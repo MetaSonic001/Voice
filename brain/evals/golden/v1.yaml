@@ -1,0 +1,124 @@
+# Golden set v1 - general (Phase A) questions for the AU SFB knowledge service.
+# Values come from the Knowledge Base docs and the rates sheet (effective 23 Apr 2026).
+# expect: answer | clarify | refuse | verify | handoff | smalltalk | out_of_scope (a list = any of them is fine)
+# facts:  every group must be matched by one alternative (case-insensitive; commas in numbers ignored)
+# sources: a top retrieved chunk should contain one of these strings (retrieval check)
+
+# ───────── English: products, rates, fees ─────────
+- {id: en-value-minbal, lang: en, q: "What is the minimum balance for an AU Value Savings Account?", expect: [answer, clarify], facts: [["10000", "5000"]], sources: ["10,000", "5,000"]}
+- {id: en-royale-amb, lang: en, q: "How much average monthly balance do I need to keep in a Royale savings account?", expect: answer, facts: [["1 lakh", "100000"]], sources: ["1 lakh", "1,00,000"]}
+- {id: en-royale-lounge, lang: en, q: "How many airport lounge visits do I get with the AU Royale Savings Account?", expect: answer, facts: [["8", "eight"]], sources: ["lounge"]}
+- {id: en-digital-docs, lang: en, q: "What documents are needed to open the AU Digital Savings Account?", expect: answer, facts: [["aadhaar"], ["pan"]], sources: ["Aadhaar"]}
+- {id: en-bsbda-minbal, lang: en, q: "Is there any minimum balance requirement for a BSBDA account?", expect: answer, facts: [["no minimum", "nil", "zero", "not required", "no average monthly", "no amb", "no balance"]], sources: ["BSBDA"]}
+- {id: en-first-account, lang: en, q: "I'm opening my first bank account and cannot maintain a monthly balance. Which account would suit me?", expect: answer, facts: [["BSBDA", "Digital", "Basic Savings"]], sources: ["Zero Balance", "BSBDA"]}
+- {id: en-salary-40k, lang: en, q: "I receive a salary of around 40,000 per month. Which savings or salary account is suitable for me?", expect: [answer, clarify, refuse]}
+- {id: en-5lakh-1yr, lang: en, q: "I want to keep 5 lakh rupees safely for one year. What deposit options are available?", expect: [answer, clarify], facts: [["fixed deposit", "FD", "term deposit"]], sources: ["Fixed Deposit", "Term Deposit"]}
+- {id: en-fd-flexibility, lang: en, q: "I may need the money before maturity. Which FD option gives me more flexibility?", expect: [answer, clarify], facts: [["overdraft"]], sources: ["Overdraft"]}
+- {id: en-lounge-card, lang: en, q: "I travel by air four or five times a year. Which card offers lounge access without very high charges?", expect: [answer, clarify], facts: [["Laksya", "Ananta", "Zenith", "CS", "CA"]], sources: ["lounge"]}
+- {id: en-online-card, lang: en, q: "I frequently shop online. Which card offers benefits for online purchases?", expect: [answer, clarify], facts: [["Ananta", "Laksya"]], sources: ["Shopping", "Amazon"]}
+- {id: en-pl-3lakh, lang: en, q: "I need a personal loan of 3 lakh. What interest rate and processing fee would apply?", expect: [answer, clarify], facts: [["11", "4%", "2000"]], sources: ["Processing Fee", "processing fee"]}
+- {id: en-rate-profile, lang: en, q: "Is the personal loan interest rate fixed for everyone, or will my actual rate depend on my profile?", expect: answer, facts: [["profile", "credit", "depend", "eligib", "creditworthiness"]], sources: ["profile", "Pre-Approved"]}
+- {id: en-senior-fd-1y, lang: en, q: "I'm a senior citizen. What is the best FD rate currently available for one year?", expect: [answer, clarify], facts: [["6.85", "7.60", "7.6"]], sources: ["6.85%", "7.60%"]}
+- {id: en-fd-2y-regular, lang: en, q: "What is the FD interest rate for 2 years for a regular customer?", expect: [answer, clarify], facts: [["7.00", "7%", "7.0", "7.10", "7.1"]], sources: ["24 Months"]}
+- {id: en-fd-3y-senior, lang: en, q: "What FD rate do senior citizens get for 3 years?", expect: [answer, clarify], facts: [["7.75"]], sources: ["7.75%"]}
+- {id: en-fd-max-senior, lang: en, q: "What is the highest FD interest rate available for senior citizens?", expect: answer, facts: [["7.75", "7.90", "7.9"]], sources: ["7.75%", "7.90%"]}
+- {id: en-fd-min, lang: en, q: "What is the minimum amount to open a fixed deposit?", expect: answer, facts: [["1000"]], sources: ["1,000"]}
+- {id: en-fd-tenure, lang: en, q: "What tenures are available for fixed deposits?", expect: answer, facts: [["7 days"], ["10 years", "120 months"]], sources: ["10 years", "120 Months"]}
+- {id: en-rd-min, lang: en, q: "What is the minimum monthly instalment for a recurring deposit?", expect: answer, facts: [["100"]], sources: ["Rs 100"]}
+- {id: en-green-fd, lang: en, q: "What is the minimum deposit for the AU Planet First green FD?", expect: answer, facts: [["5000"]], sources: ["5,000"]}
+- {id: en-zenith-fee, lang: en, q: "What is the annual fee for the Zenith+ credit card?", expect: answer, facts: [["4999"]], sources: ["4,999"]}
+- {id: en-zenith-waiver, lang: en, q: "How can I get the Zenith+ annual fee waived?", expect: answer, facts: [["8 lakh", "800000"]], sources: ["8 lakh"]}
+- {id: en-zenith-lounge, lang: en, q: "How many lounge visits does the Zenith+ credit card give?", expect: answer, facts: [["16"]], sources: ["16 complimentary"]}
+- {id: en-zenith-forex, lang: en, q: "What is the forex markup on the Zenith+ card?", expect: answer, facts: [["0.99"]], sources: ["0.99%"]}
+- {id: en-ananta-fee, lang: en, q: "What are the joining and annual fees for the AU Ananta credit card?", expect: answer, facts: [["2000"]], sources: ["2,000"]}
+- {id: en-laksya-waiver, lang: en, q: "How much do I need to spend to get the Laksya card annual fee waived?", expect: answer, facts: [["2 lakh", "200000"]], sources: ["2 lakh"]}
+- {id: en-laksya-lounge, lang: en, q: "What do I need to spend to get lounge access on the Laksya card?", expect: answer, facts: [["50000"]], sources: ["50,000"]}
+- {id: en-ca-metal-fee, lang: en, q: "Is the AU CA Metal credit card free?", expect: answer, facts: [["nil", "free", "no joining", "no annual"]], sources: ["Lifetime Free"]}
+- {id: en-late-fee, lang: en, q: "What are the late payment charges on AU credit cards?", expect: answer, facts: [["15%"]], sources: ["15% of Total Amount Due"]}
+- {id: en-cash-advance, lang: en, q: "What is the cash advance fee on AU credit cards?", expect: answer, facts: [["2.5%"], ["500"]], sources: ["2.5% of cash withdrawal"]}
+- {id: en-smartloan-foreclose, lang: en, q: "What is the foreclosure charge for an AU SMARTLoan?", expect: answer, facts: [["3%"]], sources: ["3% of"]}
+- {id: en-pl-foreclose-8m, lang: en, q: "If I close my AU personal loan after 8 months, what foreclosure charge applies?", expect: answer, facts: [["5%"]], sources: ["5% of outstanding"]}
+- {id: en-pl-max, lang: en, q: "What is the maximum personal loan amount AU offers?", expect: answer, facts: [["15 lakh", "1500000"]], sources: ["15 lakh"]}
+- {id: en-pl-fee, lang: en, q: "What is the processing fee for an AU personal loan?", expect: answer, facts: [["4%"]], sources: ["4% of"]}
+- {id: en-vikaas-atm, lang: en, q: "How many free ATM withdrawals do I get with a Vikaas savings account?", expect: answer, facts: [["5"]], sources: ["free ATM"]}
+- {id: en-vikaas-zero, lang: en, q: "How can a Vikaas account be maintained at zero balance?", expect: answer, facts: [["5000"]], sources: ["5,000"]}
+- {id: en-kisan-cashback, lang: en, q: "What cashback does the AU Kisan savings account offer?", expect: answer, facts: [["2%"], ["500"]], sources: ["2% cashback"]}
+- {id: en-swadesh-cashback, lang: en, q: "What cashback does the Swadesh savings account give?", expect: answer, facts: [["5%"], ["1000"]], sources: ["5% cashback"]}
+- {id: en-senior-extra, lang: en, q: "Do senior citizen savings account holders get extra interest on fixed deposits?", expect: answer, facts: [["0.50", "0.5"]], sources: ["0.50%"]}
+- {id: en-kids-debit-age, lang: en, q: "From what age can a child get a debit card with the AU Kids savings account?", expect: answer, facts: [["10"]], sources: ["10 years"]}
+- {id: en-royale-debit-fee, lang: en, q: "What is the annual fee for the AU Royale debit card?", expect: answer, facts: [["1399", "499"]], sources: ["1399"]}
+- {id: en-digital-debit, lang: en, q: "Which debit card comes with a Digital savings account?", expect: answer, facts: [["RuPay Platinum"]], sources: ["RuPay Platinum"]}
+- {id: en-platinum-minbal, lang: en, q: "What is the minimum balance for the Platinum savings account?", expect: answer, facts: [["25000"]], sources: ["25,000"]}
+- {id: en-savings-slab, lang: en, q: "What interest rate does a savings account earn on balances below 1 lakh?", expect: answer, facts: [["2.50", "2.5"]], sources: ["2.50%"]}
+- {id: en-gold-loan, lang: en, q: "What is the interest rate on AU gold loans?", expect: answer, facts: [["24"]], sources: ["Gold Loan"]}
+- {id: en-car-loan, lang: en, q: "Up to what interest rate are new car loans?", expect: answer, facts: [["17"]], sources: ["17%"]}
+- {id: en-mf-min, lang: en, q: "What is the minimum amount to start investing in mutual funds through AU?", expect: answer, facts: [["100"]], sources: ["Rs 100"]}
+- {id: en-3in1, lang: en, q: "What is the AU 3-in-1 account?", expect: answer, facts: [["demat"], ["trading"]], sources: ["3-in-1"]}
+- {id: en-nre-tax, lang: en, q: "Is interest on an NRE account taxable?", expect: answer, facts: [["tax free", "tax-free", "not taxable", "exempt"]], sources: ["Tax Free", "tax-free"]}
+- {id: en-women-new, lang: en, q: "Can I open a new AU Women Savings Account?", expect: answer, facts: [["discontinued", "not available", "no longer", "cannot"]], sources: ["discontinued"]}
+
+# ───────── Hindi (Devanagari, as in the sample questions) ─────────
+- {id: hi-first-account, lang: hi, q: "मैं पहली बार bank account खोल रहा हूँ और monthly balance maintain नहीं कर सकता। मेरे लिए कौन सा account सही रहेगा?", expect: answer, facts: [["BSBDA", "Digital", "डिजिटल", "बीएसबीडीए", "बेसिक"]], sources: ["Zero Balance", "BSBDA"]}
+- {id: hi-5lakh-1yr, lang: hi, q: "मुझे ₹5 लाख एक साल के लिए सुरक्षित रखने हैं। कौन से deposit options available हैं?", expect: [answer, clarify], facts: [["FD", "fixed deposit", "फिक्स्ड", "एफडी", "सावधि"]], sources: ["Fixed Deposit", "Term Deposit"]}
+- {id: hi-fd-flexibility, lang: hi, q: "मुझे maturity से पहले पैसे की जरूरत पड़ सकती है। कौन सी FD ज्यादा flexible रहेगी?", expect: [answer, clarify], facts: [["overdraft", "ओवरड्राफ्ट"]], sources: ["Overdraft"]}
+- {id: hi-lounge-card, lang: hi, q: "मैं साल में चार-पाँच बार flight से travel करता हूँ। कम charges में lounge access वाला कौन सा card है?", expect: [answer, clarify], facts: [["Laksya", "Ananta", "Zenith", "लक्ष्य", "अनंत", "ज़ेनिथ", "जेनिथ"]], sources: ["lounge"]}
+- {id: hi-online-card, lang: hi, q: "मैं online shopping ज्यादा करता हूँ। उसके लिए कौन सा card बेहतर benefits देता है?", expect: [answer, clarify], facts: [["Ananta", "Laksya", "अनंत", "लक्ष्य"]], sources: ["Shopping", "Amazon"]}
+- {id: hi-senior-fd-1y, lang: hi, q: "मैं senior citizen हूँ। एक साल की FD पर अभी सबसे अच्छा interest rate कितना है?", expect: [answer, clarify], facts: [["6.85", "7.60", "7.6"]], sources: ["6.85%", "7.60%"]}
+- {id: hi-zenith-fee, lang: hi, q: "Zenith+ credit card की annual fee कितनी है?", expect: answer, facts: [["4999"]], sources: ["4,999"]}
+- {id: hi-royale-minbal, lang: hi, q: "Royale savings account में कितना minimum balance रखना होता है?", expect: answer, facts: [["1 lakh", "1 लाख", "100000", "एक लाख"]], sources: ["1 lakh", "1,00,000"]}
+- {id: hi-pl-fee, lang: hi, q: "Personal loan की processing fee कितनी है?", expect: answer, facts: [["4%"]], sources: ["4% of"]}
+- {id: hi-fd-min, lang: hi, q: "Fixed deposit कम से कम कितने रुपये से खोल सकते हैं?", expect: answer, facts: [["1000"]], sources: ["1,000"]}
+- {id: hi-laksya-lounge, lang: hi, q: "Laksya card पर lounge access के लिए कितना खर्च करना होगा?", expect: answer, facts: [["50000"]], sources: ["50,000"]}
+- {id: hi-vikaas-atm, lang: hi, q: "Vikaas account में कितने free ATM withdrawals मिलते हैं?", expect: answer, facts: [["5"]], sources: ["free ATM"]}
+- {id: hi-late-fee, lang: hi, q: "Credit card पर late payment charge कितना लगता है?", expect: answer, facts: [["15%"]], sources: ["15% of Total Amount Due"]}
+- {id: hi-rate-profile, lang: hi, q: "क्या यह interest rate सभी के लिए fixed है, या मेरा actual rate मेरी profile पर depend करेगा?", expect: [answer, clarify], facts: [["profile", "प्रोफाइल", "credit", "क्रेडिट", "निर्भर", "depend"]], sources: ["profile"]}
+
+# ───────── Hinglish (Latin script) ─────────
+- {id: hg-fd-senior-3y, lang: hinglish, q: "FD ka interest rate kya hai senior citizen ke liye 3 saal ke liye?", expect: [answer, clarify], facts: [["7.75"]], sources: ["7.75%"]}
+- {id: hg-zenith-fee, lang: hinglish, q: "Zenith plus card ka annual fee kitna hai?", expect: answer, facts: [["4999"]], sources: ["4,999"]}
+- {id: hg-value-minbal, lang: hinglish, q: "Value savings account mein minimum balance kitna rakhna padta hai?", expect: [answer, clarify], facts: [["10000", "5000"]], sources: ["10,000", "5,000"]}
+- {id: hg-zero-balance, lang: hinglish, q: "Mujhe zero balance account chahiye, kaunsa account best rahega?", expect: [answer, clarify], facts: [["BSBDA", "Digital", "Basic"]], sources: ["Zero Balance", "BSBDA"]}
+- {id: hg-pl-max, lang: hinglish, q: "Personal loan maximum kitne tak mil sakta hai?", expect: answer, facts: [["15 lakh", "1500000"]], sources: ["15 lakh"]}
+- {id: hg-laksya-waiver, lang: hinglish, q: "Laksya card ka annual fee kab maaf hota hai?", expect: answer, facts: [["2 lakh", "200000"]], sources: ["2 lakh"]}
+- {id: hg-rd-min, lang: hinglish, q: "Recurring deposit minimum kitne rupaye se shuru hota hai?", expect: answer, facts: [["100"]], sources: ["Rs 100"]}
+- {id: hg-kisan-cashback, lang: hinglish, q: "Kisan account mein cashback kitna milta hai?", expect: answer, facts: [["2%"]], sources: ["2% cashback"]}
+- {id: hg-gold-loan, lang: hinglish, q: "Gold loan pe interest rate kitna hai?", expect: answer, facts: [["24"]], sources: ["Gold Loan"]}
+- {id: hg-digital-debit, lang: hinglish, q: "Digital savings account ke saath kaunsa debit card milta hai?", expect: answer, facts: [["RuPay Platinum"]], sources: ["RuPay Platinum"]}
+- {id: hg-smartloan-foreclose, lang: hinglish, q: "SMARTLoan ko pehle band karne ka charge kitna hai?", expect: answer, facts: [["3%"]], sources: ["3% of"]}
+- {id: hg-women-new, lang: hinglish, q: "Kya main naya Women savings account khol sakti hoon?", expect: answer, facts: [["discontinued", "band", "nahi", "no longer", "not available", "नहीं", "बंद"]], sources: ["discontinued"]}
+
+# ───────── Must refuse: not in the knowledge base / out of scope ─────────
+- {id: rf-fd-penalty, lang: en, q: "What exact penalty percentage is charged for breaking an FD early?", expect: [refuse, answer]}
+- {id: rf-pl-docs, lang: en, q: "Which exact documents do I need for an AU personal loan?", expect: [refuse, answer]}
+- {id: rf-atm-limit, lang: en, q: "What is the daily ATM withdrawal limit on the AU Platinum debit card?", expect: refuse}
+- {id: rf-share-price, lang: en, q: "What is AU Bank's share price today?", expect: [refuse, out_of_scope]}
+- {id: rf-crypto, lang: en, q: "Does AU Bank let me trade cryptocurrency?", expect: [refuse, out_of_scope]}
+- {id: rf-hdfc, lang: en, q: "What is the FD rate at HDFC Bank?", expect: [refuse, out_of_scope]}
+- {id: rf-intl-limit, lang: en, q: "What is the international transaction limit on AU credit cards?", expect: refuse}
+- {id: rf-hi-fd-penalty, lang: hi, q: "FD समय से पहले तोड़ने पर कितने प्रतिशत penalty लगती है?", expect: [refuse, answer]}
+- {id: rf-hg-atm-limit, lang: hinglish, q: "Platinum debit card ki daily ATM limit kitni hai?", expect: refuse}
+- {id: oos-movie, lang: en, q: "Can you book me a movie ticket for tonight?", expect: [out_of_scope, refuse]}
+
+# ───────── Must route to verification (personal / action / issue - Phase B) ─────────
+- {id: vf-balance-after-payment, lang: en, q: "I just made a payment of 2,500. Can you tell me how much balance is left in my account?", expect: verify}
+- {id: vf-hi-loan-outstanding, lang: hi, q: "मेरे loan का अभी कितना amount बाकी है?", expect: verify}
+- {id: vf-block-card, lang: en, q: "My card is missing. Please block it immediately.", expect: verify}
+- {id: vf-unknown-txn, lang: en, q: "I don't recognise a transaction of 8,499 on my card. What should I do?", expect: verify}
+- {id: vf-hg-unknown-debit, lang: hinglish, q: "Mere account se kal ek amount debit hua tha, but mujhe transaction recognise nahi ho raha. Please check kar do.", expect: verify}
+- {id: vf-enable-online, lang: en, q: "Enable online transactions on my debit card. I need to make a payment now.", expect: verify}
+- {id: vf-salary, lang: en, q: "Was my salary credited this month? If yes, on which date?", expect: verify}
+- {id: vf-fd-maturing, lang: en, q: "Which of my FDs is maturing first?", expect: verify}
+- {id: vf-maintained-balance, lang: en, q: "Did I maintain the required balance this month, or will I be charged?", expect: verify}
+- {id: vf-hg-temp-block, lang: hinglish, q: "Card ko permanently block mat karna. Abhi sirf temporary block kar do, shayad ghar par hi ho.", expect: verify}
+- {id: vf-this-account, lang: en, q: "How much minimum balance am I supposed to maintain in this account?", expect: [verify, clarify]}
+
+# ───────── Human handoff and small talk ─────────
+- {id: hf-not-understanding, lang: en, q: "You're not understanding my issue. Please connect me to someone who can help.", expect: handoff}
+- {id: hf-hi-executive, lang: hi, q: "आप मेरी problem समझ नहीं पा रहे हैं। मुझे किसी executive से connect कर दीजिए।", expect: handoff}
+- {id: st-hello, lang: en, q: "Hello", expect: smalltalk}
+- {id: st-thanks, lang: hinglish, q: "Thank you, bahut madad mili", expect: smalltalk}
+
+# ───────── Follow-ups (same session) ─────────
+- {id: fu-fd-senior, lang: en, history: ["What is the FD interest rate for 2 years?"], q: "And for senior citizens?", expect: [answer, clarify], facts: [["7.50", "7.5", "7.60", "7.6"]], sources: ["7.50%", "7.60%"]}
+- {id: fu-zenith-fee, lang: en, history: ["Tell me about the Zenith+ credit card."], q: "What is its annual fee?", expect: answer, facts: [["4999"]], sources: ["4,999"]}
+- {id: fu-hg-laksya, lang: hinglish, history: ["Laksya card ke baare mein batao"], q: "Iska lounge access kaise milta hai?", expect: answer, facts: [["50000", "2"]], sources: ["50,000"]}

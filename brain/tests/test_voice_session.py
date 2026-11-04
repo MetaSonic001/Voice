@@ -1,0 +1,245 @@
+"""Turn-taking scenarios for a live call, with deterministic fake audio.
+
+'Speech' is a tone whose frequency tells FakeSTT what was said; 'silence' is zeros. The agent's audio is a quiet
+tone that is never mistaken for the caller. Timing rules use the audio clock, so results don't depend on CPU speed.
+"""
+
+import asyncio
+
+import pytest
+
+from app.config import Settings
+from app.services.conversation import Reply, TurnEvent
+from app.voice.audio import silence, tone
+from app.voice.phrases import PhraseCache, phrase_text
+from app.voice.session import VoiceSession
+from tests.fakes import FakeSTT, FakeTTS, FakeVAD
+
+RATE = 16000
+Q = "What is the minimum balance for a savings account?"
+LONG_ANSWER = " ".join(["The minimum balance is ten thousand rupees for urban branches."] * 4)
+SCRIPT = {
+    300: (Q, 0.0),
+    500: ("haan", 0.0),
+    700: ("ruko, what about senior citizens?", 0.0),
+    900: ("", 0.95),  # noise: STT hears nothing real
+    1100: ("I want to know about FD rates and", 0.0),  # sounds unfinished
+    1300: ("I want to know about FD rates and for senior citizens too", 0.0),
+    1500: ("stop", 0.0),
+    1700: (LONG_ANSWER.split(".")[0], 0.0),  # the agent's own words (echo)
+}
+
+
+class StubBrain:
+    def __init__(self, think_s: float = 0.05, answers: dict | None = None):
+        self.think_s, self.answers, self.questions = think_s, answers or {}, []
+
+    async def turn(self, question, session_id, extra_timings=None):
+        self.questions.append(question)
+        yield TurnEvent("understood", "en", "general")
+        await asyncio.sleep(self.think_s)
+        sentences = self.answers.get(question, ["Ten thousand rupees."])
+        for s in sentences:
+            yield TurnEvent("sentence", "en", "general", s, s)
+        yield TurnEvent("done", reply=Reply("trace-1", session_id, "answered", "general", "en", " ".join(sentences),
+                                            " ".join(sentences)))
+
+
+class Harness:
+    def __init__(self, brain=None, **overrides):
+        settings = dict(audio_rate=RATE, playback_lead_ms=100, no_input_s=30, filler_after_ms=5000)
+        settings.update(overrides)
+        self.settings = Settings(**settings)
+        self.events: list[dict] = []
+        self.audio = bytearray()
+        self.brain = brain or StubBrain()
+        self.stt, self.tts = FakeSTT(SCRIPT), FakeTTS(RATE)
+        self.session: VoiceSession | None = None
+
+    async def start(self, greet=False):
+        async def send_json(e):
+            self.events.append(e)
+
+        async def send_audio(b):
+            self.audio.extend(b)
+
+        self.session = VoiceSession(brain=self.brain, stt=self.stt, tts=self.tts, vad=FakeVAD(),
+                                    phrases=PhraseCache(self.tts), settings=self.settings, send_json=send_json,
+                                    send_audio=send_audio, session_id="s1")
+        await self.session.start(greet=greet)
+        return self
+
+    async def feed(self, pcm: bytes, realtime: bool = False):
+        step = 640  # 20 ms
+        for i in range(0, len(pcm), step):
+            self.session.feed(pcm[i:i + step])
+            await asyncio.sleep(0.02 if realtime else 0)
+
+    def types(self):
+        return [e["type"] for e in self.events]
+
+    async def wait_for(self, kind: str, timeout: float = 5.0, **match):
+        loop = asyncio.get_running_loop()
+        end = loop.time() + timeout
+        while loop.time() < end:
+            for e in self.events:
+                if e["type"] == kind and all(e.get(k) == v for k, v in match.items()):
+                    return e
+            await asyncio.sleep(0.01)
+        raise AssertionError(f"no '{kind}' {match} within {timeout}s; got {self.types()}")
+
+    async def close(self):
+        await self.session.close()
+
+
+def speech(hz: int, ms: int = 800) -> bytes:
+    return tone(ms, RATE, freq=hz, amplitude=6000)
+
+
+def quiet(ms: int) -> bytes:
+    return silence(ms, RATE)
+
+
+async def test_question_gets_spoken_answer_with_metrics():
+    h = await Harness().start()
+    await h.feed(quiet(200) + speech(300) + quiet(1000))
+    user = await h.wait_for("user")
+    assert user["text"] == Q
+    await h.wait_for("agent_text", text="Ten thousand rupees.")
+    metrics = await h.wait_for("turn_metrics")
+    assert metrics["voice_to_voice_ms"] >= 0 and "stt_ms" in metrics
+    assert len(h.audio) > 0
+    await h.close()
+
+
+async def test_short_clicks_are_not_speech():
+    h = await Harness().start()
+    await h.feed(quiet(200) + speech(300, 100) + quiet(500) + speech(300, 120) + quiet(1000))
+    await asyncio.sleep(0.3)
+    assert "speech_started" not in h.types() and not h.brain.questions
+    await h.close()
+
+
+async def test_noise_that_passes_vad_is_ignored_after_stt():
+    h = await Harness().start()
+    await h.feed(quiet(200) + speech(900, 500) + quiet(1000))
+    await h.wait_for("speech_ignored")
+    await asyncio.sleep(0.2)
+    assert not h.brain.questions
+    await h.close()
+
+
+async def test_slow_speaker_pause_after_and_is_one_turn():
+    h = await Harness().start()
+    # "I want to know about FD rates and ..." (pause 900 ms, longer than the normal 700 ms end) "... for senior citizens too"
+    await h.feed(quiet(200) + speech(1100, 700) + quiet(900), realtime=True)
+    await h.feed(speech(1300, 1200) + quiet(1600), realtime=True)  # this caller pauses a lot: they get a longer window
+    await h.wait_for("user")
+    await asyncio.sleep(0.3)
+    assert h.brain.questions == ["I want to know about FD rates and for senior citizens too"]
+    await h.close()
+
+
+async def _agent_talking(h: Harness):
+    """Ask the question that has a long answer and wait until the agent is audibly speaking."""
+    await h.feed(quiet(200) + speech(300) + quiet(1000))
+    await h.wait_for("agent_text")
+    for _ in range(200):
+        if len(h.audio) > 3200:
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("agent never started speaking")
+
+
+async def test_real_barge_in_stops_agent_and_takes_new_question():
+    brain = StubBrain(answers={Q: [LONG_ANSWER]})
+    h = await Harness(brain).start()
+    await _agent_talking(h)
+    await h.feed(speech(700, 600) + quiet(1000))
+    check = await h.wait_for("barge_in_check")
+    assert check["verdict"] == "interrupt"
+    await h.wait_for("clear")
+    second = [e for e in h.events if e["type"] == "user"]
+    for _ in range(300):
+        second = [e for e in h.events if e["type"] == "user"]
+        if len(second) == 2:
+            break
+        await asyncio.sleep(0.01)
+    assert second[-1]["text"] == "ruko, what about senior citizens?"
+    await h.close()
+
+
+@pytest.mark.parametrize("hz,verdict", [(500, "backchannel"), (900, "noise"), (1700, "echo")])
+async def test_false_barge_ins_resume_the_agent(hz, verdict):
+    brain = StubBrain(answers={Q: [LONG_ANSWER]})
+    h = await Harness(brain).start()
+    await _agent_talking(h)
+    await h.feed(speech(hz, 500) + quiet(400))
+    check = await h.wait_for("barge_in_check")
+    assert check["verdict"] == verdict
+    await h.wait_for("turn_metrics", timeout=10)  # the full answer still plays to the end
+    assert "clear" not in h.types()
+    expected_ms = len(LONG_ANSWER.split()) * 100
+    assert len(h.audio) / 2 / RATE * 1000 >= expected_ms * 0.95
+    await h.close()
+
+
+async def test_stop_word_alone_silences_agent_and_listens():
+    brain = StubBrain(answers={Q: [LONG_ANSWER]})
+    h = await Harness(brain).start()
+    await _agent_talking(h)
+    await h.feed(speech(1500, 500) + quiet(800))
+    await h.wait_for("clear")
+    await asyncio.sleep(0.3)
+    assert brain.questions == [Q]  # nothing new was asked
+    await h.close()
+
+
+async def test_correction_while_thinking_merges_with_previous_question():
+    brain = StubBrain(think_s=1.5)
+    h = await Harness(brain).start()
+    await h.feed(quiet(200) + speech(300) + quiet(1000))
+    await h.wait_for("user")
+    await h.feed(speech(700, 600) + quiet(1000))  # caller adds to it before the agent has spoken
+    for _ in range(300):
+        if len(brain.questions) == 2:
+            break
+        await asyncio.sleep(0.01)
+    assert brain.questions[1] == f"{Q} ruko, what about senior citizens?"
+    await h.close()
+
+
+async def test_filler_plays_when_answer_is_slow():
+    h = await Harness(StubBrain(think_s=0.8), filler_after_ms=200).start()
+    await h.feed(quiet(200) + speech(300) + quiet(1000))
+    await h.wait_for("turn_metrics", timeout=8)
+    assert h.tts.spoken[0] == phrase_text("filler", "en")
+    await h.close()
+
+
+async def test_silence_reprompts_then_ends_call():
+    h = await Harness(no_input_s=0.2).start()
+    await h.wait_for("agent_text", phrase="reprompt", timeout=5)
+    end = await h.wait_for("end", timeout=10)
+    assert end["reason"] == "no_input"
+    assert phrase_text("goodbye", "hi") in h.tts.spoken or phrase_text("goodbye", "en") in h.tts.spoken
+
+
+async def test_greeting_plays_and_can_be_interrupted():
+    h = await Harness().start(greet=True)
+    await h.wait_for("agent_text", phrase="greeting")
+    for _ in range(200):
+        if len(h.audio) > 3200:
+            break
+        await asyncio.sleep(0.01)
+    await h.feed(speech(300, 600) + quiet(1000))
+    await h.wait_for("clear")
+    await h.wait_for("user")
+    await h.close()
+
+
+async def test_text_turn_without_audio():
+    h = await Harness().start()
+    await h.session.text_turn(Q)
+    await h.wait_for("agent_text", text="Ten thousand rupees.")
+    await h.close()

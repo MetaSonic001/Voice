@@ -1,0 +1,186 @@
+%% AU SFB Inbound Voice Agent - compressed flow, PRESENTATION version
+%% Based on the hand-edited Excalidraw layout, plus small fixes: greeting + language step, caller ID meaning,
+%% "any time" handoff note instead of a Flow E branch, one "Anything else?" note, clearer Flow D → C link.
+%% The fuller specification version (sub-processes, reason codes, global interrupts) is compressed-flow-agent.mmd.
+
+flowchart TB
+
+  TITLE["<b>AU SFB INBOUND VOICE AGENT</b><br/>Multilingual AI voice banking assistant"]:::title
+
+  %% ═════════════ ① CALL LIFECYCLE ═════════════
+  subgraph LIFE["① CALL LIFECYCLE"]
+    direction LR
+    L1(["Call connects"]):::start
+    L2["Greet, AI +<br/>recording notice,<br/>detect language"]:::step
+    L3["Listen and<br/>understand"]:::step
+    L4["Decide the<br/>next move"]:::step
+    L5["Answer · Act<br/>or Transfer"]:::step
+    L6{"Anything<br/>else?"}:::decision
+    L7["Recap and<br/>close"]:::step
+    L8[("Audit<br/>record")]:::store
+    L1 --> L2 --> L3 --> L4 --> L5 --> L6
+    L6 -->|Yes| L3
+    L6 -->|No| L7 --> L8
+  end
+
+  %% ═════════════ ② SCENARIO GROUPS ═════════════
+  subgraph GROUPS["② SCENARIO GROUPS"]
+    direction LR
+    G1["<b>A · General info</b><br/>Products, rates,<br/>suggestions<br/><i>no verification</i>"]:::grpA
+    G2["<b>B · Personal info</b><br/>Balances, loans, cards,<br/>transactions<br/><i>read-only, auth customer</i>"]:::grpB
+    G3["<b>C · Controlled actions</b><br/>Block, unblock,<br/>card on/off controls<br/><i>auth + confirm, or hand off</i>"]:::grpC
+    G4["<b>D · Issues and fraud</b><br/>Unknown debit, failed txn,<br/>charges<br/><i>protect, then hand off</i>"]:::grpD
+    G5["<b>E · Human transfer</b><br/>Asked, frustrated, sensitive,<br/>low confidence, system down<br/><i>any time, with context</i>"]:::grpE
+    G6["<b>F · New customer</b><br/>No account yet,<br/>wants to open one<br/><i>suggest, then sales</i>"]:::grpF
+    G1 ~~~ G2 ~~~ G3 ~~~ G4 ~~~ G5 ~~~ G6
+  end
+
+  %% ═════════════ ③ COMPLETE CALL FLOW ═════════════
+  subgraph CALL["③ COMPLETE CALL FLOW (all scenarios in one)"]
+    direction LR
+
+    %% ── Start ──
+    K1(["Call starts"]):::start
+    K2{"Caller ID registered?<br/><i>calling phone number vs<br/>registered mobile</i>"}:::decision
+    K3["Registered number<br/><i>lighter check later</i>"]:::step
+    K4["Unknown number<br/><i>general info only,<br/>or full check</i>"]:::step
+    K6["Greet: AI + recording notice<br/><i>detect language</i>"]:::step
+    K5{"What do<br/>they want?"}:::decision
+
+    %% ── Auth ──
+    AUTH{"Auth customer<br/><i>via KYC: DOB + address</i>"}:::decision
+    SEC["Failed 3×: security event<br/><i>general help or human</i>"]:::bad
+    TYPE{"Info, action<br/>or issue?"}:::decision
+
+    %% ── Flow A ──
+    A1{"About my<br/>own account?"}:::fa
+    A2{"In approved<br/>knowledge?"}:::fa
+    A4["Short answer<br/>+ offer next step"]:::good
+    A5["Say not available<br/><i>offer transfer or callback</i>"]:::bad
+
+    %% ── Flow B ──
+    B3{"Data<br/>exists?"}:::fb
+    B4["Fetch + calculate in code<br/><i>speak masked result</i>"]:::good
+    B5["Say what is and isn't visible<br/><i>offer request or transfer</i>"]:::bad
+
+    %% ── Flow C ──
+    C1{"Allowed on<br/>this call?"}:::fc
+    C2["Explain and route<br/><i>e.g. break FD, pay bill</i>"]:::bad
+    C3["Identify card +<br/>read current state"]:::fc
+    C4{"Can the agent<br/>do this change?"}:::fc
+    C5["Read back the change,<br/>ask for a clear yes<br/><i>warn if permanent change</i>"]:::fc
+    C6{"Clear<br/>yes?"}:::fc
+    C7["Pause, answer,<br/>re-confirm or cancel"]:::fc
+    C8["Perform action"]:::fc
+    C9{"Result<br/>verified?"}:::fc
+    C10["Read back +<br/>reference + SMS"]:::good
+    C11["Never claim success<br/><i>escalate and log</i>"]:::bad
+
+    %% ── Flow D ──
+    D1{"Fraud<br/>risk?"}:::fd
+    D2{"Block the<br/>card now?"}:::fd
+    D4["Tell what we found,<br/>or that it isn't visible"]:::fd
+    D5["Log complaint<br/>(ticket ID) or transfer"]:::good
+
+    %% ── Flow F ──
+    F1["Understand the need,<br/>suggest 2–3 products<br/><i>from approved KB</i>"]:::ff
+    F2{"Next<br/>step?"}:::ff
+    F3["Callback request<br/><i>name + number, with consent<br/>log as lead</i>"]:::good
+    F4["How to open<br/><i>video KYC, app, branch</i>"]:::good
+
+    %% ── Human transfer ──
+    INT["⚡ <b>Any time in the call</b><br/><i>asks for a human · frustrated ·<br/>sensitive · low confidence ·<br/>system down</i>"]:::fe
+    H1["Build handoff note<br/><i>verified?, language, intent,<br/>what was done, why</i>"]:::fe
+    H2{"Human<br/>available?"}:::fe
+    H3["Route to team<br/><i>Cards · Fraud · Loans ·<br/>Deposits · Sales · General</i>"]:::team
+    H4["Callback or ticket<br/><i>expected time, logged</i>"]:::bad
+
+    %% ── End ──
+    NEXT["<b>After every outcome: Anything else?</b><br/>Yes → back to <i>What do they want?</i><br/>No → recap + close · audit record"]:::store
+
+    %% Start
+    K1 --> K2
+    K2 -->|Yes| K3
+    K2 -->|No| K4
+    K3 --> K6
+    K4 --> K6
+    K6 --> K5
+
+    %% A
+    K5 -->|"Flow A · general question"| A1
+    A1 -->|Yes| AUTH
+    A1 -->|No| A2
+    A2 -->|Yes| A4
+    A2 -->|No| A5
+
+    %% F
+    K5 -->|"Flow F · wants to open an account"| F1
+    F1 --> F2
+    F2 -->|Talk to someone| H1
+    F2 -->|Call me later| F3
+    F2 -->|Do it myself| F4
+
+    %% Auth → B / C / D
+    K5 -->|"Personal info, action to<br/>perform or facing issue"| AUTH
+    AUTH -->|Pass| TYPE
+    AUTH -->|No account| F1
+    AUTH -->|Fails 3×| SEC
+
+    %% B
+    TYPE -->|"Flow B · info only"| B3
+    B3 -->|Yes| B4
+    B3 -->|No| B5
+
+    %% C
+    TYPE -->|"Flow C · action"| C1
+    C1 -->|No| C2
+    C1 -->|Yes| C3 --> C4
+    C4 -->|"No, needs a person"| H1
+    C4 -->|Yes| C5 --> C6
+    C6 -->|"No / unsure / interrupted"| C7
+    C6 -->|Yes| C8 --> C9
+    C9 -->|Yes| C10
+    C9 -->|"No / unknown"| C11
+
+    %% D
+    TYPE -->|"Flow D · issue raised"| D1
+    D1 -->|Yes| D2
+    D2 -->|"Block → same confirm<br/>steps as C"| C4
+    D2 -->|"Straight to fraud team"| H1
+    D1 -->|No| D4 --> D5
+
+    %% Human transfer
+    INT --> H1
+    H1 --> H2
+    H2 -->|Yes| H3
+    H2 -->|No| H4
+
+    %% Placement only (invisible): keep the "any time" note beside the handoff, and the end note at the far right
+    C8 ~~~ INT
+    H3 ~~~ NEXT
+  end
+
+  TITLE --> LIFE --> GROUPS --> CALL
+
+  %% ═════════════ STYLES ═════════════
+  classDef title fill:#5B2A86,stroke:#5B2A86,color:#ffffff,font-size:20px
+  classDef start fill:#5B2A86,stroke:#5B2A86,color:#ffffff
+  classDef step fill:#ffffff,stroke:#888888,color:#222222
+  classDef decision fill:#FFF1E0,stroke:#E08A1E,color:#222222
+  classDef store fill:#EDE4F7,stroke:#5B2A86,color:#2a1440
+  classDef good fill:#E3F5E8,stroke:#2E9B57,color:#123d22
+  classDef bad fill:#FDE8E8,stroke:#C94141,color:#4a1010
+  classDef team fill:#E8F0FD,stroke:#3B6FD1,color:#10264d
+  classDef grpA fill:#E8F0FD,stroke:#3B6FD1,color:#10264d
+  classDef grpB fill:#E3F5E8,stroke:#2E9B57,color:#123d22
+  classDef grpC fill:#FFF1E0,stroke:#E08A1E,color:#4a2a00
+  classDef grpD fill:#FDE8E8,stroke:#C94141,color:#4a1010
+  classDef grpE fill:#F2E8FD,stroke:#7B4FC0,color:#2a1440
+  classDef grpF fill:#E6F6F4,stroke:#1F9A8A,color:#0e3d37
+  classDef fa fill:#ffffff,stroke:#3B6FD1,stroke-width:2px,color:#10264d
+  classDef fb fill:#ffffff,stroke:#2E9B57,stroke-width:2px,color:#123d22
+  classDef fc fill:#ffffff,stroke:#E08A1E,stroke-width:2px,color:#4a2a00
+  classDef fd fill:#ffffff,stroke:#C94141,stroke-width:2px,color:#4a1010
+  classDef fe fill:#F2E8FD,stroke:#7B4FC0,stroke-width:2px,color:#2a1440
+  classDef ff fill:#ffffff,stroke:#1F9A8A,stroke-width:2px,color:#0e3d37
+  style CALL fill:#FCFCFE,stroke:#5B2A86,stroke-width:2px
