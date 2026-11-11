@@ -17,6 +17,7 @@ from app.db import Database
 from app.logs import log
 from app.ports import Embedder, FileStore
 from app.services.chunking import chunk_blocks, content_hash
+from app.services.guard import instruction_like
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +141,10 @@ class DocumentService:
             drafts = chunk_blocks(parsed.blocks, v["title"], self.settings.chunk_target_words, self.settings.chunk_max_words)
             if not drafts:
                 raise DocumentError("no text could be extracted from this file")
+            flagged = [d.section_path for d in drafts if instruction_like(d.text)]
+            report["instruction_like_passages"] = len(flagged)
+            if flagged:  # kept out of answers by services/kbmeta.select_sources; shown on the KB page for a person to review
+                logger.warning("document text looks like instructions to the assistant", extra={"data": {"count": len(flagged)}})
             t = time.perf_counter()
             vectors = self.embedder.embed([d.embed_text for d in drafts])
             report["embed_ms"] = round((time.perf_counter() - t) * 1000)
@@ -165,8 +170,9 @@ class DocumentService:
                 conn.execute("UPDATE document_versions SET status = 'superseded' WHERE id = %s", (doc["current_version_id"],))
             conn.execute("UPDATE document_versions SET status = 'indexed', report = %s, indexed_at = now() WHERE id = %s",
                          (json.dumps(report), version_id))
-            conn.execute("UPDATE documents SET current_version_id = %s, updated_at = now() WHERE id = %s",
-                         (version_id, v["document_id"]))
+            conn.execute("UPDATE documents SET current_version_id = %s, updated_at = now(), "
+                         "tags = CASE WHEN %s THEN tags || '{\"instruction_flag\": true}'::jsonb ELSE tags - 'instruction_flag' END "
+                         "WHERE id = %s", (version_id, report.get("instruction_like_passages", 0) > 0, v["document_id"]))
             self._refresh_active(conn, str(v["document_id"]))
         log(logger, "version indexed", version_id=version_id, **{k: report[k] for k in ("chunks", "total_ms") if k in report})
         return report
@@ -214,7 +220,7 @@ class DocumentService:
     def list_documents(self, include_deleted: bool = False) -> list[dict]:
         with self.db.connection() as conn:
             return conn.execute(
-                "SELECT d.id, d.title, d.category, d.purpose, d.enabled, d.deleted_at, d.created_at, d.updated_at, "
+                "SELECT d.id, d.title, d.category, d.purpose, d.enabled, d.deleted_at, d.created_at, d.updated_at, d.tags, "
                 "v.version_no AS current_version, v.file_type, v.filename, v.effective_from, v.options, "
                 "(SELECT count(*) FROM chunks c WHERE c.version_id = d.current_version_id) AS chunks, "
                 "(SELECT status FROM document_versions lv WHERE lv.document_id = d.id ORDER BY version_no DESC LIMIT 1) AS latest_status "
@@ -238,9 +244,13 @@ class DocumentService:
 
     # ---------- changes ----------
 
-    def update(self, doc_id: str, *, title=None, category=None, enabled=None, effective_from=None) -> dict:
+    def update(self, doc_id: str, *, title=None, category=None, enabled=None, effective_from=None, tags=None) -> dict:
         doc = self._doc(doc_id)
         with self.db.connection() as conn, conn.transaction():
+            if tags is not None:  # a person's correction of the document's type / authority / dates (merged, "" clears a key)
+                merged = {**(doc["tags"] or {}), **tags}
+                conn.execute("UPDATE documents SET tags = %s WHERE id = %s",
+                             (json.dumps({k: v for k, v in merged.items() if v not in ("", None)}), doc_id))
             conn.execute("UPDATE documents SET title = coalesce(%s, title), category = coalesce(%s, category), "
                          "enabled = coalesce(%s, enabled), updated_at = now() WHERE id = %s", (title, category, enabled, doc_id))
             if effective_from is not None and doc["current_version_id"]:

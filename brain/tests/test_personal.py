@@ -4,7 +4,7 @@ import json
 import re
 from datetime import date
 
-from app.domain import Account, Customer, Transaction
+from app.domain import Account, Customer, FixedDeposit, Transaction
 from app.services.personal import PersonalQuery, answer, money
 
 ANJALI = "7107420369"  # dummy data: two Digital accounts (0001, 0002), FD, loan, cards
@@ -65,17 +65,18 @@ def test_unknown_number_must_give_registered_mobile(client):
 
 def _customer() -> Customer:
     salary = Account("10020030009", "Value", 52000.5, [Transaction(date(2026, 12, 1), "Salary Credit", "Credit", 45000),
-                                                       Transaction(date(2026, 11, 3), "UPI Transfer", "Debit", 799)])
+                                                       Transaction(date(2026, 11, 3), "UPI Transfer", "Debit", 799)],
+                     is_salary=True)
     other = Account("10020030010", "Digital", 1250, [Transaction(date(2026, 12, 30), "UPI Transfer", "Debit", 300)])
     return Customer("CIF1", "Test", "9999999999", [salary, other])
 
 
-def test_account_choice_salary_inference_and_indian_grouping():
+def test_account_choice_salary_account_and_indian_grouping():
     c, today = _customer(), date(2026, 12, 31)
     ask = answer(c, PersonalQuery("balance"), "en", today)
     assert ask.outcome == "clarify" and "Value ending 0009" in ask.sentences[0]
     salary = answer(c, PersonalQuery("balance", account="salary"), "hinglish", today)
-    assert salary.sentences == ["Aapke Value savings account (ending 0009) mein ₹52,000.50 balance hai."]
+    assert salary.sentences == ["Aapke Value account (ending 0009) mein ₹52,000.50 hain."]
     assert money(1234567) == "12,34,567"
 
 
@@ -84,10 +85,10 @@ def test_transaction_filters_search_all_accounts_and_say_what_is_not_visible():
     upi = answer(c, PersonalQuery("transactions", keyword="upi", total=True), "en", today)
     assert "₹799" in upi.sentences[0] and "₹300" in upi.sentences[1]  # both accounts, no "which account?"
     rajesh = answer(c, PersonalQuery("transactions", direction="credit", keyword="rajesh"), "en", today)
-    assert any("not the names" in s for s in rajesh.sentences)
-    renew = answer(Customer("C", "T", "1", [c.accounts[0]], fd={"balance": 1e5, "rate": "7%", "maturity": date(2027, 1, 1)}),
-                   PersonalQuery("fd", keyword="renew"), "en", today)
-    assert "matures on 1 Jan 2027" in renew.sentences[0] and "can't see that detail" in renew.sentences[-1]
+    assert rajesh.sentences == ["I don't see a matching transaction on the account ending 0009 / 0010."]
+    fd = FixedDeposit("70000057824", 100000, 7.0, date(2026, 1, 1), 12, date(2027, 1, 1), 107186, "cumulative", False, "active")
+    renew = answer(Customer("C", "T", "1", [c.accounts[0]], fds=[fd]), PersonalQuery("fd", detail="auto_renew"), "en", today)
+    assert renew.sentences == ["No, your FD ending 7824 won't renew on its own; the money goes to your savings account on maturity."]
 
 
 def test_which_account_reply_keeps_the_question(client):

@@ -13,7 +13,7 @@ RATE = 16000
 
 @pytest.fixture(scope="module")
 def kb(client, container):
-    r = client.post("/v1/documents", files={"file": ("voice-kb.md", KB_V1.replace(b"AU Test", b"AU Voice Test"))})
+    r = client.post("/v1/documents", files={"file": ("voice-kb.md", KB_V1.replace(b"AU Test", b"AU Voice Test").replace(b"Savings Account", b"Voice Account"))})
     assert r.status_code == 201
     container.worker.run_pending()
     return r.json()

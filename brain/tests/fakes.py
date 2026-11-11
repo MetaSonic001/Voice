@@ -4,7 +4,6 @@ import hashlib
 import math
 import re
 
-from app.domain import Understanding
 
 _WORD = re.compile(r"[a-z0-9]+")
 
@@ -44,30 +43,80 @@ class FakeLLM:
     """Understanding: keyword rules. Answer: first line of context source [1] that shares words with the question."""
 
     async def json(self, model, system, user, schema, max_tokens=400):
+        """Understanding v2 by keyword rules. " and then " (or "; ") splits a turn into separate requests."""
         question = user.rsplit("Caller:", 1)[-1].strip()
-        q = question.lower()
-        intent = "general"
-        if re.search(r"\b(my|mera|meri|mere)\b", q) and re.search(r"balance|transaction|emi|outstanding|statement", q):
-            intent = "personal"
-        elif re.search(r"\bblock\b", q):
-            intent = "action"
-        elif re.search(r"\b(human|executive|agent)\b", q):
-            intent = "human"
-        elif q.strip(" !.?") in ("hi", "hello", "thanks", "thank you", "namaste"):
-            intent = "smalltalk"
+        if "Conversation so far" in user and False:  # (history is not used by the fake)
+            pass
+        pending = "The assistant just asked:" in user
+        parts = [p.strip() for p in re.split(r"\band then\b|;", question) if p.strip()] or [question]
+        requests = [self._request(p) for p in parts[:3]]
+        first = parts[0].lower()
+        risk = []
+        if re.search(r"don't recogni[sz]e|didn't make|did not make", first):
+            risk.append("unrecognised_debit")
+        if re.search(r"stolen|lost my card|card is lost", first):
+            risk.append("lost_card")
+        reply = "none"
+        if pending:
+            reply = "decline" if re.match(r"\s*(no|nahi)\b", first) else "accept" if re.match(r"\s*(yes|haan)\b", first) else "none"
+            if reply == "none" and requests[0]["kind"] == "general" and "?" not in question:
+                reply = "answer"  # a statement after our question answers it ("about 30,000, mostly shopping")
         lang = "hi" if re.search(r"[ऀ-ॿ]", question) else "en"
+        data = {"language": lang, "requests": requests, "risk": risk, "reply_to_pending": reply,
+                "search_query_en": question, "facts": {"senior_citizen": "unknown", "product": "", "tenure": "", "amount": "",
+                                                       "account": ""},
+                "department": "credit_cards" if "credit" in first else "payments" if requests[0]["kind"] == "issue" else "general"}
+        return data, {"model": model, "latency_ms": 1, "prompt_tokens": 0, "completion_tokens": 0, "retries": 0}
+
+    @staticmethod
+    def _request(question: str) -> dict:
+        q = question.lower()
+        kind = "general"
+        if re.search(r"connect me|fraud team", q) and not re.search(r"stolen|don't recognise", q):
+            kind = "human"
+        elif re.search(r"don't recognise|didn't make|did not make|stolen|fraud", q):
+            kind = "issue"
+        elif re.search(r"\b(unblock|block|enable|disable|switch on|switch off)\b", q):
+            kind = "action"
+        elif re.search(r"atm did not|charged twice|debited but|money got deducted", q):
+            kind = "issue"
+        elif re.search(r"\b(my|mera|meri|mere)\b", q) and re.search(r"balance|transaction|emi|outstanding|statement", q):
+            kind = "personal"
+        elif re.search(r"\b(human|executive|agent)\b|connect me|fraud team", q):
+            kind = "human"
+        elif q.strip(" !.?") in ("hi", "hello", "thanks", "thank you", "namaste"):
+            kind = "smalltalk"
         topic = next((t for k, t in (("balance", "balance"), ("transaction", "transactions"), ("emi", "loan"),
                                       ("outstanding", "credit_card")) if k in q), "other")
         account = "all" if re.search(r"\b(both|all)\b", q) else (re.search(r"\b(\d{4})\b", q) or [None, ""])[1]
-        personal = {"topic": topic, "account": account, "direction": "any", "period": "", "count": 0, "min_amount": 0,
-                    "keyword": "", "total": False}
-        data = Understanding(lang, intent, question, question, personal).__dict__
-        return data, {"model": model, "latency_ms": 1, "prompt_tokens": 0, "completion_tokens": 0, "retries": 0}
+        amount = next((float(x.replace(",", "")) for x in re.findall(r"\b\d[\d,]{2,}\b", q) if len(x.replace(",", "")) != 4
+                       or x.startswith(("8", "1"))), 0)
+        last4 = (re.search(r"\bending (\d{4})\b", q) or [None, ""])[1]
+        card = "credit" if "credit" in q else "debit" if "debit" in q else ""
+        count = int((re.search(r"\blast (\d{1,2})\b", q) or [None, 0])[1])
+        if count:
+            amount = 0
+        personal = {"topic": topic, "detail": "", "account": account, "item": "", "card": card, "direction": "any",
+                    "period": "", "count": count, "min_amount": 0, "amount": amount, "keyword": "", "total": False}
+        action = {"type": "unblock" if "unblock" in q else "block" if "block" in q else
+                  "controls" if re.search(r"enable|disable|switch", q) else "none",
+                  "card": card, "card_last4": last4,
+                  "block": "permanent" if "permanent" in q else "temporary" if "temporar" in q else "",
+                  "atm": "", "pos": "", "ecom": "on" if "enable online" in q else "off" if "disable online" in q else "",
+                  "contactless": "", "international": ""}
+        issue = "atm_cash_not_dispensed" if "atm" in q else "double_charge" if "twice" in q else             "payment_failed_debited" if re.search(r"debited but|money got deducted", q) else "none"
+        product = ("fd" if re.search(r"\bfd\b|fixed deposit", q) else "credit_card" if "credit card" in q
+                   else "savings_account" if "savings" in q else "")
+        goal = "choose" if re.search(r"interested in|which .* suits?|help me (choose|pick)", q) else "info"
+        own_check = product == "fd" and bool(re.search(r"before maturity|break", q))
+        return {"kind": kind, "question": question, "personal": personal if kind in ("personal", "action", "issue") else None,
+                "action": action if kind in ("action", "issue") else None, "issue": issue if kind == "issue" else "none",
+                "goal": goal, "product": product, "own_check": own_check}
 
     async def stream(self, model, messages, meta, max_tokens=400):
         user = messages[-1]["content"]
         question = user.rsplit("Question:", 1)[-1].strip()
-        sources = re.findall(r"\[(\d+)\] .*?\n(.*?)(?=\n\[\d+\] |\n\nQuestion:)", user, re.S)
+        sources = re.findall(r"\[(\d+)\] .*?\n(.*?)(?=\n\[\d+\] |\n\n(?:Caller details|Last exchange|What to do|Question):)", user, re.S)
         q = set(_tokens(question))
         answer = "NO_ANSWER"
         for n, body in sources:

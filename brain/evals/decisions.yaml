@@ -1,0 +1,24 @@
+# Answer-decision benchmark: given the retrieved passages, does the agent answer, ask which one, flag a
+# genuine conflict, or decline - correctly? Run with the old and the new answer prompt on identical passages.
+# expect: answer | clarify | conflict | refuse (a list = any is fine). facts: as in the golden set.
+
+- {id: minbal-generic, q: "What is the minimum balance for a savings account?", expect: clarify}
+- {id: minbal-generic-hl, q: "Savings account mein minimum balance kitna rakhna padta hai?", expect: clarify}
+- {id: minbal-generic-hi, q: "सेविंग्स अकाउंट में मिनिमम बैलेंस कितना रखना होता है?", expect: clarify}
+- {id: minbal-digital, q: "What is the minimum balance for the AU Digital savings account?", expect: answer, facts: [["zero", "nil", "no minimum", "0"]]}
+- {id: minbal-platinum, q: "What is the minimum balance for the AU Platinum savings account?", expect: answer, facts: [["25000", "25k"]]}
+- {id: minbal-value, q: "What is the minimum balance for an AU Value savings account?", expect: [answer, clarify], facts: [["10000", "5000"]]}
+- {id: minbal-royale, q: "How much average monthly balance do I need in a Royale account?", expect: answer, facts: [["1 lakh", "100000"]]}
+- {id: fd-generic, q: "What is the FD interest rate?", expect: clarify}
+- {id: fd-senior-3y, q: "What FD rate do senior citizens get for 3 years?", expect: answer, facts: [["7.75"]]}
+- {id: fd-senior-max, q: "What is the highest FD interest rate for senior citizens?", expect: [answer, conflict], facts: [["7.75", "7.90", "7.9"]]}
+- {id: cc-fee-generic, q: "What is the annual fee on an AU credit card?", expect: clarify}
+- {id: cc-fee-zenith, q: "What is the annual fee for the Zenith+ credit card?", expect: answer, facts: [["4999"]]}
+- {id: cc-lounge-generic, q: "How many lounge visits do AU credit cards give?", expect: [clarify, answer]}
+- {id: cc-forex-zenith, q: "What is the forex markup on the Zenith+ card?", expect: answer, facts: [["0.99"]]}
+- {id: pl-foreclose-8m, q: "If I close my AU personal loan after 8 months, what foreclosure charge applies?", expect: answer, facts: [["5%"]]}
+- {id: fd-min, q: "What is the minimum amount to open a fixed deposit?", expect: answer, facts: [["1000"]]}
+- {id: vikaas-limit, q: "What is the monthly credit limit on the Vikaas account?", expect: [conflict, clarify, answer]}
+- {id: first-account, q: "I'm opening my first bank account and cannot maintain a monthly balance. Which account would suit me?", expect: answer, facts: [["BSBDA", "Digital", "Basic"]]}
+- {id: avoid-charge, q: "How can I avoid the minimum balance charge on my savings account?", expect: [answer, clarify]}
+- {id: mars, q: "What is the AU Bank interest rate on a Mars colony deposit?", expect: refuse}

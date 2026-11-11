@@ -37,7 +37,7 @@ async def verify(body: CodeBody, c: Container = Depends(container)):
     reply = None
     pending = auth.pop("pending_question", None)
     if auth["status"] == "verified" and pending:
-        reply = await c.conversation.ask(pending, body.session_id)
+        reply = await c.conversation.ask(pending, body.session_id, {"input": "after_verification_chat"})  # a re-ask, not the caller (typed chat: not a call)
         observe_turn(reply.outcome, reply.language, reply.timings)
     return {"auth": auth, "message": message, "language": language, "reply": asdict(reply) if reply else None}
 

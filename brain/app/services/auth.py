@@ -15,6 +15,7 @@ import hmac
 import json
 import logging
 import secrets
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, UTC
 
@@ -42,9 +43,26 @@ def mask_mobile(mobile: str) -> str:
     return "******" + mobile[-4:]
 
 
+PREFETCH_TTL_S = 8  # a customer read stays valid this long: one turn's calls share it, and a card change drops it
+
+
 class AuthService:
     def __init__(self, db: Database, bank: Bank, settings):
         self.db, self.bank, self.s = db, bank, settings
+        self._customers: dict[str, tuple[float, Customer]] = {}  # session -> (read at, customer)
+
+    def invalidate(self, session_id: str) -> None:
+        """Forget the cached customer read (after a change on their account)."""
+        self._customers.pop(session_id, None)
+
+    def _read_customer(self, session_id: str, cif: str) -> Customer | None:
+        hit = self._customers.get(session_id)
+        if hit and hit[1].cif == cif and time.monotonic() - hit[0] < PREFETCH_TTL_S:
+            return hit[1]
+        customer = self.bank.customer(cif)
+        if customer:
+            self._customers[session_id] = (time.monotonic(), customer)
+        return customer
 
     # ───────── state ─────────
 
@@ -61,13 +79,17 @@ class AuthService:
                 self._event(conn, session_id, "verification_expired", row["customer_id"])
                 return None
             conn.execute("UPDATE sessions SET verified_at = now() WHERE id = %s", (session_id,))  # sliding window
-        return self.bank.customer(row["customer_id"])
+        return self._read_customer(session_id, row["customer_id"])
 
     def status(self, session_id: str) -> dict:
         customer = self.verified_customer(session_id)
         auth = self._auth(session_id)
         return {"verified": customer is not None, "name": customer.name if customer else None,
                 "stage": auth.get("stage"), "masked_mobile": auth.get("masked_mobile")}
+
+    def awaiting_code(self, session_id: str | None) -> bool:
+        """A code was sent and has not been entered, expired or locked out: a lone six-digit input is that code."""
+        return bool(session_id) and self._auth(session_id).get("stage") == "otp_sent"
 
     def awaiting_mobile(self, session_id: str | None) -> bool:
         return bool(session_id) and self._auth(session_id).get("stage") == "need_mobile"
@@ -138,6 +160,7 @@ class AuthService:
         return AuthResult("verified", customer, auth.get("masked_mobile", ""), pending_question=pending)
 
     def end(self, session_id: str) -> None:
+        self.invalidate(session_id)
         with self.db.connection() as conn:
             conn.execute("UPDATE sessions SET customer_id = NULL, verified_at = NULL, auth = '{}' WHERE id = %s",
                          (session_id,))

@@ -100,10 +100,12 @@ class PdfParser:
 
         prefixes = tuple(options.get("product_prefixes") or ())
         blocks: list[Block] = []
+        margin: list[tuple[int, str]] = []  # (index in blocks, normalised text) of lines in the top/bottom margin
         stats = {"pages": 0, "paragraphs": 0, "headings": 0, "tables": 0}
         with pdfplumber.open(path) as pdf:
             stats["pages"] = len(pdf.pages)
             for page in pdf.pages:
+                band = page.height * 0.07  # running headers and footers live in the top/bottom 7% of a page
                 tables = page.find_tables()
                 boxes = [t.bbox for t in tables]
                 items = [(t.bbox[1], t) for t in tables]
@@ -119,23 +121,51 @@ class PdfParser:
                         prev_bottom = None
                         continue
                     text = re.sub(r"\s+", " ", item["text"]).strip()
-                    if not text or re.fullmatch(r"(page\s*)?\d+(\s*(of|/)\s*\d+)?", text, re.I):  # page numbers
+                    if not text or _PAGE_NO.fullmatch(text) or _TOC_LINE.search(text):  # page numbers, contents lines
                         continue
+                    # A line in the top/bottom margin may be a running header/footer: keep it as its own block
+                    # (never merged with body text) so it can be dropped below if it repeats on many pages.
+                    in_margin = item["top"] < band or item["bottom"] > page.height - band
+                    if in_margin:
+                        margin.append((len(blocks), re.sub(r"\d+", "#", text.lower())))
                     chars = item["chars"]
                     bold = sum("bold" in c["fontname"].lower() for c in chars) >= 0.6 * len(chars)
                     size = chars[0]["size"]
                     if looks_like_heading(text, bold, False):
                         blocks.append(Block("heading", text, heading_level(text, prefixes)))
                         stats["headings"] += 1
-                    elif blocks and blocks[-1].kind == "para" and prev_bottom is not None                             and item["top"] - prev_bottom < size * 0.8:  # next line of the same paragraph
+                    elif (not in_margin and blocks and blocks[-1].kind == "para" and prev_bottom is not None
+                          and item["top"] - prev_bottom < size * 0.8):  # next line of the same paragraph
                         blocks[-1].text += " " + text
                     else:
                         blocks.append(Block("para", text))
                         stats["paragraphs"] += 1
-                    prev_bottom = item["bottom"]
+                    prev_bottom = None if in_margin else item["bottom"]
+                page.close()  # free the page's parsed objects: memory stays flat for 500+ page files
+        blocks = _drop_running_lines(blocks, margin, stats)
         if not blocks:
             raise ValueError("no text found in the PDF (scanned image?) - only text PDFs are supported")
         return ParsedDoc(blocks, {"parser": "pdfplumber", **stats})
+
+
+_PAGE_NO = re.compile(r"(page\s*)?\d+(\s*(of|/)\s*\d+)?", re.I)
+_TOC_LINE = re.compile(r"(\.\s?){4,}\s*\d+$")  # "Fixed Deposits ........ 37" (table of contents)
+
+
+def _drop_running_lines(blocks: list[Block], margin: list[tuple[int, str]], stats: dict) -> list[Block]:
+    """Remove running headers/footers: a margin line that repeats on at least half the pages (and 3+ pages) is
+    kept once, where it first appears. In a long document the copies would otherwise sit in hundreds of
+    passages and blur the search."""
+    from collections import Counter
+
+    counts = Counter(key for _, key in margin)
+    repeated = {key for key, n in counts.items() if n >= max(3, stats["pages"] // 2)}
+    first: dict[str, int] = {}
+    for i, key in margin:
+        first.setdefault(key, i)
+    drop = {i for i, key in margin if key in repeated and first[key] != i}  # the first one stays (e.g. the title)
+    stats["running_lines_removed"] = len(drop)
+    return [b for i, b in enumerate(blocks) if i not in drop]
 
 
 def _inside(obj: dict, boxes: list) -> bool:

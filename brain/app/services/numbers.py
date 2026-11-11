@@ -6,6 +6,8 @@ Normalisation makes "1,00,000", "100000", "1 lakh" and "Rs 1L" compare equal, an
 
 import re
 
+from app.services.pronunciation import say
+
 _DEV_DIGITS = str.maketrans("०१२३४५६७८९", "0123456789")
 _NUM = re.compile(r"(?<![\w.])(\d[\d,]*(?:\.\d+)?)(?:\s*(lakh|lakhs|lac|lacs|l|crore|crores|cr|k|thousand|hazaar|hazar|लाख|करोड़|करोड|हज़ार|हजार))?(?![\w])", re.I)
 _MULT = {"lakh": 1e5, "lakhs": 1e5, "lac": 1e5, "lacs": 1e5, "l": 1e5, "crore": 1e7, "crores": 1e7, "cr": 1e7,
@@ -91,12 +93,33 @@ def indian_words(n: int) -> str:
     return " ".join(parts)
 
 
+# ───────── voice-safe text ─────────
+# Answers are spoken: markdown and chat formatting must never reach the screen or the voice ("star star", "dash").
+# Amounts, decimals, percentages, dates, "ending 4521" and citation markers are left alone.
+_MD_LINE_START = re.compile(r"^\s*(?:[-*•▪◦·]+|#{1,6}|>|\d+[.)](?=\s))\s*", re.M)
+_MD_EMPHASIS = re.compile(r"(\*{1,3}|_{2,3}|`+)(?=\S)(.+?)(?<=\S)\1")
+_MD_LEFTOVER = re.compile(r"\*+|`+|#{2,}|(?<!\w)_{2,}|\s[-–—•]\s(?=[A-Z\u0900-\u097F*])")
+_EMOJI = re.compile("[\U0001F300-\U0001FAFF\u2600-\u27BF]")
+
+
+def clean_markup(text: str) -> str:
+    """Plain spoken text: no bullets, headings, bold / italic marks, code ticks or emojis."""
+    text = _MD_EMPHASIS.sub(r"\2", text)
+    text = _MD_LINE_START.sub("", text)
+    text = re.sub(r"([:.;])\s+[-–•*]\s+", r"\1 ", text)  # an inline list after a colon or a full stop
+    text = _MD_LEFTOVER.sub(" ", text)
+    text = _EMOJI.sub("", text)
+    text = re.sub(r"\s+([,.;:?!])", r"\1", text)
+    return re.sub(r"\s+", " ", text).strip(" -–—:")
+
+
 def speech_text(answer: str, language: str) -> str:
     """Text ready for TTS: no citation markers, currency spoken, English numbers as Indian words.
 
     Hindi/Hinglish keep digits (Indian TTS voices read them natively in Hindi).
     """
-    text = re.sub(r"\s*\[\d+\]", "", answer)
+    text = say(clean_markup(re.sub(r"\s*\[\d+\]", "", answer)), language)
+    text = re.sub(r"\s*;\s+", ". ", text)  # a semicolon joins two ideas: spoken, a full stop gives the caller a pause
     text = re.sub(r"\b(Rs\.?|INR)\s*", "₹", text)
     if language != "en":
         return re.sub(r"\s+", " ", text).strip()

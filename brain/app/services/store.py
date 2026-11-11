@@ -1,9 +1,14 @@
 """Sessions and traces (one trace per question)."""
 
 import json
+import re
 import uuid
 
 from app.db import Database
+from app.services.audit import now_utc, turn_hash
+
+
+_AMOUNT = re.compile(r"₹\s?[\d,]+(?:\.\d+)?")
 
 
 class TraceStore:
@@ -34,6 +39,9 @@ class TraceStore:
         for r in rows:
             if r["intent"] == "personal" and r["outcome"] == "answered":
                 r["answer"] = "(account details were given)"
+            elif r["intent"] in ("action", "issue", "fraud", "confirmation"):
+                # keep what was being done (card ending 6712, a complaint) for "that card" / "it"; hide the money
+                r["answer"] = _AMOUNT.sub("₹(amount)", r["answer"])
         return list(reversed(rows))
 
     def facts(self, session_id: str) -> dict:
@@ -44,6 +52,29 @@ class TraceStore:
     def save_facts(self, session_id: str, facts: dict) -> None:
         with self.db.connection() as conn:
             conn.execute("UPDATE sessions SET facts = %s WHERE id = %s", (json.dumps(facts), session_id))
+
+    def pending(self, session_id: str) -> dict | None:
+        """The question the agent is waiting on in this call ("Shall I block card ending 6712?"), if any."""
+        with self.db.connection() as conn:
+            row = conn.execute("SELECT pending FROM sessions WHERE id = %s", (session_id,)).fetchone()
+        return row["pending"] if row else None
+
+    def set_pending(self, session_id: str, pending: dict | None) -> None:
+        with self.db.connection() as conn:
+            conn.execute("UPDATE sessions SET pending = %s WHERE id = %s",
+                         (json.dumps(pending, default=str) if pending else None, session_id))
+
+    def last_answer(self, session_id: str) -> str | None:
+        """What the agent last said in this call, in full (for "can you repeat that")."""
+        with self.db.connection() as conn:
+            row = conn.execute("SELECT answer FROM traces WHERE session_id = %s AND answer <> '' AND outcome NOT IN "
+                               "('error', 'interrupted') ORDER BY created_at DESC LIMIT 1", (session_id,)).fetchone()
+        return row["answer"] if row else None
+
+    def has_event(self, session_id: str, kind: str) -> bool:
+        with self.db.connection() as conn:
+            return conn.execute("SELECT 1 FROM call_events WHERE session_id = %s AND kind = %s LIMIT 1",
+                                (session_id, kind)).fetchone() is not None
 
     def last_language(self, session_id: str) -> str | None:
         with self.db.connection() as conn:
@@ -64,13 +95,25 @@ class TraceStore:
                 "FROM traces WHERE session_id = %s ORDER BY created_at", (session_id,)).fetchall()
         return s
 
-    def save(self, trace: dict) -> None:
-        with self.db.connection() as conn:
+    def save(self, trace: dict) -> str:
+        """Save one turn, chained to the previous turn of the session (see services/audit.py). Returns its hash."""
+        sid = trace.get("session_id")
+        with self.db.connection() as conn, conn.transaction():
+            prev = ""
+            if sid:  # the row lock orders concurrent saves of one session, so the chain has no forks
+                row = conn.execute("SELECT chain_hash FROM sessions WHERE id = %s FOR UPDATE", (sid,)).fetchone()
+                prev = (row or {}).get("chain_hash") or ""
+            created = now_utc()
+            digest = turn_hash(prev, trace, created)
             conn.execute(
-                "INSERT INTO traces (id, session_id, question, language, intent, outcome, answer, total_ms, data) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                (trace["id"], trace.get("session_id"), trace["question"], trace.get("language"), trace.get("intent"),
-                 trace["outcome"], trace["answer"], trace["total_ms"], json.dumps(trace["data"], default=str)))
+                "INSERT INTO traces (id, session_id, created_at, question, language, intent, outcome, answer, total_ms, "
+                "data, prev_hash, hash) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (trace["id"], sid, created, trace["question"], trace.get("language"), trace.get("intent"),
+                 trace["outcome"], trace["answer"], trace["total_ms"], json.dumps(trace["data"], default=str),
+                 prev, digest))
+            if sid:
+                conn.execute("UPDATE sessions SET chain_hash = %s, chain_len = chain_len + 1 WHERE id = %s", (digest, sid))
+        return digest
 
     def add_voice_timings(self, trace_id: str, timings: dict) -> None:
         with self.db.connection() as conn:
@@ -112,7 +155,24 @@ class TraceStore:
                 "SELECT count(*) FILTER (WHERE deleted_at IS NULL) AS documents, "
                 "(SELECT count(*) FROM chunks WHERE active) AS searchable_chunks, "
                 "(SELECT count(*) FROM jobs WHERE status IN ('queued','running')) AS pending_jobs FROM documents").fetchone()
+            stages = conn.execute(
+                "SELECT stage, count(v) AS n, percentile_cont(0.5) WITHIN GROUP (ORDER BY v) AS p50, "
+                "percentile_cont(0.95) WITHIN GROUP (ORDER BY v) AS p95, percentile_cont(0.99) WITHIN GROUP (ORDER BY v) AS p99 "
+                # first_audio_ms counts the "one moment" filler; voice_to_voice_ms is the first audio of the real answer
+                "FROM (SELECT s.stage, (CASE WHEN s.stage IN ('first_audio_ms', 'voice_to_voice_ms') THEN t.data->'voice'->>s.stage "
+                "ELSE t.data->'timings'->>s.stage END)::numeric AS v FROM traces t, "
+                "(VALUES ('first_audio_ms'), ('voice_to_voice_ms'), ('understand_ms'), ('bank_ms'), ('embed_ms'), ('rerank_ms'), ('llm_ttft_ms'), ('total_ms')) AS s(stage) "
+                "WHERE t.created_at > now() - make_interval(hours => %s)) x WHERE v IS NOT NULL GROUP BY stage", (hours,)).fetchall()
+            degraded = conn.execute(
+                "SELECT count(*) FILTER (WHERE coalesce((data->'answer_llm'->>'retries')::int, 0) + "
+                "coalesce((data->'understand_llm'->>'retries')::int, 0) > 0) AS rate_limit_retries, "
+                "count(*) FILTER (WHERE data->'answer_llm' ? 'fallback_for' OR data->'understand_llm' ? 'fallback_for') AS fallback_used, "
+                "count(*) FILTER (WHERE data->'understand_llm'->>'schema_repair' = 'local') AS router_repaired_in_code, "
+                "count(*) FILTER (WHERE data->'understand_llm'->>'schema_repair' = 'retry') AS router_retried "
+                "FROM traces WHERE created_at > now() - make_interval(hours => %s)", (hours,)).fetchone()
         return {"window_hours": hours, "questions": latency["n"], "latency_ms": {"p50": latency["p50"], "p95": latency["p95"]},
+                "stages_ms": {r["stage"]: {"n": r["n"], "p50": r["p50"], "p95": r["p95"], "p99": r["p99"]} for r in stages},
+                "llm_retries_and_fallbacks": degraded,
                 "outcomes": {r["outcome"]: r["n"] for r in outcomes},
                 "feedback": {r["verdict"]: r["n"] for r in feedback}, **docs}
 

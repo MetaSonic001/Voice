@@ -49,8 +49,10 @@ class TransformerEmbedder:
         import torch
 
         out: list[list[float]] = []
-        with self._lock, torch.inference_mode():
-            for i in range(0, len(texts), batch_size):
+        for i in range(0, len(texts), batch_size):
+            # Lock per batch, not per call: while a large document is being indexed, a live caller's query
+            # waits for at most one batch (~0.1 s), not for the whole file.
+            with self._lock, torch.inference_mode():
                 batch = self._tok(texts[i:i + batch_size], padding=True, truncation=True, max_length=self.max_len,
                                   return_tensors="pt").to(self.device)
                 cls = self._net(**batch).last_hidden_state[:, 0].float()

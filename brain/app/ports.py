@@ -82,8 +82,33 @@ class VAD(Protocol):
 
 
 class Bank(Protocol):
-    """Read-only customer data. The Excel adapter stands in for the core-banking API."""
+    """The bank's own systems: customer products (core banking, cards, deposits, loans) and card controls.
+
+    Today: adapters/mock_corebank.py (a mock in its own database schema). Later: the bank's APIs. If different
+    departments expose different APIs (cards, loans...), one adapter can call each of them behind this same
+    interface; nothing above it changes.
+    """
 
     def find_by_mobile(self, mobile: str) -> Customer | None: ...
 
     def customer(self, cif: str) -> Customer | None: ...
+
+    def update_card(self, cif: str, kind: str, card_id: str, changes: dict, action: str, key: str | None = None) -> dict:
+        """Apply `changes` (status / channel flags) to one of this customer's cards. Returns
+        {"reference", "before", "after"} with `after` read back from the system, or raises BankError."""
+        ...
+
+
+class ServiceDesk(Protocol):
+    """Where complaints, disputes, callbacks and new-customer leads are raised (the bank's CRM in production)."""
+
+    def create_ticket(self, *, session_id: str | None, cif: str | None, kind: str, category: str, department: str,
+                      summary: str, detail: dict, tat_days: int) -> dict: ...
+
+
+class BankError(RuntimeError):
+    """The bank system did not complete a request (unavailable, rejected). Never report success after this."""
+
+
+class BankUnconfirmed(BankError):
+    """A write was sent but its outcome could not be confirmed (timeout, lost reply). Never report success OR failure."""

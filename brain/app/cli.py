@@ -8,6 +8,7 @@
   brain status                         documents, jobs and recent stats
   brain say "text" [--lang hi] -o F    synthesize test audio (WAV) with the configured TTS
   brain voice FILE [--out reply.wav]   stream an audio file through the live call (WebSocket) in real time
+  brain clean-slate [--yes]            delete every recorded call, ticket and handoff; re-seed the mock bank (KB kept)
 """
 
 import argparse
@@ -178,6 +179,26 @@ def voice(args) -> None:
     asyncio.run(run())
 
 
+def clean_slate(args) -> None:
+    """Works on the database directly (a running brain keeps working: it re-seeds the mock bank on its next start)."""
+    from app.config import get_settings
+    from app.db import Database
+    from app.services import maintenance
+
+    settings = get_settings()
+    db = Database(settings.database_url, settings.data_dir)
+    try:
+        print("This will delete:")
+        for name, count in maintenance.preview(db).items():
+            print(f"  {name:20} {count}")
+        print("The knowledge base and eval history are kept. This cannot be undone.")
+        if not args.yes and input("Type DELETE to continue: ").strip() != "DELETE":
+            sys.exit("cancelled")
+        print(json.dumps(maintenance.clean_slate(db, settings.data_dir, confirm=True)))
+    finally:
+        db.close()
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="brain", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd")
@@ -215,6 +236,9 @@ def main() -> None:
     s.add_argument("--timeout", type=float, default=20.0)
     s.add_argument("--out", help="save the agent's audio as WAV")
     s.set_defaults(fn=voice)
+    s = sub.add_parser("clean-slate")
+    s.add_argument("--yes", action="store_true", help="do not ask for the DELETE confirmation")
+    s.set_defaults(fn=clean_slate)
     args = p.parse_args()
     if args.cmd is None:  # `python -m app` with no command = start the API
         args = p.parse_args(["serve"])

@@ -58,6 +58,7 @@ class DocumentPatch(BaseModel):
     category: str | None = None
     enabled: bool | None = None
     effective_from: date | None = None
+    tags: dict | None = None  # doc_type, authority, effective_to, superseded_by (merged; "" clears a key)
 
 
 @router.patch("/documents/{doc_id}", dependencies=[Depends(require_key)])

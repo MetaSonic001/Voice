@@ -16,7 +16,7 @@ RRF_K = 60
 
 _HIT_COLUMNS = (
     "c.id AS chunk_id, c.text, c.section_path, d.id AS document_id, d.title AS document_title, "
-    "v.id AS version_id, v.version_no, v.effective_from"
+    "v.id AS version_id, v.version_no, v.effective_from, d.category AS doc_category, d.tags AS doc_tags"
 )
 _JOIN = "FROM chunks c JOIN document_versions v ON v.id = c.version_id JOIN documents d ON d.id = v.document_id"
 
@@ -37,9 +37,20 @@ def rrf_fuse(dense: list[Hit], keyword: list[Hit]) -> list[Hit]:
 class Retriever:
     def __init__(self, db: Database, embedder: Embedder, reranker: Reranker, settings):
         self.db, self.embedder, self.reranker, self.s = db, embedder, reranker, settings
+        self._last_used = time.monotonic()
 
     def embed(self, text: str) -> list[float]:
+        self._last_used = time.monotonic()
         return self.embedder.embed_query(text)
+
+    def warm(self) -> None:
+        """A GPU that has been idle for ~10 s clocks down and its next run takes ~1 s instead of ~50 ms. Run while
+        the question is being understood (an LLM call of ~1 s), this moves that wake-up off the caller's wait."""
+        if time.monotonic() - self._last_used < 8:
+            return
+        self._last_used = time.monotonic()
+        self.embedder.embed_query("warm up")
+        self.reranker.score("warm up", ["warm up"])
 
     def dense(self, vector: list[float], k: int) -> list[Hit]:
         dim = self.embedder.dim
@@ -109,6 +120,8 @@ def _hit(row: dict) -> dict:
         "version_id": str(row["version_id"]),
         "version_no": row["version_no"],
         "effective_from": row["effective_from"].isoformat() if row["effective_from"] else None,
+        "doc_category": row["doc_category"],
+        "doc_tags": row["doc_tags"] or {},
     }
 
 

@@ -49,9 +49,10 @@ async def test_supported_numbers_are_released_sentence_by_sentence(convo):
 async def test_invented_number_stops_the_answer(convo):
     spoken, reply = await _run(convo("The annual fee is Rs 4,999 [1]. It is waived on Rs 3 lakh spend [1]."),
                                "annual fee rules card fees")
-    assert reply.outcome == "refused" and reply.reason == "figure_check_failed"
+    # What was checked stands; the unchecked rest is never said or guessed, and no transfer is pushed on the caller.
+    assert reply.outcome == "answered" and reply.reason == "partial_figure_check_failed"
     assert spoken[0].startswith("The annual fee is Rs 4,999") and "3 lakh" not in " ".join(spoken)
-    assert "can't confirm the rest" in spoken[-1]
+    assert "rather not guess" in spoken[-1] and "connect" not in spoken[-1]
 
 
 async def test_no_answer_and_clarify(convo):

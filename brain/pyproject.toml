@@ -25,6 +25,7 @@ dependencies = [
     "numpy>=2.0",
     "psutil>=6.0",
     "websockets>=13",
+    "cryptography>=44",  # recordings encrypted at rest (AES-256-GCM); PyCA, already installed with pdfplumber
 ]
 
 [project.scripts]

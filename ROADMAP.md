@@ -32,6 +32,25 @@ For how the project works today, see [PROJECT-GUIDE.md](PROJECT-GUIDE.md).
 | 12 | Cisco telephony | Two routes: Webex Contact Center "Bring Your Own Virtual Agent" (gRPC), or Cisco CUBE SIP trunk to a media gateway we run. Ask which Cisco product the bank has. | Cisco |
 | 13 | Missing pieces for a bank | AI disclosure and recording notice at call start, retention and deletion policy, tamper-evident audit, roles and access control for the console, red-team tests, model and prompt change control, DPDP consent notice. | Now → Bank |
 
+**Status (5 Nov 2026), done:**
+- 1 mid-sentence silence (volume dip);
+- 3 speed (+10%);
+- 4 barge-in Phase A (A1–A4; the A5 measurement set is not built);
+- 5 large PDFs (page-by-page memory, running headers/footers and contents lines removed, 100 MB uploads, and a live question no longer waits for a whole document's embedding);
+- 7 call record with reasons, grounding level, transcript and PDF;
+- 8 recording (browser calls and voice notes, encrypted);
+- 9 alerts (wants a person, struggling, system health);
+- 10 call audit page (shadcn/ui across all pages);
+- 11 transcript log lines;
+- 4.6 tamper evidence;
+- 13 opening disclosure.
+
+**Voice (2):** Edge's more natural voices (Neerja Expressive, the Multilingual ones) take 3–5 s to start speaking against ~1 s for Neerja, so Neerja stays for development. The natural-voice upgrade is Sarvam Bulbul in production.
+
+**Also fixed:** the laptop GPU sleeping between questions (~1 s) is now woken while the question is being understood.
+
+**Not done:** page numbers on passages (P2), progress bar (P5), document-level ranking (P7), neighbour passages (P8), OCR (P9), Phases B/C, Cisco.
+
 ---
 
 ## 1. Voice gaps

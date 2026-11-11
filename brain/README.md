@@ -177,11 +177,110 @@ Example `brain voice` output:
 You can record your own question (phone voice memo; wav/mp3/m4a/ogg all work) and pass it to `brain voice`.
 Try it slow with pauses, fast, in Hinglish, with background noise, or by talking over the agent.
 
-### 8. Tests
+### 8. Call audit (recordings, transcripts, reasons, alerts)
+Every conversation (typed, voice notes, live calls) is saved as a **call record**. Open **Call audit** in the UI:
+- the call list (search by words, number or call id) and, per call, the recording, the conversation with **why the
+  agent said each reply** (what it understood, the source and page match, the figure checks, the grounding level),
+  verification steps, interruptions, alerts and the audit trail; **Transcript** downloads the record as text and
+  **Save as PDF** prints it.
+- **Recordings:** live calls are stereo (caller left, agent right), voice notes are the question followed by the
+  spoken reply. Opus, encrypted on disk with AES-256-GCM (`RECORDING_KEY`; a local key file in dev), hash-checked on
+  playback, deleted after `RECORDING_RETENTION_DAYS`. Keypad codes are typed, so they are never in a recording.
+- **Tamper evidence:** each turn stores SHA-256(previous turn's hash + this turn); the call shows **Record intact** or
+  **Record altered** (which turn, and whether it was changed or removed).
+- **Grounding level** per answer: high / medium / low from the best cited source's reranker score (≥ 0.5 / ≥ 0.15),
+  the figure checks and how clearly the caller was heard. A label for reviewers and alerts: it never changes an answer.
+- **Opening disclosure:** every live call starts with "This is AU Small Finance Bank's virtual assistant. This call is
+  recorded for quality and security." (English or Hindi), and the call record shows when it was played.
+- **Transcripts in the log:** one masked line per caller and agent turn (logger `app.transcript`, with the turn hash).
+  Account figures never go to the log: the line says which fields were given.
+- **Live alerts** (toast in every page, with a link to the call): the caller asks for a person; the agent is
+  struggling (2 unanswered or 3 weakly grounded replies in a call); system health (2+ LLM/STT/TTS errors in 5 minutes).
+- API: `GET /v1/calls`, `GET /v1/calls/{id}`, `GET /v1/calls/{id}/transcript.txt`, `GET /v1/calls/{id}/recordings/{rid}`,
+  `GET /v1/alerts?after=`. They need `X-API-Key` when `API_KEY` is set.
+
+### 9. Phase 3: actions, fraud, complaints, transfers to a person
+The same AI agent handles every call; what changes is what it may do and who it hands over to.
+- **Mock core banking** (`adapters/mock_corebank.py`, schema `corebank`): the bank's systems, simulated. Seeded once,
+  deterministically, from the workbook (never modified) plus synthetic extensions the sample questions need (branch
+  type, salary flag, holds, average balance, charges, merchants and status on transactions, several FDs and loans, EMI
+  history, two credit cards, card controls) and 7 demo customers built around the sample questions (the test console
+  shows each one's story). The agent reaches it only through the `Bank` port, so real bank APIs - one per department
+  if needed - replace this adapter without touching anything else. `MOCK_BANK_FAIL=card_update` demos "system down".
+- **Routing**: the one understanding call also returns `action` (block / unblock / channel controls / other, which
+  card), `issue` (ATM cash, failed payment, double charge, charge review...), `department` and an exact `detail`
+  (minimum balance, auto-renew, foreclosure, lounge...). Code decides what follows; the LLM only classifies.
+- **Answer decisions**: answer; `CLARIFY:` with the range when the figure depends on something unsaid (account type,
+  card, tenure) - "from zero for Digital up to ₹1 lakh for Royale; which account do you have?"; `CONFLICT` when two
+  approved figures disagree for exactly the same thing (offer a specialist, never pick one); `NO_ANSWER`.
+- **Card actions the agent may do itself** (verified caller, explicit yes, state read back, reference number): block
+  temporarily or permanently, unblock a temporary block, switch debit-card channels (ATM / shops / online /
+  tap-to-pay / international), credit card international on/off. **Routed to people instead**: closing an FD, paying
+  bills, limits, replacement cards, changing mobile / address, fee reversals, refunds.
+- **Yes / no is read in code** (`services/confirm.py`, en / hi / Hinglish): "haan kar do" = yes, "mat karo" = no,
+  "wait, which card?" = a question (the agent explains and asks again). No LLM call for these turns.
+- **Fraud**: empathy, verify, block first (permanently for a stolen card or unrecognised spend, temporarily if the
+  caller isn't sure), then offer a dispute ticket and the Fraud & Risk team (priority 1, 24x7).
+- **Complaints**: finds the transaction, says what the bank's record shows (e.g. "the ATM recorded the cash wasn't
+  dispensed; it comes back automatically by 4 Jan, and you get ₹100 a day if it's late"), then offers a ticket with the
+  team and the date they'll reply by.
+- **Transfers**: the agent asks first ("Shall I connect you to our cards team?"); on a clear yes the call goes on hold
+  (music, "thank you for waiting" every 30 s) and appears on the **agent desk** (`/desk`) with a brief built from the
+  record: verified or not, what was asked, what was already done, why. A person accepts: in a live call their
+  microphone is bridged to the caller (and recorded); in a chat they type. Nobody within `HANDOFF_WAIT_S`, or out of
+  `DESK_HOURS` -> a callback ticket. Ten teams (`services/desk.py`): Fraud & Risk, Credit Cards, Debit Cards,
+  Payments & Disputes, Loans, Accounts & Deposits, Digital Banking, New Accounts & Sales, Priority Banking, Customer Care.
+- **New customers**: answered from the KB, then offered a callback to help open the account (a lead ticket).
+- **Policy pack** (`seed/service-policies.md`, labelled synthetic): what the KB lacks - failed-transaction timelines
+  (RBI), zero-liability rule, card controls, complaint escalation, FD early closure. It never restates a figure the
+  KB already has.
+- **Pronunciation** (`services/pronunciation.py`): spoken text only - "AU" as "A.U." (English, Hinglish) and "एयू"
+  (Hindi), fixed in code (the owner's choice, 6 Nov 2026; no listening page), "Zenith+" as "Zenith Plus", "Mohd." as "Mohammad".
+- **Dialogue decisions** (`services/dialogue.py`, ADR 0024): the response strategy for each KB request (direct, product
+  overview, overview, full, compare, guided, recommend; the router's `scope` is used when code agrees with it), the "help me choose" flows (savings account, FD, credit card), the
+  "shall I check yours?" offer after a general answer, and caller facts with a scope (call or task).
+- **Passages sent to the answer model** (`kbmeta.trim_context`): relevance (20% of the best, floor 0.05), product identity,
+  no duplicates. Re-tune with `uv run python -m evals.context_replay --grid` (replays saved golden runs on the running
+  brain, no LLM calls; the number of items that lose evidence must stay 0). A passage about another product that only
+  mentions the named one is labelled "[about X; use only what it says about Y]".
+- **Router output repair** (`understanding.repair`): when the provider rejects the router's JSON for a value outside a
+  list, code repairs the returned generation (no second call); the lenient retry is only for a cut-off generation.
+  `/v1/stats` counts both (`router_repaired_in_code`, `router_retried`).
+- **Post-call judge** (`services/review.py`): code checks on every call; a hard-rule failure makes the call critical
+  whatever the judge's average. The judge (a different model) scores five dimensions as a phone call is heard, with
+  verified quotes. `/v1/reviews/calibration` compares it with people's labels (exact, within one point, judge-minus-person,
+  missed critical calls). Treat it as uncalibrated until about 50 calls are labelled.
+  Each review also lists up to 5 **findings**: the failure label (20 kinds, e.g. unresolved request, lost context,
+  unnecessary verification, poor voice response), who caused it (the agent, a bank system, a gap in the documents, an
+  unclear caller, not enough evidence - only the agent's own mistakes lower its scores), what happened, a checked quote,
+  why it matters, the fix and where to fix it (router, retrieval, answer prompt, bank answer wording, workflow, code,
+  knowledge base, voice). `GET /v1/reviews/summary?days=30` counts the recurring problems across calls (biggest first);
+  `/calls` shows it as "Quality across calls" when no call is open. Every finding also becomes a to-do on the fix list
+  (`fix_items`, `GET /v1/fixes`, `PATCH /v1/fixes/{id}`, UI `/fixes`). The judge diagnoses; a person decides the changes.
+- **Eval fixtures**: `evals/fixtures/context-*.json` (saved golden-run passages) are kept in the repo; the clean slate keeps
+  turns that belong to no call.
+
+### 10. Tests
 ```bash
-uv run pytest -m "not live"   # 87 tests: fake models/voice + throwaway Postgres, ~45 s, no network
+uv run pytest -m "not live"   # 230+ tests: fake models/voice + throwaway Postgres, ~75 s, no network, no Groq calls (T0)
+uv run python -m evals.smoke  # T2: 40 items on the real LLM, deterministic checks, per-class report, replay-cached
+uv run python -m evals.benchmark   # T3, rarely: routing, answer decisions (old vs new prompt), journeys (uses a lot of Groq quota)
+uv run python -m evals.stt_ab # A/B of the speech-recognition vocabulary hint (~70 small Whisper requests)
 uv run pytest -m live         # tests against the real Groq API
+brain clean-slate [--yes]     # delete every recorded call, ticket and handoff; the KB is kept; the mock bank is re-seeded
 ```
+
+**Eval tiers (PHASE-4-PLAN §10).** T0 = the offline tests (every change). T1 = a replay cache: with `LLM_REPLAY_DIR` set (the
+smoke runner does this, into `evals/cache/`), each real LLM response is stored keyed by the exact request (model, prompts,
+schema, limits), so re-running an unchanged item makes no Groq request and a changed prompt is always a miss. T2 = the 40-item
+smoke set (`evals/smoke.yaml`). T3 = the full benchmark. The post-call judge uses a different model (`JUDGE_MODEL`) so its
+quota is separate from the agent's.
+
+**Phase 4 behaviour covered by tests:** several requests in one sentence and a "no" that doesn't cancel the next request
+(`test_understanding`), the mock bank's auth, idempotency, faults and status mapping (`test_mockbank`), the unrecognised-debit
+and lost-card workflows (`test_workflows`), merged lists / status words / small talk / repeat (`test_responses`), variant,
+authority and expiry checks (`test_kbmeta`), the post-call review and handover summary (`test_review`), the OTP-in-chat and
+injection rules and the clean slate (`test_security`), the fallback model and replay cache (`test_resilience`).
 The voice tests drive the real `VoiceSession` with synthetic audio (tones stand in for speech, with a scripted STT). They cover:
 - slow speakers with mid-sentence pauses;
 - fast speakers;
@@ -194,6 +293,11 @@ The voice tests drive the real `VoiceSession` with synthetic audio (tones stand 
 - no-input reprompt and hang-up;
 - the greeting;
 - text turns.
+
+The audit tests check that an edited or deleted turn breaks the chain, and that the transcript reads as a call record.
+The journey tests check: no card change without a clear yes, the state is read back, "which card?" is asked when
+needed, fraud blocks first then disputes and transfers (priority 1), an ATM complaint raises a ticket, a transfer asks
+first and reaches the desk (accept, chat, complete), and "I can connect you" offers act on a yes.
 
 The MVP 2 tests cover:
 - code required before any data is given;
@@ -228,12 +332,15 @@ caller PCM16 16 kHz, 20 ms frames ──▶ VoiceSession
   TTS        sentence 1 is synthesized while sentence 2 is generated; Edge (dev) | Sarvam bulbul (prod)
   player     sends audio paced at real time, only 200 ms ahead, so a barge-in stops it within ~0.2 s
   filler     "ek moment…" only if the first sentence isn't ready after 1.2 s
-barge-in   caller speech ≥350 ms while the agent talks → agent pauses (not stops) → STT on the overlap:
-           noise / echo of the agent's own words / backchannel ("hmm", "haan", "ok") → resume where it paused
+barge-in   while the agent talks, caller sound must score higher on the VAD (0.65 vs 0.5), must not be much quieter
+           than the caller's own voice (< -12 dB = a person or TV in the background), and is ignored in the
+           first 0.3 s of agent audio (echo). Then ≥350 ms of it → the agent's volume drops (no silent gap) → STT:
+           noise / echo of the agent's own words / backchannel ("hmm", "haan", "ok") → back to full volume
            real words ("ruko", "wait", a new question) → {"type":"clear"} to the client, cancel, answer the new turn
 correction caller adds words while the agent is still thinking → merged into one question, old answer dropped
 no input   reprompt after 8 s, polite goodbye + hang-up after the second
-greeting   says it is an AI assistant and that the call may be recorded
+greeting   the disclosure: an AI assistant, and the call is recorded (also stored as a call event)
+recording  both sides captured in memory, encoded to Opus and encrypted when the call ends
 ```
 **WebSocket protocol** (`/v1/voice/stream`, header `X-API-Key` or `?key=` when `API_KEY` is set):
 - client → `{"type":"start","language":"hi"|"en","greet":true,"session_id":optional,"caller_number":optional}`, then
@@ -256,7 +363,7 @@ greeting   says it is an AI assistant and that the call may be recorded
 |---|---|
 | End-of-turn silence | 0.7 s (by design) |
 | STT | ~0.4 s |
-| Understand, retrieve and rerank (GPU) | ~1.2 s |
+| Understand, retrieve and rerank (GPU) | ~1.2 s (an idle laptop GPU is woken while the question is understood) |
 | LLM first sentence | ~0.5 s |
 | Edge TTS first audio | 0.9–1.7 s (dev only) |
 
@@ -270,14 +377,25 @@ app/
   container.py     composition root: which adapter implements each port
   ports.py         interfaces: Parser, Embedder, Reranker, LLM, FileStore, STT, TTS, VAD, Bank
   adapters/        provider implementations of the ports: parsers (docx/pdfplumber/xlsx/text), models (embedder,
-                   reranker), llm (OpenAI-compatible: Groq/OpenAI/vLLM…), bedrock (AWS), storage (local, S3/MinIO),
-                   bank_excel (mock core banking from the dummy workbook)
-  services/        documents (lifecycle), worker (ingestion jobs), chunking, retrieval, conversation,
+                   reranker), llm (OpenAI-compatible: Groq/OpenAI/vLLM…), bedrock (AWS), resilient (fallback model +
+                   breaker), replay (eval cache), storage (local, S3/MinIO), http_bank (the Bank port over HTTP, one
+                   status table), mock_corebank (the in-process mock, BANK_PROVIDER=mock)
+  mockbank/        the bank's systems as a separate HTTP service: cif, cbs, payments, cards, cc, lms, deposits, crm
+                   (core.py = tokens, idempotency, faults; systems.py = the routers; server.py = runs it on its own port)
+  tokens.py        short-lived signed customer tokens for brain -> bank calls (stdlib hmac)
+  services/        understanding (one LLM call -> a list of requests + risk flags), registry (what each request needs:
+                   open / verified / confirm / people), state (per-call state), guard (injection + risk screens),
+                   kbmeta (variants, authority, expiry), workflows (find the transaction a caller means), smalltalk,
+                   review (post-call checks + judge), summary (AI handover summary), maintenance (clean slate),
+                   documents (lifecycle), worker (ingestion jobs), chunking, retrieval, conversation,
                    auth (RMN + one-time code), personal (answers from bank data), numbers (figure check +
-                   numbers as words), privacy (redaction), sentences, store, evals
+                   numbers as words), privacy (redaction), sentences, store, evals, audit (hash chain,
+                   grounding, alerts, call record), recordings (capture, Opus, encryption, retention),
+                   journeys (actions, fraud, complaints, transfers, leads), actions (card actions),
+                   confirm (yes / no reader), desk (teams, handoffs, tickets), pronunciation
   voice/           session (turn-taking engine), providers (STT/TTS/VAD adapters), turntaking (text rules),
                    player, phrases, audio
-  api/             documents, conversation, auth, evals, voice, ops
+  api/             documents, conversation, auth, calls (audit), desk (agent desk), evals, voice, ops
   migrations/      SQL schema
 evals/golden/      golden question sets (YAML)       evals/reports/  generated reports
 tests/             unit, API end-to-end, voice scenarios, live Groq checks (tests/fakes.py = test doubles only)
@@ -298,21 +416,40 @@ Any other OpenAI-compatible LLM (OpenAI, Azure, vLLM, Ollama) works through `LLM
 Adding a new kind of provider takes one class that implements the port in `ports.py`, plus one branch in `container.py`.
 The `route` field (`auth_required` / `handoff`) tells Phases B–D what to do next.
 
+### Phase 4 settings (all in `.env`; none is needed for the defaults)
+
+| Setting | Default | What it does |
+|---|---|---|
+| `BANK_PROVIDER` | `http` | `http` = the bank's systems over HTTP (the embedded mock bank), `mock` = in-process, `off` |
+| `BANK_BASE_URL` | empty | empty = start the mock bank inside this process; else AU's gateway or a separate mock |
+| `MOCKBANK_PORT` | `0` | `8100` to browse the mock bank's OpenAPI at `/docs` |
+| `MOCK_BANK_FAIL` | empty | fault injection, e.g. `cards:lost_response,cbs:latency=400` (kinds: latency, timeout, 5xx, malformed, unexpected_status, lost_response) or `read` / `card_update` / `all` |
+| `BANK_SERVICE_TOKEN`, `BANK_TOKEN_SECRET` | random per process | brain -> bank auth; set both when the bank runs separately |
+| `JUDGE_MODE` / `JUDGE_MODEL` | `all` / `llama-3.3-70b-versatile` | post-call review: `all` (development), `selective` (production), `off` |
+| `LLM_FALLBACK` | empty | `{"openai/gpt-oss-120b": "<model>"}`: fallback on 429 / outage. Enable only after that model passes the smoke set |
+| `LLM_REPLAY_DIR` | empty | evals only: cache every LLM response on disk |
+| `STT_VOCABULARY` | `extended` | `base` / `extended` / `none` hint for speech recognition (A/B tested) |
+| `DEMO_TODAY` | today | the mock bank is seeded relative to this date |
+
+Pronunciation of "AU" is fixed in `services/pronunciation.py` (`SPELLING`). The old `data/pronunciation.json` is no longer read.
+
 ## Deliberately not done (yet)
 - **A separate ingestion process.** Parsing a large PDF in the background thread can briefly hold Python's interpreter lock while a call is live. A separate process would need its own copy of the embedding model (+1.1 GB GPU memory, +30 s startup) and a third command to run. Locally, ingestion rarely overlaps with calls, so it isn't worth it yet. In production, run the API and an ingestion worker as separate containers from the same code (`build(start_worker=False)` + `worker.start()`).
 - **Provider racing / fallback.** If the first token is slow, start a second provider and keep the faster one. This needs two providers, so add it with Sarvam and Bedrock.
 - **Query cache.** Spoken questions rarely repeat word for word, and cached answers go stale when documents change. Personal answers can never be cached.
 
 ## Known limitations
-- **The KB doesn't cover some sample questions** (FD premature penalty, personal loan documents, salary accounts, card international limits). These are refused by design.
-- **The KB contradicts itself in places.** For example, the FD maximum is "up to 7.90%" in the KB but 7.75% in the rates sheet, and the Vikaas monthly credit limit is ₹1 lakh vs ₹5 lakh. Answers may cite either; resolve this in the source documents.
+- **The KB doesn't cover some sample questions** (FD premature penalty, personal loan documents, salary accounts). The synthetic policy pack fills these for the demo; it is labelled synthetic and must be replaced by the bank's approved text.
+- **The KB contradicts itself in places.** For example, the FD maximum is "up to 7.90%" in the KB but 7.75% in the rates sheet, and the Vikaas monthly credit limit is ₹1 lakh vs ₹5 lakh. The agent says it sees two figures and offers a specialist instead of picking one; fix it in the source documents.
 - **Hindi/Hinglish `speech_text` keeps digits** (Indian TTS voices read them natively). Only English numbers are converted to words.
+- **Large PDFs** (hundreds of pages): read page by page with memory freed; running headers/footers and contents
+  lines are removed so they don't fill passages; embedding runs in batches and a live question waits for at most one
+  batch, not the whole file. Uploads up to `MAX_UPLOAD_MB` (100).
 - **PDFs must have a text layer.** Scanned PDFs are rejected; production would add OCR (e.g. Amazon Textract). PPTX and HTML aren't supported (convert to PDF or DOCX).
-- **MVP 2 data:**
-  - the dummy data has one FD and one loan per customer, and no loan type, FD number, auto-renewal, lounge counts, merchant names, minimum due or statement-paid status. Those questions get "I can see X, not Y";
-  - some dummy values disagree (e.g. EMI debits vs the EMI amount), and are reported as stored.
+- **Bank data is a mock.** The core-banking schema is seeded from the workbook plus synthetic extensions; values the workbook lacks (merchants, holds, EMI history, second cards...) are generated, deterministic, and labelled simulated. Real bank APIs replace `adapters/mock_corebank.py`.
 - **OTP delivery is simulated** (`OTP_DELIVERY=simulated`). Production needs an SMS gateway, and must set `DEMO_CALLERS=false`.
-- **Actions and human transfer** (block a card, enable online use, connect to an agent) are announced, not performed. That's MVP 3+.
+- **Transfers reach a web agent desk**, not a phone queue: in production the contact centre (Cisco) holds the waiting list and plays the hold music; the brief and the record stay the same.
+- **Other Indian languages**: English, Hindi and Hinglish today; Sarvam's speech models add 10 Indian languages in production.
 - **Edge TTS is for development only** (unofficial, no SLA, adds ~1 s). Use Sarvam in production.
 - **Groq free tier** rate-limits (429) under load; production uses Bedrock or a paid tier. Retries get a total budget (`LLM_RETRY_BUDGET_S`, 4 s); after that the caller hears "I'm having trouble right now… I can connect you to our team" instead of silence.
 - **Echo:** without headphones, laptop speakers can trigger a barge-in. The echo check resumes the agent, but use headphones, or a phone line with echo cancellation.

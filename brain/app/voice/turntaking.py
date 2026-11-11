@@ -38,14 +38,30 @@ def words(text: str) -> list[str]:
     return [w.lower() for w in _WORDS.findall(text)]
 
 
+_FILLERS = {"so", "you", "know", "well", "like", "actually", "basically", "um", "uh", "umm", "hmm", "matlab", "toh", "woh",
+            "yaar", "मतलब", "तो"}
+
+
 def incomplete(text: str) -> bool:
     stripped = text.strip()
     if not stripped:
         return False
     if stripped.endswith((",", "-", "...", "…")):
         return True
+    if all(x in _FILLERS for x in words(stripped)) and words(stripped):  # "so, you know" - only filler: wait for the rest
+        return True
     w = words(stripped)
     return bool(w) and w[-1] in _TRAILING and not stripped.endswith(("?", "!", ".", "।"))
+
+
+def unclear_speech(text: str, no_speech: float, confidence: float | None, compression: float) -> bool:
+    """"Sorry, I didn't catch that" only when TWO signals agree. Accents, soft voices and unfamiliar names are normal and
+    each alone is not enough: (1) the recogniser is unsure of its words, (2) the text looks like nonsense (very repetitive),
+    (3) it is not even sure there was speech."""
+    w = words(text)
+    repeated = len(w) >= 6 and len(set(w)) <= len(w) // 3  # "the the the ..." / word salad
+    signals = [confidence is not None and confidence < -1.0, compression > 2.4 or repeated, no_speech >= 0.35]
+    return sum(signals) >= 2
 
 
 def is_noise(text: str, no_speech: float, threshold: float = 0.6) -> bool:

@@ -15,9 +15,8 @@ import numpy as np
 from app.domain import Transcript
 from app.voice.audio import StreamingDecoder, strip_wav_header, to_wav
 
-# Product names Whisper should spell correctly (it uses this as context, not as an instruction).
-VOCAB_HINT = ("AU Small Finance Bank. FD, RD, Zenith+, Ananta, Laksya, BSBDA, Royale, Vikaas, Kisan, Swadesh, "
-              "SMARTLoan, Xpress Loan, senior citizen, minimum balance, interest rate.")
+# Words Whisper should spell correctly (it uses this as context, not as an instruction). See app/voice/vocab.py.
+from app.voice.vocab import hint_for  # noqa: E402
 _WHISPER_LANG = {"english": "en", "hindi": "hi", "en": "en", "hi": "hi"}
 
 
@@ -29,10 +28,10 @@ class GroqSTT:
     name = "groq-whisper"
 
     def __init__(self, api_key: str, base_url: str = "https://api.groq.com/openai/v1",
-                 model: str = "whisper-large-v3-turbo", timeout_s: float = 15.0):
+                 model: str = "whisper-large-v3-turbo", timeout_s: float = 15.0, vocabulary: str = "base"):
         if not api_key:
             raise STTError("GROQ_API_KEY is required for STT_PROVIDER=groq")
-        self.model = model
+        self.model, self.hint = model, hint_for(vocabulary)
         self._client = httpx.AsyncClient(base_url=base_url, headers={"Authorization": f"Bearer {api_key}"},
                                          timeout=httpx.Timeout(timeout_s, connect=5.0))
 
@@ -42,7 +41,7 @@ class GroqSTT:
             r = await self._client.post("/audio/transcriptions",
                                         files={"file": ("audio.wav", to_wav(pcm16, rate), "audio/wav")},
                                         data={"model": self.model, "response_format": "verbose_json",
-                                              "temperature": "0", "prompt": VOCAB_HINT})
+                                              "temperature": "0", **({"prompt": self.hint} if self.hint else {})})
             if r.status_code in (429, 500, 502, 503) and attempt < 2:
                 await asyncio.sleep(0.3 * (attempt + 1))
                 continue
@@ -55,9 +54,12 @@ class GroqSTT:
         if segments:  # weight by duration: one silent segment shouldn't flag a long real utterance
             total = sum(max(s["end"] - s["start"], 0.01) for s in segments)
             no_speech = sum(s.get("no_speech_prob", 0.0) * max(s["end"] - s["start"], 0.01) for s in segments) / total
+        confidence = (sum(s.get("avg_logprob", 0.0) * max(s["end"] - s["start"], 0.01) for s in segments)
+                      / sum(max(s["end"] - s["start"], 0.01) for s in segments)) if segments else None
         return Transcript(text=(body.get("text") or "").strip(),
                           language=_WHISPER_LANG.get((body.get("language") or "").lower(), "other"),
-                          no_speech=float(no_speech), latency_ms=round((time.perf_counter() - start) * 1000))
+                          no_speech=float(no_speech), latency_ms=round((time.perf_counter() - start) * 1000),
+                          confidence=confidence, compression=max((s.get("compression_ratio", 0.0) for s in segments), default=0.0))
 
     async def close(self):
         await self._client.aclose()
@@ -97,14 +99,15 @@ class EdgeTTS:
 
     name = "edge-tts"
 
-    def __init__(self, voices: dict[str, str], rate: int):
+    def __init__(self, voices: dict[str, str], rate: int, speed_pct: int = 0):
         self.voices, self.rate = voices, rate
+        self.speed = f"{speed_pct:+d}%"
 
     async def stream(self, text: str, language: str) -> AsyncIterator[bytes]:
         import edge_tts
 
         decoder = StreamingDecoder("mp3", self.rate)
-        communicate = edge_tts.Communicate(text, self.voices.get(language, self.voices["en"]))
+        communicate = edge_tts.Communicate(text, self.voices.get(language, self.voices["en"]), rate=self.speed)
         async for chunk in communicate.stream():
             if chunk["type"] == "audio":
                 pcm = decoder.feed(chunk["data"])
@@ -121,17 +124,18 @@ class SarvamTTS:
     name = "sarvam-tts"
     _LANG = {"en": "en-IN", "hi": "hi-IN", "hinglish": "hi-IN"}
 
-    def __init__(self, api_key: str, rate: int, model: str = "bulbul:v3", speaker: str = "priya", timeout_s: float = 15.0):
+    def __init__(self, api_key: str, rate: int, model: str = "bulbul:v3", speaker: str = "priya", timeout_s: float = 15.0,
+                 pace: float = 1.0):
         if not api_key:
             raise ValueError("SARVAM_API_KEY is required for TTS_PROVIDER=sarvam")
-        self.rate, self.model, self.speaker = rate, model, speaker
+        self.rate, self.model, self.speaker, self.pace = rate, model, speaker, pace
         self._client = httpx.AsyncClient(base_url="https://api.sarvam.ai",
                                          headers={"api-subscription-key": api_key, "Content-Type": "application/json"},
                                          timeout=httpx.Timeout(timeout_s, connect=5.0))
 
     async def stream(self, text: str, language: str) -> AsyncIterator[bytes]:
         body = {"text": text, "language_code": self._LANG.get(language, "en-IN"), "speaker": self.speaker,
-                "model": self.model, "output_audio_codec": "linear16", "speech_sample_rate": self.rate,
+                "model": self.model, "output_audio_codec": "linear16", "speech_sample_rate": self.rate, "pace": self.pace,
                 "enable_preprocessing": True}
         async with self._client.stream("POST", "/text-to-speech/stream", json=body) as r:
             if r.status_code >= 400:

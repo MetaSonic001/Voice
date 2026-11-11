@@ -1,15 +1,27 @@
 "use client";
 
+// Test console: talk to the agent by typing, a voice note, or a live call, as one of the test customers.
+// Every conversation is saved and can be reviewed (with recording, reasons and checks) under Call audit.
+import { Mic, Phone, PhoneOff, Plus, Send, ShieldCheck, Square, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AnswerDetails } from "@/components/answer-details";
-import { Badge, Button, Input, Panel, Select } from "@/components/ui";
-import { api, type Auth, type Caller, type Citation, type Doc, kb } from "@/lib/api";
+import { fmtMs, OutcomeBadge } from "@/components/labels";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { api, type Auth, type Caller, type Citation, desk, type Doc, type HandoffRef, kb } from "@/lib/api";
 import { type CallEvent, LiveCall } from "@/lib/live-call";
+import { cn } from "@/lib/utils";
 
 type Message = {
-  role: "user" | "agent" | "note";
+  role: "user" | "agent" | "person" | "note";
   text: string;
   via?: string; // user messages: typed | voice note | live call (+ the language speech-to-text heard)
   outcome?: string;
@@ -18,9 +30,11 @@ type Message = {
   citations?: Citation[];
 };
 type Draft = { blob: Blob; url: string };
+type Transfer = HandoffRef & { status: string; position?: number; agent?: string | null; after: number };
 const PHRASES = new Set(["greeting", "filler", "reprompt", "goodbye", "unclear"]); // canned lines, not answers
 
 const OTHER_NUMBER = "9000000001"; // not registered: the agent asks for the registered mobile number
+const WITHHELD = "withheld";
 
 export default function Console() {
   const [callers, setCallers] = useState<Caller[]>([]);
@@ -39,6 +53,7 @@ export default function Console() {
   const [live, setLive] = useState(false);
   const [focus, setFocus] = useState(true);
   const [docs, setDocs] = useState<Doc[]>([]);
+  const [transfer, setTransfer] = useState<Transfer | null>(null);
   const recorder = useRef<MediaRecorder | null>(null);
   const call = useRef<LiveCall | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
@@ -54,8 +69,9 @@ export default function Console() {
     setVerifiedAs("");
     setCode("");
     setError("");
+    setTransfer(null);
     try {
-      const s = await api.newSession(number || null, lang);
+      const s = await api.newSession(number && number !== WITHHELD ? number : null, lang);
       setSessionId(s.id);
     } catch (e) {
       setError(`Cannot reach the brain API: ${(e as Error).message}. Is it running (python app.py)?`);
@@ -66,19 +82,35 @@ export default function Console() {
     void api.callers()
       .then((list) => {
         setCallers(list);
-        setCaller(list[0]?.mobile ?? "");
+        setCaller(list[0]?.mobile ?? WITHHELD);
         return newSession(list[0]?.mobile ?? "", "en");
       })
       .catch(() => newSession("", "en"));
   }, [newSession]);
 
   useEffect(() => {
-    bottom.current?.scrollIntoView({ behavior: "smooth" });
+    bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages]);
 
   useEffect(() => {
     void kb.list().then(setDocs).catch(() => setDocs([]));
   }, [sessionId]);
+
+  useEffect(() => {
+    if (!transfer || live || !["waiting", "active"].includes(transfer.status)) return;
+    const t = setInterval(async () => {
+      try {
+        const s = await desk.status(sessionId, transfer.after);
+        const msgs = s.messages ?? [];
+        msgs.forEach((m) => add({ role: "person", text: m.text, via: s.agent ?? transfer.name }));
+        if (s.status === "active" && transfer.status === "waiting") add({ role: "note", text: `${s.agent} from ${s.department} joined the chat.` });
+        if (["completed", "abandoned", "callback"].includes(s.status)) add({ role: "note", text: `${s.agent ?? "The team"} ended the chat.` });
+        setTransfer((prev) => prev && { ...prev, status: s.status, position: s.position, agent: s.agent,
+                                        after: msgs.length ? msgs[msgs.length - 1].id : prev.after });
+      } catch { /* try again on the next tick */ }
+    }, 2500);
+    return () => clearInterval(t);
+  }, [transfer, live, sessionId, add]);
 
   const onAuth = useCallback((a: Auth | null | undefined) => {
     if (!a) return;
@@ -90,20 +122,25 @@ export default function Console() {
   }, []);
 
   // ── text ──
-  async function send() {
-    const question = text.trim();
+  async function send(override?: string) {
+    const question = (override ?? text).trim();
     if (!question || !sessionId || busy) return; // one question at a time keeps replies in order
-    setText("");
+    if (!override) setText("");
     if (live) {
       call.current?.sendText(question);
       return;
     }
     add({ role: "user", text: question, via: "typed" });
+    if (transfer && ["waiting", "active"].includes(transfer.status)) {  // a person has the chat now, not the AI
+      await desk.send(sessionId, question).catch((e: Error) => setError(e.message));
+      return;
+    }
     setBusy(true);
     try {
       const r = await api.ask(question, sessionId);
       add({ role: "agent", text: r.answer, outcome: r.outcome, traceId: r.trace_id, timings: r.timings, citations: r.citations });
       onAuth(r.auth);
+      if (r.handoff) setTransfer({ ...r.handoff, status: "waiting", after: 0 });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -164,7 +201,7 @@ export default function Console() {
         setRecording(false);
         const blob = new Blob(chunks, { type: rec.mimeType });
         if (blob.size < 2000) {
-          add({ role: "note", text: "That recording was too short - press Record, speak, then press Stop." });
+          add({ role: "note", text: "That recording was too short. Press Record, speak, then press Stop." });
           return;
         }
         setDraft({ blob, url: URL.createObjectURL(blob) });
@@ -190,7 +227,7 @@ export default function Console() {
     try {
       const r = await api.voiceTurn(audio, sessionId);
       if (r.outcome === "no_speech") {
-        add({ role: "note", text: `No speech heard${r.transcript ? ` (the recogniser guessed "${r.transcript}")` : ""} - try again, closer to the microphone.` });
+        add({ role: "note", text: `No speech heard${r.transcript ? ` (the recogniser guessed "${r.transcript}")` : ""}. Try again, closer to the microphone.` });
         return;
       }
       add({ role: "user", text: r.transcript, via: `voice note · heard as ${r.stt_language ?? "?"} · ${r.timings.stt_ms ?? "?"} ms` });
@@ -244,7 +281,11 @@ export default function Console() {
         onAuth(e as unknown as Auth);
         break;
       case "interrupted":
-        add({ role: "note", text: "(you interrupted - the agent stopped)" });
+        add({ role: "note", text: "You interrupted: the agent stopped." });
+        break;
+      case "handoff":
+        if (e.status === "waiting") add({ role: "note", text: `On hold for the ${String(e.name)} team: hold music is playing until someone picks up.` });
+        if (e.status === "active") add({ role: "note", text: `${String(e.agent)} has joined the call. You're talking to a person now.` });
         break;
       case "end":
       case "closed":
@@ -263,7 +304,7 @@ export default function Console() {
       call.current = new LiveCall(onCallEvent);
       await call.current.start(sessionId, language === "en" ? "en" : "hi", focus);
       setLive(true);
-      add({ role: "note", text: "Live call started - just speak. Use headphones so the agent doesn't hear itself." });
+      add({ role: "note", text: "Live call started: just speak. Use headphones so the agent doesn't hear itself." });
     } catch (e) {
       setError(`Live call: ${(e as Error).message}`);
     }
@@ -271,122 +312,178 @@ export default function Console() {
 
   const callerInfo = callers.find((c) => c.mobile === caller);
   const needsCode = auth && ["otp_sent", "invalid", "expired"].includes(auth.status);
+  const changeCaller = (v: string) => { setCaller(v); void newSession(v, language); };
+  const changeLanguage = (v: string) => { setLanguage(v); void newSession(caller, v); };
 
   return (
-    <main className="mx-auto flex h-screen max-w-6xl flex-col gap-4 p-4">
-      <header className="flex flex-wrap items-center gap-3">
-        <h1 className="text-lg font-semibold">AU Bank assistant · test console</h1>
-        <Link href="/kb" className="mr-auto text-sm underline">Knowledge base</Link>
-        <label className="flex items-center gap-2 text-sm">
-          Calling from
-          <Select value={caller} disabled={live} onChange={(e) => { setCaller(e.target.value); void newSession(e.target.value, language); }}>
-            {callers.map((c) => (
-              <option key={c.mobile} value={c.mobile}>{c.name} · {c.mobile}</option>
-            ))}
-            <option value={OTHER_NUMBER}>Unregistered number · {OTHER_NUMBER}</option>
-            <option value="">Number withheld</option>
+    <main className="mx-auto flex h-[calc(100vh-3.5rem)] max-w-[1400px] flex-col gap-4 p-4">
+      {/* call setup */}
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="space-y-1.5">
+          <Label className="text-xs text-muted-foreground">Calling from</Label>
+          <Select value={caller} onValueChange={changeCaller} disabled={live}>
+            <SelectTrigger className="w-72 bg-background"><SelectValue placeholder="Choose a test caller" /></SelectTrigger>
+            <SelectContent>
+              {callers.map((c) => <SelectItem key={c.mobile} value={c.mobile}>{c.name} · {c.mobile}</SelectItem>)}
+              <SelectItem value={OTHER_NUMBER}>Unregistered number · {OTHER_NUMBER}</SelectItem>
+              <SelectItem value={WITHHELD}>Number withheld</SelectItem>
+            </SelectContent>
           </Select>
-        </label>
-        <Select value={language} disabled={live} onChange={(e) => { setLanguage(e.target.value); void newSession(caller, e.target.value); }}>
-          <option value="en">Greeting: English</option>
-          <option value="hi">Greeting: Hindi</option>
-        </Select>
-        <Button variant="outline" onClick={() => void newSession(caller, language)}>New call</Button>
-      </header>
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs text-muted-foreground">Greeting</Label>
+          <Select value={language} onValueChange={changeLanguage} disabled={live}>
+            <SelectTrigger className="w-36 bg-background"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="en">English</SelectItem>
+              <SelectItem value="hi">Hindi</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <Button variant="outline" className="bg-background" onClick={() => void newSession(caller, language)}><Plus /> New call</Button>
+        {callerInfo?.scenario && <p className="max-w-md self-center text-xs text-muted-foreground">Demo data: {callerInfo.scenario}</p>}
+        <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+          {live && <Badge className="gap-1.5 bg-destructive text-white"><span className="size-1.5 animate-pulse rounded-full bg-white" /> Live</Badge>}
+          {verifiedAs && <Badge variant="outline" className="border-success/40 text-success"><ShieldCheck /> {verifiedAs}</Badge>}
+          {sessionId && (
+            <Link href={`/calls?id=${sessionId}`} className="hover:text-foreground hover:underline">
+              Call {sessionId.slice(0, 8)} · open in audit →
+            </Link>
+          )}
+        </div>
+      </div>
 
       {error && (
-        <p className="rounded-md border border-border bg-muted px-3 py-2 text-sm" role="alert">
-          {error} <button className="ml-2 underline" onClick={() => setError("")}>dismiss</button>
-        </p>
+        <Alert variant="destructive">
+          <AlertDescription className="flex items-center gap-2">
+            <span className="mr-auto">{error}</span>
+            <Button size="sm" variant="ghost" onClick={() => setError("")}>Dismiss</Button>
+          </AlertDescription>
+        </Alert>
       )}
 
-      <div className="grid min-h-0 flex-1 gap-4 md:grid-cols-[1fr_300px]">
+      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[1fr_320px]">
         {/* conversation */}
-        <Panel className="flex min-h-0 flex-col">
-          <CallSummary messages={messages} />
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
-            {messages.length === 0 && (
-              <p className="text-sm text-muted-foreground">
-                Ask about products (&quot;What is the FD rate for senior citizens for 13 months?&quot;) or your own
-                accounts (&quot;What is my balance?&quot; - you will be asked to verify). Type, record a voice note, or start a live call.
-                Open &quot;details&quot; under any answer to see what the AI received, how it understood it, the sources, the checks and where the time went.
-              </p>
-            )}
-            {messages.map((m, i) => <Bubble key={i} m={m} />)}
-            <div ref={bottom} />
+        <Card className="flex min-h-0 flex-col gap-0 py-0">
+          <div className="flex items-center gap-3 border-b px-4 py-3">
+            <p className="text-sm font-medium">Conversation</p>
+            <CallSummary messages={messages} />
           </div>
-          {draft && (
-            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-border p-2 text-sm">
-              <span>Voice note:</span>
-              <audio controls src={draft.url} className="h-8 max-w-full" />
-              <Button type="button" onClick={() => void sendDraft()} disabled={busy}>Send</Button>
-              <Button type="button" variant="outline" onClick={discardDraft}>Discard</Button>
-            </div>
-          )}
-          <form className="mt-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); void send(); }}>
-            <Input value={text} onChange={(e) => setText(e.target.value)} placeholder={live ? "Type during the call…" : "Type a question…"}
-                   disabled={!sessionId} aria-label="Question" />
-            <Button type="submit" disabled={busy || !text.trim()}>Send</Button>
-            <Button type="button" variant="outline" onClick={() => void toggleRecording()} disabled={busy || live || !sessionId || !!draft}
-                    aria-pressed={recording}>
-              {recording ? "■ Stop" : "● Record"}
-            </Button>
-            <Button type="button" variant={live ? "default" : "outline"} onClick={() => void toggleLive()} disabled={!sessionId}>
-              {live ? "End call" : "Live call"}
-            </Button>
-          </form>
-          {busy && <p className="mt-2 text-xs text-muted-foreground">Working…</p>}
-        </Panel>
-
-        {/* verification + call settings */}
-        <div className="flex min-h-0 flex-col gap-4 overflow-y-auto">
-          <Panel title="Verification">
-            <p className="text-sm">
-              {verifiedAs ? <>Verified as <b>{verifiedAs}</b></> : "Not verified"}
-            </p>
-            {callerInfo && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                Test customer: {callerInfo.accounts} account{callerInfo.accounts > 1 ? "s" : ""}
-                {callerInfo.fd && ", FD"}{callerInfo.loan && ", loan"}{callerInfo.debit_card && ", debit card"}
-                {callerInfo.credit_card && ", credit card"}
+          <ScrollArea className="min-h-0 flex-1">
+            <div className="space-y-4 p-4">
+              <p className="mx-auto max-w-md rounded-md bg-muted px-3 py-2 text-center text-xs text-muted-foreground">
+                You are talking to AU Small Finance Bank&apos;s virtual assistant. Conversations are recorded for quality and security.
               </p>
-            )}
-            {auth?.status === "locked" && <p className="mt-2 text-sm">Verification locked for this call.</p>}
-            {needsCode && (
-              <form className="mt-3 space-y-2" onSubmit={(e) => { e.preventDefault(); void submitCode(); }}>
-                <label className="block text-xs text-muted-foreground" htmlFor="otp">
-                  Keypad: code sent to {auth?.masked_mobile}
-                  {auth?.attempts_left !== undefined && ` · ${auth.attempts_left} tries left`}
-                </label>
-                <div className="flex gap-2">
-                  <Input id="otp" value={code} inputMode="numeric" autoComplete="one-time-code" maxLength={6}
-                         type="password" placeholder="6 digits" onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} />
-                  <Button type="submit" disabled={code.length !== 6 || busy}>Enter</Button>
+              {messages.length === 0 && (
+                <div className="mx-auto max-w-lg space-y-2 py-6 text-center text-sm text-muted-foreground">
+                  <p>Ask about products, e.g. <span className="text-foreground">&quot;What is the FD rate for senior citizens for 13 months?&quot;</span>,
+                    or your own accounts, e.g. <span className="text-foreground">&quot;What is my balance?&quot;</span> (you will be asked to verify).</p>
+                  <p>Type, record a voice note, or start a live call. Open <b>Details</b> under any answer for its sources, checks and timings.</p>
                 </div>
-                <button type="button" className="text-xs underline" onClick={() => void resend()}>Send a new code</button>
-              </form>
+              )}
+              {messages.map((m, i) => <Bubble key={i} m={m} />)}
+              {!live && messages.at(-1)?.outcome === "confirm" && !busy && (
+                <div className="flex justify-start gap-2 pl-1">
+                  <Button size="sm" variant="outline" onClick={() => void send("Yes")}>Yes</Button>
+                  <Button size="sm" variant="outline" onClick={() => void send("No")}>No</Button>
+                </div>
+              )}
+              <div ref={bottom} />
+            </div>
+          </ScrollArea>
+          <div className="space-y-2 border-t p-3">
+            {transfer && ["waiting", "active"].includes(transfer.status) && !live && (
+              <div className="flex items-center gap-2 rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-sm">
+                <span className="size-2 animate-pulse rounded-full bg-warning" />
+                {transfer.status === "waiting"
+                  ? <span>Waiting for the <b>{transfer.name}</b> team{transfer.position ? ` · you're number ${transfer.position}` : ""}. Messages you type go to them.</span>
+                  : <span>Chatting with <b>{transfer.agent}</b> ({transfer.name}).</span>}
+                <Link href="/desk" className="ml-auto text-xs underline">Open the agent desk →</Link>
+              </div>
             )}
-          </Panel>
+            {draft && (
+              <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/50 p-2 text-sm">
+                <span className="text-xs font-medium">Voice note</span>
+                <audio controls src={draft.url} className="h-8 max-w-full" />
+                <Button size="sm" onClick={() => void sendDraft()} disabled={busy}><Send /> Send</Button>
+                <Button size="sm" variant="ghost" onClick={discardDraft}><Trash2 /> Discard</Button>
+              </div>
+            )}
+            <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); void send(); }}>
+              <Input value={text} onChange={(e) => setText(e.target.value)} placeholder={live ? "Type during the call…" : "Type a question…"}
+                     disabled={!sessionId} aria-label="Question" />
+              <Button type="submit" disabled={busy || !text.trim()}><Send /> Send</Button>
+              <Button type="button" variant={recording ? "destructive" : "outline"} onClick={() => void toggleRecording()}
+                      disabled={busy || live || !sessionId || !!draft} aria-pressed={recording}>
+                {recording ? <><Square /> Stop</> : <><Mic /> Record</>}
+              </Button>
+              <Button type="button" variant={live ? "destructive" : "outline"} onClick={() => void toggleLive()} disabled={!sessionId}>
+                {live ? <><PhoneOff /> End call</> : <><Phone /> Live call</>}
+              </Button>
+            </form>
+            {busy && <p className="text-xs text-muted-foreground">Working…</p>}
+          </div>
+        </Card>
+
+        {/* verification, knowledge, call settings */}
+        <div className="flex min-h-0 flex-col gap-4 overflow-y-auto">
+          <Card className="gap-3">
+            <CardHeader>
+              <CardTitle className="text-sm">Verification</CardTitle>
+              <CardDescription>
+                {verifiedAs ? <span className="text-success">Verified as <b>{verifiedAs}</b></span> : "Not verified"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {callerInfo && (
+                <p className="text-xs text-muted-foreground">
+                  Test customer: {callerInfo.accounts} account{callerInfo.accounts > 1 ? "s" : ""}
+                  {callerInfo.fd && ", FD"}{callerInfo.loan && ", loan"}{callerInfo.debit_card && ", debit card"}
+                  {callerInfo.credit_card && ", credit card"}
+                </p>
+              )}
+              {auth?.status === "locked" && <p className="text-sm text-destructive">Verification locked for this call.</p>}
+              {needsCode && (
+                <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); void submitCode(); }}>
+                  <Label htmlFor="otp" className="text-xs font-normal text-muted-foreground">
+                    Keypad: code sent to {auth?.masked_mobile}
+                    {auth?.attempts_left !== undefined && ` · ${auth.attempts_left} tries left`}
+                  </Label>
+                  <div className="flex gap-2">
+                    <Input id="otp" value={code} inputMode="numeric" autoComplete="one-time-code" maxLength={6}
+                           type="password" placeholder="6 digits" onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} />
+                    <Button type="submit" disabled={code.length !== 6 || busy}>Enter</Button>
+                  </div>
+                  <Button type="button" variant="link" className="h-auto p-0 text-xs" onClick={() => void resend()}>Send a new code</Button>
+                </form>
+              )}
+            </CardContent>
+          </Card>
 
           {auth?.simulated_sms && !verifiedAs && (
-            <Panel title="Phone (simulated SMS)">
-              <p className="font-mono text-sm">{auth.simulated_sms}</p>
-              <p className="mt-2 text-xs text-muted-foreground">Development only. In production the code goes to the customer&apos;s phone by SMS.</p>
-            </Panel>
+            <Card className="gap-3 border-dashed">
+              <CardHeader>
+                <CardTitle className="text-sm">Phone (simulated SMS)</CardTitle>
+                <CardDescription>Development only. In production the code goes to the customer&apos;s phone.</CardDescription>
+              </CardHeader>
+              <CardContent><p className="rounded-md bg-muted p-2 font-mono text-sm">{auth.simulated_sms}</p></CardContent>
+            </Card>
           )}
 
           <KnowledgeUsed docs={docs} messages={messages} />
 
-          <Panel title="Live call">
-            <label className="flex items-start gap-2 text-sm">
-              <input type="checkbox" className="mt-1" checked={focus}
-                     onChange={(e) => { setFocus(e.target.checked); call.current?.setFocus(e.target.checked); }} />
-              <span>Focus on my voice<br />
-                <span className="text-xs text-muted-foreground">Ignores quieter voices and sounds in the background (people talking, TV).</span>
-              </span>
-            </label>
-            <p className="mt-2 text-xs text-muted-foreground">Session {sessionId ? sessionId.slice(0, 8) : "…"}</p>
-          </Panel>
+          <Card className="gap-3">
+            <CardHeader><CardTitle className="text-sm">Live call</CardTitle></CardHeader>
+            <CardContent>
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" className="mt-1 accent-primary" checked={focus}
+                       onChange={(e) => { setFocus(e.target.checked); call.current?.setFocus(e.target.checked); }} />
+                <span>Focus on my voice
+                  <span className="block text-xs text-muted-foreground">Ignores quieter voices and sounds in the background (people talking, TV).</span>
+                </span>
+              </label>
+            </CardContent>
+          </Card>
         </div>
       </div>
     </main>
@@ -396,27 +493,43 @@ export default function Console() {
 function Bubble({ m }: { m: Message }) {
   const [open, setOpen] = useState(false);
   if (m.role === "note") return <p className="text-center text-xs text-muted-foreground">{m.text}</p>;
+  if (m.role === "person") {
+    return (
+      <div className="flex justify-start">
+        <div className="max-w-[80%] space-y-1">
+          <p className="text-[11px] text-muted-foreground">{m.via} · bank team</p>
+          <div className="rounded-2xl rounded-bl-sm border border-primary/30 bg-secondary px-4 py-2.5 text-sm leading-relaxed">{m.text}</div>
+        </div>
+      </div>
+    );
+  }
   const mine = m.role === "user";
   const t = m.timings ?? {};
   const headline = t.voice_to_voice_ms ?? t.total_ms;
+  const answer = !mine && m.outcome && !PHRASES.has(m.outcome);
   return (
-    <div className={mine ? "flex justify-end" : "flex justify-start"}>
-      <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${mine ? "bg-foreground text-background" : "border border-border bg-muted"}`}>
-        {mine && m.via && <p className="mb-0.5 text-[11px] opacity-70">{m.via}</p>}
-        <p className="whitespace-pre-wrap">{m.text}</p>
-        {!mine && (m.outcome || m.traceId) && (
-          <details className="mt-1 text-xs text-muted-foreground" onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}>
-            <summary className="cursor-pointer">
-              {m.outcome && <Badge className="mr-1">{m.outcome}</Badge>}
-              {headline != null && `${headline} ms${t.voice_to_voice_ms != null ? " voice-to-voice" : ""}`}
-              {m.traceId && " · details"}
-            </summary>
+    <div className={cn("flex", mine ? "justify-end" : "justify-start")}>
+      <div className={cn("max-w-[80%] space-y-1", mine && "items-end")}>
+        {mine && m.via && <p className="text-right text-[11px] text-muted-foreground">{m.via}</p>}
+        <div className={cn("rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
+                           mine ? "rounded-br-sm bg-primary text-primary-foreground" : "rounded-bl-sm border bg-card")}>
+          <p className="whitespace-pre-wrap">{m.text}</p>
+        </div>
+        {!mine && (answer || m.traceId) && (
+          <div className="flex flex-wrap items-center gap-1.5 px-1 text-xs text-muted-foreground">
+            {answer && <OutcomeBadge outcome={m.outcome!} />}
+            {headline != null && <span>{fmtMs(headline)}{t.voice_to_voice_ms != null ? " voice-to-voice" : ""}</span>}
             {m.citations?.map((c, i) => (
-              <p key={i} className="mt-1">{c.marker ? `[${c.marker}] ` : ""}{c.section ?? c.source}{c.fields ? ` (${c.fields.join(", ")})` : ""}</p>
+              <span key={i} className="truncate">· {c.marker ? `[${c.marker}] ` : ""}{c.section ?? c.source}{c.fields ? ` (${c.fields.join(", ")})` : ""}</span>
             ))}
-            {open && m.traceId && <AnswerDetails traceId={m.traceId} timings={m.timings} />}
-          </details>
+            {m.traceId && (
+              <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => setOpen(!open)}>
+                {open ? "Hide details" : "Details"}
+              </Button>
+            )}
+          </div>
         )}
+        {open && m.traceId && <AnswerDetails traceId={m.traceId} timings={m.timings} />}
       </div>
     </div>
   );
@@ -429,9 +542,9 @@ function CallSummary({ messages }: { messages: Message[] }) {
   const median = times.length ? times[Math.floor(times.length / 2)] : null;
   const outcomes = answers.reduce<Record<string, number>>((acc, m) => ({ ...acc, [m.outcome!]: (acc[m.outcome!] ?? 0) + 1 }), {});
   return (
-    <p className="mb-2 border-b border-border pb-2 text-xs text-muted-foreground">
-      This call: {answers.length} answer{answers.length > 1 ? "s" : ""}
-      {median != null && ` · median ${median} ms (brain)`}
+    <p className="ml-auto text-xs text-muted-foreground">
+      {answers.length} answer{answers.length > 1 ? "s" : ""}
+      {median != null && ` · median ${fmtMs(median)} (brain)`}
       {" · "}{Object.entries(outcomes).map(([k, v]) => `${k} ${v}`).join(", ")}
     </p>
   );
@@ -450,22 +563,24 @@ function KnowledgeUsed({ docs, messages }: { docs: Doc[]; messages: Message[] })
   const row = (key: string, label: string, sub: string) => {
     const n = used.get(key) ?? 0;
     return (
-      <li key={key} className={`flex items-baseline gap-2 rounded px-1 py-0.5 ${n ? "bg-foreground/10 font-semibold" : "text-muted-foreground"}`}>
+      <li key={key} className={cn("flex items-baseline gap-2 rounded-md px-2 py-1", n ? "bg-secondary font-medium" : "text-muted-foreground")}>
         <span className="truncate" title={label}>{label}</span>
         <span className="ml-auto shrink-0 text-xs font-normal">{n ? `used ${n}×` : sub}</span>
       </li>
     );
   };
   return (
-    <Panel title="Knowledge base · this call">
-      <ul className="space-y-0.5 text-sm">
-        {searchable.map((d) => row(d.title, d.title, `${d.chunks} passages`))}
-        {row("bank", "Bank data (simulated)", "after verification")}
-      </ul>
-      <p className="mt-2 text-xs text-muted-foreground">
-        Highlighted = cited by an answer in this call. Open an answer&apos;s details for the exact passages.{" "}
-        <Link href="/kb" className="underline">Manage →</Link>
-      </p>
-    </Panel>
+    <Card className="gap-3">
+      <CardHeader>
+        <CardTitle className="text-sm">Knowledge used in this call</CardTitle>
+        <CardDescription>Highlighted = cited by an answer. <Link href="/kb" className="underline">Manage →</Link></CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ul className="space-y-0.5 text-sm">
+          {searchable.map((d) => row(d.title, d.title, `${d.chunks} passages`))}
+          {row("bank", "Bank data (simulated)", "after verification")}
+        </ul>
+      </CardContent>
+    </Card>
   );
 }

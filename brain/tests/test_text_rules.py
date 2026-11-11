@@ -29,7 +29,13 @@ def test_hindi_danda_splits():
 
 @pytest.mark.parametrize("text,expected", [
     ("my account 10020030001 balance", "my account [number] balance"),
-    ("card 4111 1111 1111 1111", "card [number]"),
+    ("card 4111 1111 1111 1111", "card [card]"),  # Luhn-valid
+    ("card 4111 1111 1111 1112", "card [number]"),  # long digits that fail Luhn are still masked
+    ("my aadhaar 2345 6789 0124", "my aadhaar [aadhaar]"),  # Verhoeff-valid
+    ("call me on 9876543210", "call me on [phone]"),
+    ("call +91 98765 43210", "call [phone]"),
+    ("account number 4521 8890 12 please", "account number [number] please"),
+    ("I paid ₹1,50,000 on 12 Nov, ending 4521", "I paid ₹1,50,000 on 12 Nov, ending 4521"),  # financial facts stay
     ("OTP is 482913", "OTP is [secret]"),
     ("PAN ABCDE1234F", "PAN [pan]"),
     ("mail me at a.b@example.com", "mail me at [email]"),
@@ -46,6 +52,7 @@ def test_redaction(text, expected):
 @pytest.mark.parametrize("text,expected", [
     ("I want to know the FD rate and", True), ("mujhe FD ke baare mein, matlab", True), ("FD rate kya hai aur", True),
     ("What is the FD rate?", False), ("FD rate batao", False), ("", False),
+    ("so, you know", True), ("hmm", True), ("matlab", True), ("balance batao", False),
 ])
 def test_incomplete(text, expected):
     assert incomplete(text) is expected
@@ -64,3 +71,12 @@ def test_barge_classification(text, no_speech, verdict):
 
 def test_noise():
     assert is_noise("  ", 0.0) and is_noise("धन्यवाद", 0.0) and not is_noise("FD rate", 0.1)
+
+
+def test_au_is_said_the_chosen_way_only_in_speech():
+    from app.services import pronunciation as p
+
+    # Fixed by the owner on 6 Nov 2026: English / Hinglish "A.U.", Hindi "एयू". No listening page any more.
+    assert p.say("AU 0101 app", "hi") == "एयू शून्य एक शून्य एक app"
+    assert p.say("This is AU Bank", "en") == "This is A.U. Bank" and p.say("This is AU Bank", "hinglish") == "This is A.U. Bank"
+    assert p.say("AUDIT", "en") == "AUDIT"  # only the word AU

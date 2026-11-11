@@ -58,7 +58,10 @@ def _cost(meta: dict | None) -> float | None:
 
 def score_item(item: dict, reply, trace_data: dict) -> dict:
     expected = item["expect"] if isinstance(item["expect"], list) else [item["expect"]]
-    outcome_ok = reply.outcome in {EXPECT_TO_OUTCOME[e] for e in expected}
+    allowed = {EXPECT_TO_OUTCOME[e] for e in expected}
+    if "handoff" in allowed:  # in a call the agent first asks "shall I connect you?"
+        allowed.add("confirm")
+    outcome_ok = reply.outcome in allowed
     answer = _norm(reply.answer)
     facts_ok = None
     if item.get("facts") and reply.outcome == "answered":

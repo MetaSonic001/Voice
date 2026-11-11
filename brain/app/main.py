@@ -11,7 +11,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import auth, conversation, documents, evals, ops
+from app.api import auth, calls, conversation, desk, documents, evals, ops
 from app.config import get_settings
 from app.container import Container, build
 from app.logs import log, request_id, setup_logging
@@ -75,7 +75,7 @@ def create_app(container: Container | None = None) -> FastAPI:
         app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST", "PATCH", "DELETE"],
                            allow_headers=["content-type", "x-api-key", "x-request-id"])
 
-    for module in (documents, conversation, auth, evals, ops):
+    for module in (documents, conversation, auth, calls, desk, evals, ops):
         app.include_router(module.router)
     if settings.voice_enabled:
         from app.api import voice  # imports audio libraries only when voice is on
@@ -84,7 +84,7 @@ def create_app(container: Container | None = None) -> FastAPI:
     return app
 
 
-LIMITED_PATHS = ("/v1/ask", "/v1/search", "/v1/voice", "/v1/auth")
+LIMITED_PATHS = ("/v1/ask", "/v1/search", "/v1/voice", "/v1/auth", "/v1/handoffs")
 
 
 class RateLimiter:

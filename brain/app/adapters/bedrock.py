@@ -2,8 +2,10 @@
 
 - `json`   : forced tool call whose input schema is the requested JSON schema (reliable structured output)
 - `stream` : ConverseStream, bridged from boto3's blocking iterator to async without blocking the event loop
-Credentials come from the standard AWS chain (env vars, profile, instance/task role). Use a model available in
-your region (e.g. an `apac.` inference profile in ap-south-1).
+Credentials come from the standard AWS chain (env vars, profile, instance/task role). For customer data use an India-only
+model ID: the India geo inference profile (Mumbai + Hyderabad; allow both ap-south-1 and ap-south-2 in IAM). Never an
+`apac.` or global profile: those can process requests outside India.
+Stateless on purpose: our own Postgres holds the conversation (docs/adr/0026-stateless-llm-calls.md).
 """
 
 import asyncio

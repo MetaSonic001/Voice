@@ -11,7 +11,8 @@ export type Auth = {
   name?: string;
 };
 
-export type Citation = { marker?: number; document?: string; section?: string; snippet?: string; source?: string; fields?: string[] };
+export type Citation = { marker?: number; chunk_id?: string; document?: string; section?: string; snippet?: string;
+  effective_from?: string | null; source?: string; fields?: string[] };
 
 export type Reply = {
   trace_id: string;
@@ -24,9 +25,13 @@ export type Reply = {
   citations: Citation[];
   timings: Record<string, number | null>;
   auth?: Auth | null;
+  handoff?: HandoffRef | null;
 };
 
-export type Caller = { name: string; mobile: string; accounts: number; fd: boolean; loan: boolean; debit_card: boolean; credit_card: boolean };
+export type HandoffRef = { id: string; department: string; name: string };
+
+export type Caller = { name: string; mobile: string; accounts: number; fd: boolean; loan: boolean; debit_card: boolean;
+  credit_card: boolean; scenario?: string | null };
 
 export type VoiceTurn = {
   transcript: string;
@@ -148,6 +153,136 @@ export const api = {
     form.append("session_id", session_id);
     return call<VoiceTurn>("/v1/voice/turn", { method: "POST", headers: headers(false), body: form });
   },
+};
+
+// ── Call audit ──
+export type Grounding = { level: "high" | "medium" | "low" | "none" | "n/a"; basis: string[]; score?: number };
+export type CallSummary = {
+  id: string; created_at: string; ended_at: string | null; end_reason: string | null; language: string | null;
+  caller: string | null; verified_at: string | null; customer_id: string | null; turns: number; first_at: string | null;
+  last_at: string | null; answered: number; unanswered: number; last_question: string | null; alerts: number;
+  recordings: number; live: boolean;
+  review_score: number | null; review_critical: boolean | null; review_needs_attention: boolean | null;
+  review_mode: "judged" | "code_only" | null; review_labelled: boolean | null;
+};
+export type Turn = {
+  id: string; created_at: string; question: string; answer: string; language: string; intent: string; outcome: string;
+  total_ms: number; input: string; route: string | null; reason: string | null; why: string[];
+  // every call to a bank system during this turn (ids masked to the last 4 digits)
+  bank_calls?: { system: string; name: string; method: string; path: string; status: number | string; ms: number; attempts: number }[];
+  understood: { question?: string; search?: string; personal?: Record<string, unknown> | null; facts?: Record<string, unknown> | null };
+  sources: { chunk_id: string; document: string; section: string; score: number | null; snippet: string }[];
+  citations: Citation[]; checks: { sentence: string; unsupported_numbers: string[] }[];
+  bank: { fields: string[]; query: Record<string, unknown> } | null; grounding: Grounding | null;
+  timings: Record<string, number>; stt_no_speech: number | null; prompt_version?: string; models?: Record<string, string>;
+  feedback?: { verdict: string } | null; hash: string | null;
+};
+export type Recording = { id: string; trace_id: string | null; kind: "call" | "voice_note"; started_at: string; duration_ms: number;
+  format: string; bytes: number; sha256: string; deleted_at: string | null; available: boolean };
+export type CallEventRow = { created_at: string; kind: string; detail: Record<string, unknown> };
+export type AuthEventRow = { created_at: string; event: string; detail: Record<string, unknown> };
+export type AlertRow = { id: number; session_id: string | null; created_at: string; kind: string; severity: string; message: string };
+export type CallRecord = {
+  id: string; created_at: string; ended_at: string | null; end_reason: string | null; language: string | null; caller: string | null;
+  customer_id: string | null; verified_at: string | null; chain_hash: string | null; chain_len: number;
+  integrity: { status: "intact" | "broken" | "not_sealed"; turns_checked?: number; turn?: number; problem?: string; head?: string };
+  turns: Turn[]; events: CallEventRow[]; auth_events: AuthEventRow[]; alerts: AlertRow[]; recordings: Recording[];
+  review?: Review | null;
+};
+
+// ── Post-call review: free code checks always, an LLM judge on a risk-weighted slice, a person's labels for calibration ──
+export const DIMENSIONS = ["task_completion", "correctness", "conversation", "compliance", "handoff"] as const;
+export type Dimension = (typeof DIMENSIONS)[number];
+export type ReviewCheck = { name: string; ok: boolean; severity: "info" | "warn" | "fail"; detail: string };
+export type Review = {
+  session_id: string; mode: "judged" | "code_only"; reason: string; checks: ReviewCheck[]; model: string | null;
+  score: number | null; critical: boolean; needs_review: boolean;
+  judge: null | {
+    dimension_scores: Record<Dimension, number>; evidence: { dimension: Dimension; dimensions?: Dimension[]; turn: number; quote: string }[];
+    critical_failure: boolean; needs_human_review: boolean; failure_categories: string[]; recommended_fix: string;
+    dropped_evidence?: number; findings?: Finding[];
+  };
+  human: null | { scores: Partial<Record<Dimension, number>>; critical: boolean; note: string };
+};
+// One problem the judge found: what happened, the quote (checked against the transcript), why it matters, the fix, where.
+export type Finding = {
+  category: string; source: "agent" | "system_failure" | "bank_system" | "knowledge_gap" | "unclear_caller" | "insufficient_evidence";
+  turn: number; quote: string; quote_verified: boolean; what_happened: string; why_it_matters: string; fix: string; fix_area: string;
+};
+// The fix list: each problem the judge found is a to-do a person marks done (kept when its call is deleted).
+export type FixItem = {
+  id: number; created_at: string; session_id: string | null; turn: number | null; category: string; source: Finding["source"];
+  fix_area: string; what_happened: string; why_it_matters: string; fix: string; quote: string;
+  status: "open" | "done" | "wont_fix"; status_note: string; status_at: string | null;
+};
+export type ReviewSummary = {
+  days: number; reviewed_calls: number; judged_calls: number; critical_calls: number; needs_review: number;
+  average_score: number | null; average_by_dimension: Record<Dimension, number | null>;
+  recurring_issues: { category: string; calls: number; agent_caused: number;
+                      example: { session_id: string; what_happened: string; fix: string; fix_area: string } }[];
+  issues_by_source: Record<string, number>; agent_issues_by_fix_area: Record<string, number>;
+};
+export type Calibration = {
+  labelled_calls: number; exact_agreement: Record<Dimension, number | null>;
+  agreement_within_one_point: Record<Dimension, number | null>;
+  judge_minus_human: Record<Dimension, number | null>;  // above 0 = the judge is more generous than people
+  critical_failure_recall: number | null; missed_critical_calls: string[]; false_positives: number; target: string;
+};
+
+export const audit = {
+  calls: (q = "", before?: string, needsReview = false) =>
+    call<CallSummary[]>(`/v1/calls?limit=50${q ? `&q=${encodeURIComponent(q)}` : ""}${before ? `&before=${encodeURIComponent(before)}` : ""}${needsReview ? "&needs_review=true" : ""}`,
+                        { headers: headers(false) }),
+  runReview: (id: string) => call<Review>(`/v1/calls/${id}/review`, { method: "POST", headers: headers(false) }),
+  labelReview: (id: string, body: { scores: Partial<Record<Dimension, number>>; critical: boolean; note: string }) =>
+    post<Review>(`/v1/calls/${id}/review/human`, body),
+  calibration: () => call<Calibration>("/v1/reviews/calibration", { headers: headers(false) }),
+  summary: (days = 30) => call<ReviewSummary>(`/v1/reviews/summary?days=${days}`, { headers: headers(false) }),
+  fixes: (status: "open" | "done" | "wont_fix" | "all" = "open") => call<FixItem[]>(`/v1/fixes?status=${status}`, { headers: headers(false) }),
+  setFix: (id: number, status: FixItem["status"], note = "") =>
+    call<FixItem>(`/v1/fixes/${id}`, { method: "PATCH", headers: headers(true), body: JSON.stringify({ status, note }) }),
+  call: (id: string) => call<CallRecord>(`/v1/calls/${id}`, { headers: headers(false) }),
+  deleteCall: (id: string) => call<{ deleted: string }>(`/v1/calls/${id}`, { method: "DELETE", headers: headers(false) }),
+  deleteRecording: (id: string, recordingId: string) =>
+    call<{ deleted: string }>(`/v1/calls/${id}/recordings/${recordingId}`, { method: "DELETE", headers: headers(false) }),
+  alerts: (after: number) => call<AlertRow[]>(`/v1/alerts?after=${after}`, { headers: headers(false) }),
+  /** Recordings and the transcript are fetched with the API key header, then handed to the browser as a blob. */
+  blob: async (path: string) => {
+    const res = await fetch(API + path, { headers: headers(false) });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? `HTTP ${res.status}`);
+    return res.blob();
+  },
+  recordingPath: (callId: string, recId: string) => `/v1/calls/${callId}/recordings/${recId}`,
+  transcriptPath: (callId: string) => `/v1/calls/${callId}/transcript.txt`,
+};
+
+// ── Agent desk (people who take over from the AI) ──
+export type HandoffNote = {
+  headline?: string; ai_summary?: { text: string; mood: string; label: string; model: string } | null;
+  summary: string; reason: string; department: string; language: string; verified: boolean; customer: string | null;
+  segment: string | null; rm: string | null; caller: string | null; asked: string[]; done: string[]; alerts: string[];
+  facts: Record<string, string>;
+};
+export type Handoff = {
+  id: string; session_id: string; department: string; department_name: string; priority: number; reason: string;
+  note: HandoffNote; status: "waiting" | "active" | "completed" | "abandoned" | "callback"; channel: "call" | "chat";
+  created_at: string; accepted_at: string | null; ended_at: string | null; agent_name: string | null;
+  disposition: string | null; agent_notes: string | null; wait_s: number; caller: string | null; live?: boolean;
+};
+export type DeskTurn = { at: string; caller: string; agent: string; outcome: string; language: string };
+export type HandoffDetail = Handoff & { messages: HandoffMessage[]; transcript: DeskTurn[]; verification: { verified: boolean; verified_at: string | null } };
+export type HandoffMessage = { id: number; sender: "customer" | "agent"; text: string; created_at: string };
+export type CustomerHandoff = { status: string; department?: string; agent?: string | null; position?: number; messages?: HandoffMessage[] };
+
+export const desk = {
+  board: () => call<{ handoffs: Handoff[]; agents: string[]; departments: Record<string, string> }>("/v1/desk/handoffs", { headers: headers(false) }),
+  get: (id: string) => call<HandoffDetail>(`/v1/desk/handoffs/${id}`, { headers: headers(false) }),
+  accept: (id: string, agent_name: string) => post<Handoff>(`/v1/desk/handoffs/${id}/accept`, { agent_name }),
+  message: (id: string, text: string) => post<HandoffMessage>(`/v1/desk/handoffs/${id}/messages`, { text }),
+  complete: (id: string, disposition: string, notes: string) => post<Handoff>(`/v1/desk/handoffs/${id}/complete`, { disposition, notes }),
+  // the customer's side of a chat that was handed over
+  status: (sessionId: string, after = 0) => call<CustomerHandoff>(`/v1/handoffs/${sessionId}?after=${after}`),
+  send: (sessionId: string, text: string) => post<HandoffMessage>(`/v1/handoffs/${sessionId}/messages`, { text }),
 };
 
 export const wsUrl = (path: string) => API.replace(/^http/, "ws") + path + (KEY ? `?key=${encodeURIComponent(KEY)}` : "");

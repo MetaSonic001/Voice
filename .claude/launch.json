@@ -7,7 +7,10 @@
       "runtimeArgs": [
         "brain/app.py"
       ],
-      "port": 8000
+      "port": 8000,
+      "env": {
+        "LLM_FALLBACK": "{\"openai/gpt-oss-120b\": \"openai/gpt-oss-20b\"}"
+      }
     },
     {
       "name": "ui",

@@ -17,7 +17,9 @@ RETRY_STATUS = {429, 500, 502, 503, 504}
 
 
 class LLMError(RuntimeError):
-    pass
+    def __init__(self, message: str, body: str = ""):
+        super().__init__(message)
+        self.body = body  # the provider's full error body (e.g. Groq's failed_generation); not logged
 
 
 class OpenAICompatibleLLM:
@@ -47,7 +49,8 @@ class OpenAICompatibleLLM:
             if response.status_code < 400:
                 response.retries = retries  # type: ignore[attr-defined]
                 return response
-            body = (await response.aread()).decode(errors="replace")[:500]
+            full = (await response.aread()).decode(errors="replace")[:20000]
+            body = full[:500]
             await response.aclose()
             wait = float(response.headers.get("retry-after", 0) or 0) or 0.5 * 2**retries
             if response.status_code in RETRY_STATUS and retries < self._max_retries and waited + wait <= self._retry_budget_s:
@@ -55,7 +58,7 @@ class OpenAICompatibleLLM:
                 await asyncio.sleep(wait)
                 retries, waited = retries + 1, waited + wait
                 continue
-            raise LLMError(f"LLM HTTP {response.status_code}: {body}")
+            raise LLMError(f"LLM HTTP {response.status_code}: {body}", body=full)
 
     async def json(self, model: str, system: str, user: str, schema: dict, max_tokens: int = 400) -> tuple[dict, dict]:
         payload = {
