@@ -87,7 +87,7 @@ async def delete_call(session_id: str, c: Container = Depends(container)):
     _not_live(session_id)
     from app.services import maintenance
 
-    removed = await asyncio.to_thread(maintenance.delete_call, c.db, c.settings.data_dir, session_id)
+    removed = await asyncio.to_thread(maintenance.delete_call, c.db, c.recordings.files, session_id)
     if removed is None:
         raise HTTPException(404, "call not found")
     return {"deleted": session_id, "removed": removed}

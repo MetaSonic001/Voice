@@ -37,8 +37,8 @@ and compliance come before features.
 ### Out of scope (people only, never the agent)
 
 - Closing an FD, payments, limit changes, address or mobile changes, refunds.
-- Production items: Sarvam STT/TTS, Cisco telephony, SSO, India-hosted LLM, Kubernetes. NRI and Business queues.
+- Production items: Sarvam STT/TTS, Cisco telephony, SSO, India-hosted LLM (Bedrock), the AWS deployment (proposed: ECS, one app). NRI and Business queues. What is left: `pending-work.md`.
 
 ## Success criteria
 
-See `PHASE-4-PLAN.md` section 1 (acceptance tests per issue A to P) and the issue table in `progress-tracker.md`.
+See `reference/PROJECT-GUIDE.md` §25.3 (the call review, issues A to Q) and the issue table in `progress-tracker.md`.

@@ -1,0 +1,36 @@
+# Both images build from the repository root:
+#   docker build -f brain/Dockerfile -t au-brain .
+#   docker build -f ui/Dockerfile    -t au-ui .
+# Everything is excluded, then only what the images need is let back in.
+*
+
+# ── brain ──
+!brain/pyproject.toml
+!brain/uv.lock
+!brain/app/
+!brain/scripts/
+!brain/seed/
+!brain/evals/
+brain/evals/cache/
+brain/evals/reports/
+# dummy data for the embedded mock bank (read only, never modified)
+!Sample Questions/Inbound_Voice_Agent_Dummy_Data.xlsx
+
+# ── ui ──
+!ui/package.json
+!ui/bun.lock
+!ui/next.config.ts
+!ui/tsconfig.json
+!ui/components.json
+!ui/postcss.config.mjs
+!ui/nginx.conf
+!ui/app/
+!ui/components/
+!ui/lib/
+!ui/public/
+
+# never in an image, even inside an allowed folder
+**/__pycache__/
+**/*.pyc
+**/.env
+**/.env.*

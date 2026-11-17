@@ -2,6 +2,7 @@
 // caller, the caller's audio comes back. Same audio worklets as the test console's live call.
 
 import { wsUrl } from "./api";
+import { echoSafeOutput, type EchoSafeOutput } from "./echo-safe-output";
 import { CAPTURE, moduleUrl, PLAYBACK } from "./worklets";
 
 const RATE = 16000;
@@ -12,6 +13,7 @@ export class DeskCall {
   private stream?: MediaStream;
   private capture?: AudioWorkletNode;
   private player?: AudioWorkletNode;
+  private output?: EchoSafeOutput;
   muted = false;
 
   constructor(private onEnd: () => void) {}
@@ -27,7 +29,7 @@ export class DeskCall {
       URL.revokeObjectURL(url);
     }
     this.player = new AudioWorkletNode(this.ctx, "playback");
-    this.player.connect(this.ctx.destination);
+    this.output = await echoSafeOutput(this.ctx, this.player); // lets the echo canceller hear what we play
     this.capture = new AudioWorkletNode(this.ctx, "capture", { processorOptions: { focus: false } });
     this.ctx.createMediaStreamSource(this.stream).connect(this.capture);
 
@@ -53,6 +55,8 @@ export class DeskCall {
   }
 
   private release() {
+    this.output?.close();
+    this.output = undefined;
     this.stream?.getTracks().forEach((t) => t.stop());
     this.ctx?.close().catch(() => {});
     this.stream = undefined;

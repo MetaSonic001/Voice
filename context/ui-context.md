@@ -28,7 +28,7 @@ the shadcn CLI; do not edit them by hand. App-level pieces: `app-shell.tsx`, `ca
 
 ## Pages
 
-`/` console (text and voice test), `/kb` knowledge base, `/calls` recorded calls and reviews, `/desk` human agent desk.
+`/` console (text and voice test), `/kb` knowledge base, `/calls` recorded calls and reviews, `/desk` human agent desk, `/fixes` the fix list from post-call reviews.
 
 ## Layout rules
 

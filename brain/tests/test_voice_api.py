@@ -2,6 +2,7 @@
 
 import base64
 import json
+import time
 
 import pytest
 
@@ -65,3 +66,41 @@ def test_live_call_over_websocket(client, kb):
     assert len(audio) > 0
     metrics = events[-1]
     assert metrics["voice_to_voice_ms"] >= 0
+
+
+def test_live_calls_over_the_limit_are_refused(client, container):
+    """Admission control: one process serves `max_live_calls` calls; the next gets "busy" and close code 1013."""
+    from starlette.websockets import WebSocketDisconnect
+
+    from app.api.voice import BUSY_CLOSE, live_calls
+
+    def wait_free():  # a call holds its line until its clean-up (recording, audit) has finished
+        for _ in range(100):
+            if live_calls() == 0:
+                return
+            time.sleep(0.05)
+        raise AssertionError("a line was never freed")
+
+    wait_free()
+    old = container.settings.max_live_calls
+    container.settings.max_live_calls = 1
+    try:
+        with client.websocket_connect("/v1/voice/stream") as first:
+            first.send_text(json.dumps({"type": "start", "greet": False, "language": "en"}))
+            assert json.loads(first.receive_text())["type"] == "ready"
+            assert live_calls() == 1
+            assert client.get("/health/ready").json()["checks"]["live_calls"] == "1/1"
+            with client.websocket_connect("/v1/voice/stream") as second:
+                busy = json.loads(second.receive_text())
+                assert busy["type"] == "busy" and busy["limit"] == 1
+                with pytest.raises(WebSocketDisconnect) as closed:
+                    second.receive_text()
+                assert closed.value.code == BUSY_CLOSE
+            first.send_text(json.dumps({"type": "stop"}))
+        wait_free()
+        with client.websocket_connect("/v1/voice/stream") as third:  # a line is free again
+            third.send_text(json.dumps({"type": "start", "greet": False, "language": "en"}))
+            assert json.loads(third.receive_text())["type"] == "ready"
+            third.send_text(json.dumps({"type": "stop"}))
+    finally:
+        container.settings.max_live_calls = old

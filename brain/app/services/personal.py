@@ -65,123 +65,125 @@ class PersonalAnswer:
 # Short, warm and natural: what a good phone banker would say. {placeholders} are filled in code.
 
 T = {
-    "acct": {"en": "your {type} account ending {l4}", "hi": "आपके {type} खाते (आख़िरी अंक {l4})",
+    "acct": {"en": "your {type} account ending {l4}", "hi": "आपके {type} अकाउंट (आख़िरी अंक {l4})",
              "hinglish": "aapke {type} account (ending {l4})"},
     "balance": {"en": "You have ₹{amt} in {acct}.", "hi": "{acct} में ₹{amt} हैं।", "hinglish": "{acct} mein ₹{amt} hain."},
     "balance_hold": {"en": "Of that, ₹{hold} is on hold ({reason}), so you can use ₹{avail} right now.",
                      "hi": "इसमें से ₹{hold} होल्ड पर है ({reason}), इसलिए अभी आप ₹{avail} इस्तेमाल कर सकते हैं।",
                      "hinglish": "Isme se ₹{hold} hold par hai ({reason}), isliye abhi aap ₹{avail} use kar sakte hain."},
-    "no_hold": {"en": "There's nothing on hold, so all of it is available.", "hi": "कुछ भी होल्ड पर नहीं है, पूरी राशि उपलब्ध है।",
+    "no_hold": {"en": "There's nothing on hold, so all of it is available.", "hi": "कुछ भी होल्ड पर नहीं है, पूरा अमाउंट इस्तेमाल कर सकते हैं।",
                 "hinglish": "Kuch bhi hold par nahi hai, poora amount available hai."},
-    "which": {"en": "You have {n} accounts: {list}. Which one shall I check?",
-              "hi": "आपके {n} खाते हैं: {list}। किस खाते की जानकारी दूँ?",
-              "hinglish": "Aapke {n} accounts hain: {list}. Kaunsa account check karun?"},
-    "which_item": {"en": "You have {n} {what}: {list}. Which one do you mean?",
-                   "hi": "आपके {n} {what} हैं: {list}। आप किसकी बात कर रहे हैं?",
-                   "hinglish": "Aapke {n} {what} hain: {list}. Aap kaunsa keh rahe hain?"},
-    "no_match": {"en": "I couldn't find one matching that. You have: {list}.", "hi": "ऐसा कोई नहीं मिला। आपके पास हैं: {list}।",
-                 "hinglish": "Aisa koi nahi mila. Aapke paas hain: {list}."},
+    "which": {"en": "You have {n} accounts. {list}. Which one would you like me to check?",
+              "hi": "आपके {n} अकाउंट हैं। {list}। आप किस अकाउंट के बारे में जानना चाहेंगे?",
+              "hinglish": "Aapke {n} accounts hain. {list}. Aap kaunsa account check karwana chahenge?"},
+    "which_item": {"en": "You have {n} {what}. {list}. Which one do you mean?",
+                   "hi": "आपके {n} {what} हैं। {list}। आप किसकी बात कर रहे हैं?",
+                   "hinglish": "Aapke {n} {what} hain. {list}. Aap kiski baat kar rahe hain?"},
+    "no_match": {"en": "I couldn't find one that matches. {list}. Which one did you mean?",
+                 "hi": "मुझे ऐसा कोई नहीं मिला। {list}। आप किसकी बात कर रहे हैं?",
+                 "hinglish": "Mujhe aisa koi nahi mila. {list}. Aap kiski baat kar rahe hain?"},
     "salary_is": {"en": "Your salary comes into {acct}{employer}.", "hi": "आपकी सैलरी {acct} में आती है{employer}।",
                   "hinglish": "Aapki salary {acct} mein aati hai{employer}."},
     "no_salary": {"en": "I don't see salary credits on any of your accounts, so I can't tell which one is your salary account.",
-                  "hi": "आपके किसी खाते में सैलरी क्रेडिट नहीं दिख रहा, इसलिए सैलरी खाता नहीं बता सकती।",
+                  "hi": "आपके किसी अकाउंट में सैलरी क्रेडिट नहीं दिख रहा, इसलिए सैलरी अकाउंट नहीं बता सकती।",
                   "hinglish": "Aapke kisi account mein salary credit nahi dikh raha, isliye salary account nahi bata sakti."},
     "linked_dc": {"en": "{Acct} has a {variant} debit card ending {l4}, and it's {status}.",
                   "hi": "{acct} के साथ {variant} डेबिट कार्ड (आख़िरी अंक {l4}) जुड़ा है, और यह {status} है।",
                   "hinglish": "{acct} ke saath {variant} debit card (ending {l4}) linked hai, aur yeh {status} hai."},
     "no_dc_on": {"en": "There's no debit card on {acct}.", "hi": "{acct} पर कोई डेबिट कार्ड नहीं है।",
                  "hinglish": "{acct} par koi debit card nahi hai."},
-    "variant": {"en": "That's your {type} savings account, ending {l4}.", "hi": "यह आपका {type} बचत खाता है (आख़िरी अंक {l4})।",
+    "variant": {"en": "That's your {type} savings account, ending {l4}.", "hi": "यह आपका {type} सेविंग्स अकाउंट है (आख़िरी अंक {l4})।",
                 "hinglish": "Yeh aapka {type} savings account hai (ending {l4})."},
     "acct_status": {"en": "{Acct} is {status}.", "hi": "{acct} {status} है।", "hinglish": "{acct} {status} hai."},
     "inactive_note": {"en": "It's been inactive for a while; a quick visit to the app or a branch makes it active again.",
                       "hi": "यह कुछ समय से इनएक्टिव है; ऐप या ब्रांच से इसे फिर से एक्टिव किया जा सकता है।",
                       "hinglish": "Yeh kuch time se inactive hai; app ya branch se ise phir se active kar sakte hain."},
     "amb_rule": {"en": "{Acct} needs an average monthly balance of ₹{req}{branch}.",
-                 "hi": "{acct} में ₹{req} का औसत मासिक बैलेंस रखना होता है{branch}।",
+                 "hi": "{acct} में ₹{req} का एवरेज मंथली बैलेंस रखना होता है{branch}।",
                  "hinglish": "{acct} mein ₹{req} ka average monthly balance rakhna hota hai{branch}."},
     "amb_none": {"en": "Good news: {acct} has no minimum balance requirement.",
-                 "hi": "अच्छी बात यह है कि {acct} में कोई न्यूनतम बैलेंस ज़रूरी नहीं है।",
+                 "hi": "अच्छी बात यह है कि {acct} में कोई मिनिमम बैलेंस ज़रूरी नहीं है।",
                  "hinglish": "Achhi baat yeh hai ki {acct} mein koi minimum balance zaroori nahi hai."},
     "amb_now_ok": {"en": "This month your average so far is ₹{mtd}, so you're above it.",
-                   "hi": "इस महीने अब तक आपका औसत ₹{mtd} है, यानी आप इससे ऊपर हैं।",
+                   "hi": "इस महीने अब तक आपका एवरेज ₹{mtd} है, यानी आप इससे ऊपर हैं।",
                    "hinglish": "Is mahine ab tak aapka average ₹{mtd} hai, yaani aap upar hain."},
     "amb_now_short": {"en": "This month your average so far is ₹{mtd}, which is ₹{gap} short, so a charge may apply if it stays that way.",
-                      "hi": "इस महीने अब तक आपका औसत ₹{mtd} है, जो ₹{gap} कम है; ऐसा ही रहा तो चार्ज लग सकता है।",
+                      "hi": "इस महीने अब तक आपका एवरेज ₹{mtd} है, जो ₹{gap} कम है; ऐसा ही रहा तो चार्ज लग सकता है।",
                       "hinglish": "Is mahine ab tak aapka average ₹{mtd} hai, jo ₹{gap} kam hai; aisa hi raha toh charge lag sakta hai."},
     "charge_line": {"en": "₹{amt} was charged on {date} for {what}{rev}.", "hi": "{date} को {what} के लिए ₹{amt} का चार्ज लगा{rev}।",
                     "hinglish": "{date} ko {what} ke liye ₹{amt} ka charge laga{rev}."},
     "amb_charge_why": {"en": "That's because last month's average balance was ₹{last}, below the ₹{req} needed.",
-                       "hi": "ऐसा इसलिए क्योंकि पिछले महीने का औसत बैलेंस ₹{last} था, जो ज़रूरी ₹{req} से कम था।",
+                       "hi": "ऐसा इसलिए क्योंकि पिछले महीने का एवरेज बैलेंस ₹{last} था, जो ज़रूरी ₹{req} से कम था।",
                        "hinglish": "Aisa isliye kyunki pichhle mahine ka average balance ₹{last} tha, jo zaroori ₹{req} se kam tha."},
     "no_charges": {"en": "I don't see any charges on {acct} recently.", "hi": "{acct} पर हाल में कोई चार्ज नहीं दिख रहा।",
                    "hinglish": "{acct} par recently koi charge nahi dikh raha."},
     "charge_dispute": {"en": "If you think a charge is wrong, I can raise a request to review it.",
-                       "hi": "अगर आपको कोई चार्ज गलत लगता है, तो मैं उसकी जाँच के लिए अनुरोध दर्ज कर सकती हूँ।",
+                       "hi": "अगर आपको कोई चार्ज गलत लगता है, तो मैं उसे रिव्यू करवाने के लिए रिक्वेस्ट डाल सकती हूँ।",
                        "hinglish": "Agar aapko koi charge galat lagta hai, toh main uske review ke liye request raise kar sakti hoon."},
     # transactions
-    "txn_intro": {"en": "Here are the last {k} transactions on the account ending {l4}:", "hi": "खाता (आख़िरी अंक {l4}) के पिछले {k} लेनदेन:",
-                  "hinglish": "Account (ending {l4}) ke pichhle {k} transactions:"},
-    "txn_found": {"en": "I found {k} on the account ending {l4}:", "hi": "खाता (आख़िरी अंक {l4}) में {k} लेनदेन मिले:",
-                  "hinglish": "Account (ending {l4}) mein {k} transactions mile:"},
-    "txn": {"en": "{date}{time}: {desc}{who}{acct}, ₹{amt}{tail}.", "hi": "{date}{time}: {desc}{who}{acct}, ₹{amt}{tail}।",
-            "hinglish": "{date}{time}: {desc}{who}{acct}, ₹{amt}{tail}."},
-    "txn_merged_intro": {"en": "Here are your latest {k} transactions across your accounts:", "hi": "आपके सभी खातों के सबसे ताज़ा {k} लेनदेन:",
-                         "hinglish": "Aapke saare accounts ke latest {k} transactions:"},
-    "txn_merged_found": {"en": "I found {k} across your accounts:", "hi": "आपके खातों में {k} लेनदेन मिले:",
-                         "hinglish": "Aapke accounts mein {k} transactions mile:"},
+    "txn_intro": {"en": "Here are the last {k} transactions on your account ending {l4}.",
+                  "hi": "आपके अकाउंट (आख़िरी अंक {l4}) के पिछले {k} ट्रांज़ैक्शन ये हैं।",
+                  "hinglish": "Aapke account ending {l4} ke pichhle {k} transactions yeh hain."},
+    "txn_found": {"en": "I found {k} on your account ending {l4}.", "hi": "आपके अकाउंट (आख़िरी अंक {l4}) में मुझे {k} ट्रांज़ैक्शन मिले।",
+                  "hinglish": "Aapke account ending {l4} mein mujhe {k} transactions mile."},
+    "txn_merged_intro": {"en": "Here are your latest {k} transactions across your accounts.",
+                         "hi": "आपके सभी अकाउंट के सबसे नए {k} ट्रांज़ैक्शन ये हैं।",
+                         "hinglish": "Aapke saare accounts ke latest {k} transactions yeh hain."},
+    "txn_merged_found": {"en": "I found {k} across your accounts.", "hi": "आपके अकाउंट में मुझे {k} ट्रांज़ैक्शन मिले।",
+                         "hinglish": "Aapke accounts mein mujhe {k} transactions mile."},
     # fewer transactions than the caller asked for: say so, so it never sounds like the request was ignored
-    "txn_only": {"en": "There are only {k} transactions on the account ending {l4}:", "hi": "खाता (आख़िरी अंक {l4}) में सिर्फ़ {k} लेनदेन हैं:",
-                 "hinglish": "Account (ending {l4}) mein sirf {k} transactions hain:"},
-    "txn_only_one": {"en": "There's only one transaction on the account ending {l4}:", "hi": "खाता (आख़िरी अंक {l4}) में सिर्फ़ एक लेनदेन है:",
-                     "hinglish": "Account (ending {l4}) mein sirf ek transaction hai:"},
-    "txn_merged_only": {"en": "There are only {k} transactions across your accounts:", "hi": "आपके खातों में सिर्फ़ {k} लेनदेन हैं:",
-                        "hinglish": "Aapke accounts mein sirf {k} transactions hain:"},
+    "txn_only": {"en": "There are only {k} transactions on your account ending {l4}.",
+                 "hi": "आपके अकाउंट (आख़िरी अंक {l4}) में सिर्फ़ {k} ट्रांज़ैक्शन हैं।",
+                 "hinglish": "Aapke account ending {l4} mein sirf {k} transactions hain."},
+    "txn_only_one": {"en": "There's only one transaction on your account ending {l4}.",
+                     "hi": "आपके अकाउंट (आख़िरी अंक {l4}) में सिर्फ़ एक ट्रांज़ैक्शन है।",
+                     "hinglish": "Aapke account ending {l4} mein sirf ek transaction hai."},
+    "txn_merged_only": {"en": "There are only {k} transactions across your accounts.", "hi": "आपके अकाउंट में सिर्फ़ {k} ट्रांज़ैक्शन हैं।",
+                        "hinglish": "Aapke accounts mein sirf {k} transactions hain."},
     "acct_inactive_note": {"en": "That account is inactive, which is why there's so little on it.",
-                           "hi": "यह खाता निष्क्रिय है, इसलिए इसमें बहुत कम लेनदेन हैं।",
+                           "hi": "यह अकाउंट इनएक्टिव है, इसलिए इसमें बहुत कम ट्रांज़ैक्शन हैं।",
                            "hinglish": "Yeh account inactive hai, isliye ismein bahut kam transactions hain."},
-    "inactive_tag": {"en": " (inactive)", "hi": " (निष्क्रिय)", "hinglish": " (inactive)"},
     "more_offer": {"en": "Want the other {k}?", "hi": "बाकी {k} भी बताऊँ?", "hinglish": "Baaki {k} bhi bataun?"},
-    "on_acct": {"en": " on account ending {l4}", "hi": " (खाता ...{l4})", "hinglish": " (account ending {l4})"},
-    # one status table for spoken words: "paid" / "received" only ever follow a completed (success) transaction
+    # one transaction as a spoken sentence (built in _txn_line): when, what, how much, to or from whom, and its status.
+    # "Nothing extra" for a completed one; the other statuses say plainly what happened to the money.
     "txn_tail": {
-        "en": {"success": {"Debit": " paid", "Credit": " received"}, "pending": {"Debit": ", still processing", "Credit": ", still processing"},
-               "failed": {"Debit": ", not completed, no money moved", "Credit": ", not received"},
-               "reversed": {"Debit": ", reversed and returned to you", "Credit": ", reversed"},
-               "unknown": {"Debit": ", I can't confirm its status", "Credit": ", I can't confirm its status"}},
-        "hi": {"success": {"Debit": " डेबिट", "Credit": " जमा"}, "pending": {"Debit": ", अभी प्रोसेस हो रहा है", "Credit": ", अभी प्रोसेस हो रहा है"},
-               "failed": {"Debit": ", पूरा नहीं हुआ, कोई पैसा नहीं गया", "Credit": ", जमा नहीं हुआ"},
-               "reversed": {"Debit": ", वापस लौटा दिया गया", "Credit": ", वापस हो गया"},
-               "unknown": {"Debit": ", स्थिति की पुष्टि नहीं हो सकी", "Credit": ", स्थिति की पुष्टि नहीं हो सकी"}},
-        "hinglish": {"success": {"Debit": " gaye", "Credit": " aaye"}, "pending": {"Debit": ", abhi process ho raha hai", "Credit": ", abhi process ho raha hai"},
-                     "failed": {"Debit": ", complete nahi hua, koi paisa nahi gaya", "Credit": ", nahi aaye"},
-                     "reversed": {"Debit": ", reverse hokar wapas aa gaye", "Credit": ", reverse ho gaye"},
-                     "unknown": {"Debit": ", status confirm nahi ho paaya", "Credit": ", status confirm nahi ho paaya"}}},
+        "en": {"success": {"Debit": "", "Credit": ""}, "pending": {"Debit": ", and it's still processing", "Credit": ", and it's still processing"},
+               "failed": {"Debit": ", but it didn't go through, so no money left your account", "Credit": ", but it didn't come through"},
+               "reversed": {"Debit": ", and it was reversed, so the money came back to you", "Credit": ", but it was later reversed"},
+               "unknown": {"Debit": ", but I can't confirm whether it went through", "Credit": ", but I can't confirm whether it came through"}},
+        "hi": {"success": {"Debit": "", "Credit": ""}, "pending": {"Debit": ", जो अभी प्रोसेस हो रहा है", "Credit": ", जो अभी प्रोसेस हो रहा है"},
+               "failed": {"Debit": ", लेकिन यह पूरा नहीं हुआ, इसलिए कोई पैसा नहीं गया", "Credit": ", लेकिन पैसे नहीं आए"},
+               "reversed": {"Debit": ", जो रिवर्स होकर वापस आ गया", "Credit": ", लेकिन बाद में रिवर्स हो गया"},
+               "unknown": {"Debit": ", लेकिन इसका स्टेटस कन्फ़र्म नहीं हो पाया", "Credit": ", लेकिन इसका स्टेटस कन्फ़र्म नहीं हो पाया"}},
+        "hinglish": {"success": {"Debit": "", "Credit": ""}, "pending": {"Debit": ", jo abhi process ho raha hai", "Credit": ", jo abhi process ho raha hai"},
+                     "failed": {"Debit": ", lekin yeh complete nahi hua, isliye koi paisa nahi gaya", "Credit": ", lekin paise nahi aaye"},
+                     "reversed": {"Debit": ", jo reverse hokar wapas aa gaya", "Credit": ", lekin baad mein reverse ho gaya"},
+                     "unknown": {"Debit": ", lekin iska status confirm nahi ho paaya", "Credit": ", lekin iska status confirm nahi ho paaya"}}},
     "txn_total": {"en": "That adds up to ₹{amt} across {k} payments from the account ending {l4}.",
-                  "hi": "खाता (आख़िरी अंक {l4}) से {k} भुगतानों में कुल ₹{amt} हुए।",
+                  "hi": "अकाउंट (आख़िरी अंक {l4}) से {k} पेमेंट्स में कुल ₹{amt} हुए।",
                   "hinglish": "Account (ending {l4}) se {k} payments mein total ₹{amt} hue."},
     "txn_none": {"en": "I don't see a matching transaction on the account ending {l4}.",
-                 "hi": "खाता (आख़िरी अंक {l4}) में ऐसा कोई लेनदेन नहीं दिख रहा।",
+                 "hi": "अकाउंट (आख़िरी अंक {l4}) में ऐसा कोई ट्रांज़ैक्शन नहीं दिख रहा।",
                  "hinglish": "Account (ending {l4}) mein aisa koi transaction nahi dikh raha."},
     # what the bank's records say about a transaction (structured note keys from the core banking system)
     "note_atm_not_dispensed": {"en": "The ATM recorded that the cash wasn't dispensed, so the ₹{amt} will come back to your account automatically by {due}. If it's later than that, the bank pays you ₹100 for every day of delay.",
-                               "hi": "ATM के रिकॉर्ड में कैश नहीं निकला दिखा है, इसलिए ₹{amt} {due} तक अपने आप आपके खाते में वापस आ जाएँगे। इससे देर हुई तो बैंक हर दिन की देरी के ₹100 देगा।",
+                               "hi": "ATM के रिकॉर्ड में कैश नहीं निकला दिखा है, इसलिए ₹{amt} {due} तक अपने आप आपके अकाउंट में वापस आ जाएँगे। इससे देर हुई तो बैंक हर दिन की देरी के ₹100 देगा।",
                                "hinglish": "ATM ke record mein cash nahi nikla dikha hai, isliye ₹{amt} {due} tak apne aap aapke account mein wapas aa jayenge. Isse der hui toh bank har din ki deri ke ₹100 dega."},
-    "note_upi_pending": {"en": "It's still waiting for confirmation from the other person's bank. If it doesn't go through, the money comes back to you automatically by the next working day.",
-                         "hi": "यह अभी सामने वाले के बैंक की पुष्टि का इंतज़ार कर रहा है। अगर यह पूरा नहीं हुआ, तो पैसे अगले कार्यदिवस तक अपने आप वापस आ जाएँगे।",
+    "note_upi_pending": {"en": "It's waiting for confirmation from the other person's bank. If it doesn't go through, the money comes back to you automatically by the next working day.",
+                         "hi": "यह अभी सामने वाले के बैंक के कन्फ़र्मेशन का इंतज़ार कर रहा है। अगर यह पूरा नहीं हुआ, तो पैसे अगले वर्किंग डे तक अपने आप वापस आ जाएँगे।",
                          "hinglish": "Yeh abhi saamne wale ke bank ke confirmation ka wait kar raha hai. Agar yeh complete nahi hua, toh paise agle working day tak apne aap wapas aa jayenge."},
     "note_emi_insufficient": {"en": "the EMI was presented at {time}, when the balance was ₹{balance}, and your salary came in at {credit_time}",
                               "hi": "EMI {time} पर पेश हुई थी, तब बैलेंस ₹{balance} था, और आपकी सैलरी {credit_time} पर आई",
                               "hinglish": "EMI {time} par present hui thi, tab balance ₹{balance} tha, aur aapki salary {credit_time} par aayi"},
     "note_declined_blocked": {"en": "It was declined because the card was temporarily blocked, so no money was taken.",
-                              "hi": "यह इसलिए अस्वीकार हुआ क्योंकि कार्ड अस्थायी रूप से ब्लॉक था, इसलिए कोई पैसा नहीं कटा।",
+                              "hi": "यह इसलिए डिक्लाइन हुआ क्योंकि कार्ड टेम्पररी ब्लॉक था, इसलिए कोई पैसा नहीं कटा।",
                               "hinglish": "Yeh isliye decline hua kyunki card temporarily blocked tha, isliye koi paisa nahi kata."},
-    "reason_insufficient_balance": {"en": "the account didn't have enough balance when it was presented", "hi": "उस समय खाते में पर्याप्त बैलेंस नहीं था",
+    "reason_insufficient_balance": {"en": "the account didn't have enough balance when it was presented", "hi": "उस समय अकाउंट में काफ़ी बैलेंस नहीं था",
                                     "hinglish": "us waqt account mein enough balance nahi tha"},
     "dup_found": {"en": "Yes, it looks like a double charge: ₹{amt} at {who} went through twice on {date}, a minute apart.",
-                  "hi": "हाँ, यह दोहरा चार्ज लगता है: {date} को {who} पर ₹{amt} एक मिनट के अंतर से दो बार कटे।",
+                  "hi": "हाँ, यह डबल चार्ज लगता है: {date} को {who} पर ₹{amt} एक मिनट के अंतर से दो बार कटे।",
                   "hinglish": "Haan, yeh double charge lagta hai: {date} ko {who} par ₹{amt} ek minute ke gap mein do baar kate."},
-    "dup_none": {"en": "I don't see any duplicate payments recently.", "hi": "हाल में कोई दोहरा भुगतान नहीं दिख रहा।",
+    "dup_none": {"en": "I don't see any duplicate payments recently.", "hi": "हाल में कोई डबल पेमेंट नहीं दिख रहा।",
                  "hinglish": "Recently koi double payment nahi dikh raha."},
     "dispute_offer": {"en": "I can raise a dispute for it right away if you'd like.",
                       "hi": "आप चाहें तो मैं अभी इसकी शिकायत दर्ज कर सकती हूँ।",
@@ -200,7 +202,7 @@ T = {
                   "hi": "मैच्योरिटी पर आपकी FD (आख़िरी अंक {l4}) से {date} को लगभग ₹{mat} मिलेंगे।",
                   "hinglish": "Maturity par aapki FD (ending {l4}) se {date} ko lagbhag ₹{mat} milenge."},
     "fd_payout": {"en": "It pays interest every quarter, so the ₹{p} principal comes back on maturity.",
-                  "hi": "इसमें ब्याज हर तिमाही मिलता है, इसलिए मैच्योरिटी पर ₹{p} मूलधन वापस मिलेगा।",
+                  "hi": "इसमें ब्याज हर तीन महीने में मिलता है, इसलिए मैच्योरिटी पर ₹{p} प्रिंसिपल अमाउंट वापस मिलेगा।",
                   "hinglish": "Isme interest har quarter milta hai, isliye maturity par ₹{p} principal wapas milega."},
     "fd_rate": {"en": "Your FD ending {l4} earns {rate}% a year.", "hi": "आपकी FD (आख़िरी अंक {l4}) पर {rate}% सालाना ब्याज है।",
                 "hinglish": "Aapki FD (ending {l4}) par {rate}% saalana interest hai."},
@@ -208,10 +210,10 @@ T = {
                  "hi": "हाँ, आपकी FD (आख़िरी अंक {l4}) मैच्योरिटी पर अपने आप रिन्यू होगी।",
                  "hinglish": "Haan, aapki FD (ending {l4}) maturity par apne aap renew hogi."},
     "fd_no_renew": {"en": "No, your FD ending {l4} won't renew on its own; the money goes to your savings account on maturity.",
-                    "hi": "नहीं, आपकी FD (आख़िरी अंक {l4}) अपने आप रिन्यू नहीं होगी; मैच्योरिटी पर पैसे बचत खाते में आएँगे।",
+                    "hi": "नहीं, आपकी FD (आख़िरी अंक {l4}) अपने आप रिन्यू नहीं होगी; मैच्योरिटी पर पैसे सेविंग्स अकाउंट में आएँगे।",
                     "hinglish": "Nahi, aapki FD (ending {l4}) apne aap renew nahi hogi; maturity par paise savings account mein aayenge."},
     "fd_break": {"en": "If you closed your FD ending {l4} today, you'd get roughly ₹{amt}. That's an estimate with the 1% early-closure penalty; the exact amount is confirmed when it's closed.",
-                 "hi": "अगर आप आज FD (आख़िरी अंक {l4}) तोड़ें, तो लगभग ₹{amt} मिलेंगे। यह 1% समय-पूर्व पेनल्टी के साथ अनुमान है; सही राशि बंद करते समय पता चलेगी।",
+                 "hi": "अगर आप आज FD (आख़िरी अंक {l4}) तोड़ें, तो लगभग ₹{amt} मिलेंगे। यह 1% प्रीमैच्योर पेनल्टी के साथ अनुमान है; सही अमाउंट बंद करते समय पता चलेगा।",
                  "hinglish": "Agar aap aaj FD (ending {l4}) todein, toh lagbhag ₹{amt} milenge. Yeh 1% premature penalty ke saath estimate hai; exact amount close karte waqt confirm hoga."},
     "fd_break_how": {"en": "I can't close it on this call, but you can do it in the AU 0101 app or at a branch.",
                      "hi": "मैं इस कॉल पर इसे बंद नहीं कर सकती, लेकिन आप AU 0101 ऐप या ब्रांच से कर सकते हैं।",
@@ -226,13 +228,13 @@ T = {
     "emi_count": {"en": "You've paid {paid} EMIs and {left} are left.", "hi": "आपने {paid} EMI भर दी हैं और {left} बाकी हैं।",
                   "hinglish": "Aapne {paid} EMIs bhar di hain aur {left} baaki hain."},
     "emi_paid": {"en": "Your EMI of ₹{emi} due on {date} was paid successfully.",
-                 "hi": "{date} की ₹{emi} की EMI सफलतापूर्वक भर दी गई।",
+                 "hi": "{date} की ₹{emi} की EMI भर दी गई।",
                  "hinglish": "{date} ki ₹{emi} ki EMI successfully pay ho gayi."},
     "emi_bounced": {"en": "Your EMI of ₹{emi} due on {date} didn't go through: {reason}.",
                     "hi": "{date} की ₹{emi} की EMI नहीं कटी: {reason}।", "hinglish": "{date} ki ₹{emi} ki EMI nahi kati: {reason}."},
     "emi_bounce_charge": {"en": "A bounce charge of ₹{amt} was added for it.", "hi": "इसके लिए ₹{amt} का बाउंस चार्ज लगा है।",
                           "hinglish": "Iske liye ₹{amt} ka bounce charge laga hai."},
-    "emi_bounce_time": {"en": "Looking at your account, {note}.", "hi": "आपके खाते में देखें तो {note}।", "hinglish": "Account mein dekhein toh {note}."},
+    "emi_bounce_time": {"en": "Looking at your account, {note}.", "hi": "आपके अकाउंट में देखें तो {note}।", "hinglish": "Account mein dekhein toh {note}."},
     "no_bounce": {"en": "Good news: no bounce or late-payment charges on your {type} loan.",
                   "hi": "अच्छी बात यह है कि आपके {type} लोन पर कोई बाउंस या लेट-पेमेंट चार्ज नहीं है।",
                   "hinglish": "Achhi baat yeh hai ki aapke {type} loan par koi bounce ya late-payment charge nahi hai."},
@@ -242,27 +244,27 @@ T = {
     "emi_same": {"en": "Your {type} loan EMI hasn't changed; it's ₹{emi}.", "hi": "आपके {type} लोन की EMI नहीं बदली; यह ₹{emi} है।",
                  "hinglish": "Aapke {type} loan ki EMI nahi badli; yeh ₹{emi} hai."},
     "foreclose": {"en": "To close your {type} loan today you'd need about ₹{amt}: ₹{out} outstanding{charge}. That's an estimate; the loan team gives the exact figure.",
-                  "hi": "आज {type} लोन बंद करने के लिए लगभग ₹{amt} चाहिए: ₹{out} बकाया{charge}। यह अनुमान है; सही राशि लोन टीम बताएगी।",
+                  "hi": "आज {type} लोन बंद करने के लिए लगभग ₹{amt} चाहिए: ₹{out} बकाया{charge}। यह अनुमान है; सही अमाउंट लोन टीम बताएगी।",
                   "hinglish": "Aaj {type} loan close karne ke liye lagbhag ₹{amt} chahiye: ₹{out} outstanding{charge}. Yeh estimate hai; exact amount loan team batayegi."},
     "foreclose_team": {"en": "The exact amount to close it, including any charge, comes from our loan team as a foreclosure letter; I can connect you to them.",
-                       "hi": "इसे बंद करने की सही राशि, किसी भी चार्ज के साथ, हमारी लोन टीम फोरक्लोज़र लेटर में बताती है; मैं आपको उनसे जोड़ सकती हूँ।",
+                       "hi": "इसे बंद करने की सही अमाउंट, चार्ज के साथ, हमारी लोन टीम फोरक्लोज़र लेटर में बताती है; मैं आपको उनसे जोड़ सकती हूँ।",
                        "hinglish": "Ise close karne ka exact amount, charges ke saath, hamari loan team foreclosure letter mein batati hai; main aapko unse connect kar sakti hoon."},
-    "no_payment_made": {"en": "I haven't made any payment.", "hi": "मैंने कोई भुगतान नहीं किया है।", "hinglish": "Maine koi payment nahi kiya hai."},
+    "no_payment_made": {"en": "I haven't made any payment.", "hi": "मैंने कोई पेमेंट नहीं किया है।", "hinglish": "Maine koi payment nahi kiya hai."},
     "no_loan": {"en": "I don't see any loan in your name.", "hi": "आपके नाम पर कोई लोन नहीं दिख रहा।",
                 "hinglish": "Aapke naam par koi loan nahi dikh raha."},
     # credit cards
     "cc_due": {"en": "On your {variant} card ending {l4}, the total due is ₹{total} and the minimum due is ₹{min}, by {date}.",
-               "hi": "आपके {variant} कार्ड (आख़िरी अंक {l4}) पर कुल देय ₹{total} और न्यूनतम देय ₹{min} है, {date} तक।",
+               "hi": "आपके {variant} कार्ड (आख़िरी अंक {l4}) पर टोटल ड्यू ₹{total} और मिनिमम ड्यू ₹{min} है, {date} तक।",
                "hinglish": "Aapke {variant} card (ending {l4}) par total due ₹{total} aur minimum due ₹{min} hai, {date} tak."},
-    "cc_paid_up": {"en": "Your {variant} card ending {l4} has nothing due right now.", "hi": "आपके {variant} कार्ड (आख़िरी अंक {l4}) पर अभी कुछ देय नहीं है।",
+    "cc_paid_up": {"en": "Your {variant} card ending {l4} has nothing due right now.", "hi": "आपके {variant} कार्ड (आख़िरी अंक {l4}) पर अभी कुछ भी ड्यू नहीं है।",
                    "hinglish": "Aapke {variant} card (ending {l4}) par abhi kuch due nahi hai."},
     "cc_limit": {"en": "Your {variant} card ending {l4} has ₹{avail} available out of a ₹{limit} limit.",
-                 "hi": "आपके {variant} कार्ड (आख़िरी अंक {l4}) में ₹{limit} की लिमिट में से ₹{avail} उपलब्ध है।",
+                 "hi": "आपके {variant} कार्ड (आख़िरी अंक {l4}) में ₹{limit} की लिमिट में से ₹{avail} अवेलेबल है।",
                  "hinglish": "Aapke {variant} card (ending {l4}) mein ₹{limit} ki limit mein se ₹{avail} available hai."},
     "cc_pay_processing": {"en": "I can see your payment of ₹{amt} from {date}. It's still being processed, which is why the outstanding hasn't changed yet; it usually shows within 1 to 2 working days.",
-                          "hi": "{date} का आपका ₹{amt} का भुगतान दिख रहा है। यह अभी प्रोसेस हो रहा है, इसलिए बकाया नहीं बदला; आमतौर पर 1-2 कार्यदिवस में दिख जाता है।",
+                          "hi": "{date} का आपका ₹{amt} का पेमेंट दिख रहा है। यह अभी प्रोसेस हो रहा है, इसलिए बकाया नहीं बदला; आमतौर पर 1-2 वर्किंग डे में दिख जाता है।",
                           "hinglish": "{date} ka aapka ₹{amt} ka payment dikh raha hai. Yeh abhi process ho raha hai, isliye outstanding nahi badla; aamtaur par 1-2 working days mein dikh jaata hai."},
-    "cc_pay_posted": {"en": "Your last payment of ₹{amt} on {date} has gone through.", "hi": "{date} का आपका ₹{amt} का पिछला भुगतान हो चुका है।",
+    "cc_pay_posted": {"en": "Your last payment of ₹{amt} on {date} has gone through.", "hi": "{date} का आपका ₹{amt} का पिछला पेमेंट हो चुका है।",
                       "hinglish": "{date} ka aapka ₹{amt} ka last payment ho chuka hai."},
     "cc_statement": {"en": "Your latest statement for the card ending {l4} was generated on {date}, and the previous bill was {paid}.",
                      "hi": "कार्ड (आख़िरी अंक {l4}) का पिछला स्टेटमेंट {date} को बना, और पिछला बिल {paid}।",
@@ -270,9 +272,9 @@ T = {
     "paid_words": {"en": ("paid in full", "not fully paid"), "hi": ("पूरा भर दिया गया था", "पूरा नहीं भरा गया था"),
                    "hinglish": ("poora pay hua tha", "poora pay nahi hua tha")},
     "cc_lounge": {"en": "Your {variant} card has {total} lounge visits a quarter; you've used {used}, so {left} are left.",
-                  "hi": "आपके {variant} कार्ड पर हर तिमाही {total} लाउंज विज़िट हैं; आपने {used} इस्तेमाल किए, {left} बाकी हैं।",
+                  "hi": "आपके {variant} कार्ड पर हर तीन महीने में {total} लाउंज विज़िट हैं; आपने {used} इस्तेमाल किए, {left} बाकी हैं।",
                   "hinglish": "Aapke {variant} card par har quarter {total} lounge visits hain; aapne {used} use kiye, {left} baaki hain."},
-    "cc_no_lounge": {"en": "Your {variant} card doesn't include complimentary lounge visits.", "hi": "आपके {variant} कार्ड में मुफ़्त लाउंज विज़िट नहीं हैं।",
+    "cc_no_lounge": {"en": "Your {variant} card doesn't include complimentary lounge visits.", "hi": "आपके {variant} कार्ड में फ़्री लाउंज विज़िट नहीं हैं।",
                      "hinglish": "Aapke {variant} card mein complimentary lounge visits nahi hain."},
     "cc_fee": {"en": "The ₹{fee} annual fee on your {variant} card was charged on {date}. It's waived only when the previous year's spend reaches ₹{waiver}; your spend was ₹{spend}.",
                "hi": "आपके {variant} कार्ड पर ₹{fee} की सालाना फीस {date} को लगी। यह तभी माफ़ होती है जब पिछले साल ₹{waiver} खर्च हों; आपका खर्च ₹{spend} था।",
@@ -280,32 +282,34 @@ T = {
     "cc_no_fee": {"en": "Your {variant} card has no annual fee charged.", "hi": "आपके {variant} कार्ड पर कोई सालाना फीस नहीं लगी है।",
                   "hinglish": "Aapke {variant} card par koi annual fee nahi lagi hai."},
     "cc_intl_on": {"en": "International use is switched on for your card ending {l4}, and you have ₹{avail} available, so a payment of about ₹{amt} would fit.",
-                   "hi": "आपके कार्ड (आख़िरी अंक {l4}) पर अंतरराष्ट्रीय इस्तेमाल चालू है और ₹{avail} उपलब्ध है, तो लगभग ₹{amt} का भुगतान हो सकता है।",
+                   "hi": "आपके कार्ड (आख़िरी अंक {l4}) पर इंटरनेशनल इस्तेमाल चालू है और ₹{avail} अवेलेबल है, तो लगभग ₹{amt} का पेमेंट हो सकता है।",
                    "hinglish": "Aapke card (ending {l4}) par international use chalu hai aur ₹{avail} available hai, toh lagbhag ₹{amt} ka payment ho sakta hai."},
     "cc_intl_off": {"en": "International use is switched off on your card ending {l4}. I can switch it on for you if you'd like.",
-                    "hi": "आपके कार्ड (आख़िरी अंक {l4}) पर अंतरराष्ट्रीय इस्तेमाल बंद है। आप चाहें तो मैं इसे चालू कर सकती हूँ।",
+                    "hi": "आपके कार्ड (आख़िरी अंक {l4}) पर इंटरनेशनल इस्तेमाल बंद है। आप चाहें तो मैं इसे चालू कर सकती हूँ।",
                     "hinglish": "Aapke card (ending {l4}) par international use band hai. Aap chahein toh main ise chalu kar sakti hoon."},
-    "cc_txns": {"en": "Recent spends on the card ending {l4}:", "hi": "कार्ड (आख़िरी अंक {l4}) पर हाल के खर्च:",
-                "hinglish": "Card (ending {l4}) par recent spends:"},
-    "cc_txn": {"en": "{date}: {who}, ₹{amt}{intl}.", "hi": "{date}: {who}, ₹{amt}{intl}।", "hinglish": "{date}: {who}, ₹{amt}{intl}."},
+    "cc_txns": {"en": "Here are the recent spends on your card ending {l4}.", "hi": "आपके कार्ड (आख़िरी अंक {l4}) पर हाल के खर्च ये हैं।",
+                "hinglish": "Aapke card ending {l4} par recent spends yeh hain."},
+    "cc_txn": {"en": "{when}, you spent ₹{amt} at {who}{intl}.", "hi": "{when} आपने {who} पर ₹{amt} खर्च किए{intl}।",
+               "hinglish": "{when} aapne {who} par ₹{amt} kharch kiye{intl}."},
+    "cc_intl": {"en": ", an international payment", "hi": ", जो इंटरनेशनल पेमेंट था", "hinglish": ", jo international payment tha"},
     "no_cc": {"en": "I don't see a credit card in your name.", "hi": "आपके नाम पर कोई क्रेडिट कार्ड नहीं दिख रहा।",
               "hinglish": "Aapke naam par koi credit card nahi dikh raha."},
     # debit cards
     "dc_state": {"en": "Your debit card ending {l4} is {status}. {controls}", "hi": "आपका डेबिट कार्ड (आख़िरी अंक {l4}) {status} है। {controls}",
                  "hinglish": "Aapka debit card (ending {l4}) {status} hai. {controls}"},
     "dc_controls": {"en": "Online payments are {ecom}, shop payments {pos}, tap-to-pay {contactless}, ATM withdrawals {atm}, and international use {international}.",
-                    "hi": "ऑनलाइन भुगतान {ecom}, दुकान पर भुगतान {pos}, टैप-टू-पे {contactless}, ATM निकासी {atm}, और अंतरराष्ट्रीय इस्तेमाल {international} है।",
+                    "hi": "ऑनलाइन पेमेंट {ecom}, दुकान पर पेमेंट {pos}, टैप-टू-पे {contactless}, ATM से पैसे निकालना {atm}, और इंटरनेशनल इस्तेमाल {international} है।",
                     "hinglish": "Online payments {ecom}, shop payments {pos}, tap-to-pay {contactless}, ATM withdrawal {atm}, aur international use {international} hai."},
     "on_off": {"en": ("on", "off"), "hi": ("चालू", "बंद"), "hinglish": ("chalu", "band")},
     "status_words": {"en": {"active": "active", "temp_blocked": "temporarily blocked", "blocked": "permanently blocked", "inactive": "inactive"},
-                     "hi": {"active": "चालू", "temp_blocked": "अस्थायी रूप से ब्लॉक", "blocked": "स्थायी रूप से ब्लॉक", "inactive": "इनएक्टिव"},
+                     "hi": {"active": "चालू", "temp_blocked": "टेम्पररी ब्लॉक", "blocked": "परमानेंट ब्लॉक", "inactive": "इनएक्टिव"},
                      "hinglish": {"active": "active", "temp_blocked": "temporarily blocked", "blocked": "permanently blocked", "inactive": "inactive"}},
     "dc_declines": {"en": "I can see {n} declined payments of ₹{amt} at {who} on {date}. They were declined because {why}, so no money was taken.",
-                    "hi": "{date} को {who} पर ₹{amt} के {n} भुगतान अस्वीकार हुए। ये इसलिए अस्वीकार हुए क्योंकि {why}, इसलिए कोई पैसा नहीं कटा।",
+                    "hi": "{date} को {who} पर ₹{amt} के {n} पेमेंट डिक्लाइन हुए। ये इसलिए डिक्लाइन हुए क्योंकि {why}, इसलिए कोई पैसा नहीं कटा।",
                     "hinglish": "{date} ko {who} par ₹{amt} ke {n} payments decline hue. Yeh isliye decline hue kyunki {why}, isliye koi paisa nahi kata."},
-    "dc_blocked_why": {"en": "your card is temporarily blocked", "hi": "आपका कार्ड अस्थायी रूप से ब्लॉक है",
+    "dc_blocked_why": {"en": "your card is temporarily blocked", "hi": "आपका कार्ड टेम्पररी ब्लॉक है",
                        "hinglish": "aapka card temporarily blocked hai"},
-    "dc_pos_off_why": {"en": "shop payments are switched off on your card", "hi": "आपके कार्ड पर दुकान पर भुगतान बंद है",
+    "dc_pos_off_why": {"en": "shop payments are switched off on your card", "hi": "आपके कार्ड पर दुकान पर पेमेंट बंद है",
                        "hinglish": "aapke card par shop payments band hain"},
     "dc_cause": {"en": "Your debit card ending {l4} won't work at shops right now because {why}.",
                  "hi": "आपका डेबिट कार्ड (आख़िरी अंक {l4}) अभी दुकानों पर नहीं चलेगा क्योंकि {why}।",
@@ -315,18 +319,18 @@ T = {
                          "hi": "क्या मैं आपका कार्ड (आख़िरी अंक {l4}) अनब्लॉक कर दूँ?",
                          "hinglish": "Kya main aapka card (ending {l4}) unblock kar doon?"},
     "dc_pos_also_off": {"en": "Shop payments are also switched off on it; we can switch those on next.",
-                        "hi": "इस पर दुकान पर भुगतान भी बंद है; उसके बाद हम उसे भी चालू कर सकते हैं।",
+                        "hi": "इस पर दुकान पर पेमेंट भी बंद है; उसके बाद हम उसे भी चालू कर सकते हैं।",
                         "hinglish": "Is par shop payments bhi band hain; uske baad hum unhe bhi chalu kar sakte hain."},
     "dc_offer_pos": {"en": "Would you like me to switch shop payments on for your card ending {l4}?",
-                     "hi": "क्या मैं आपके कार्ड (आख़िरी अंक {l4}) पर दुकान पर भुगतान चालू कर दूँ?",
+                     "hi": "क्या मैं आपके कार्ड (आख़िरी अंक {l4}) पर दुकान पर पेमेंट चालू कर दूँ?",
                      "hinglish": "Kya main aapke card (ending {l4}) par shop payments chalu kar doon?"},
-    "dc_no_declines": {"en": "I don't see any declined payments on your debit card recently.", "hi": "हाल में आपके डेबिट कार्ड पर कोई अस्वीकृत भुगतान नहीं दिख रहा।",
+    "dc_no_declines": {"en": "I don't see any declined payments on your debit card recently.", "hi": "हाल में आपके डेबिट कार्ड पर कोई डिक्लाइन हुआ पेमेंट नहीं दिख रहा।",
                        "hinglish": "Recently aapke debit card par koi declined payment nahi dikh raha."},
     "no_dc": {"en": "I don't see a debit card in your name.", "hi": "आपके नाम पर कोई डेबिट कार्ड नहीं दिख रहा।",
               "hinglish": "Aapke naam par koi debit card nahi dikh raha."},
     "offer_change": {"en": "Would you like me to change anything?", "hi": "क्या आप कुछ बदलवाना चाहेंगे?", "hinglish": "Kya aap kuch change karwana chahenge?"},
     # summary
-    "sum_accounts": {"en": "You have {n} savings {word} with ₹{amt} in total.", "hi": "आपके {n} बचत खाते हैं, कुल ₹{amt}।",
+    "sum_accounts": {"en": "You have {n} savings {word} with ₹{amt} in total.", "hi": "आपके {n} सेविंग्स अकाउंट हैं, कुल ₹{amt}।",
                      "hinglish": "Aapke {n} savings accounts hain, total ₹{amt}."},
     "sum_fd": {"en": "{n} active {word} worth ₹{amt}.", "hi": "{n} एक्टिव FD, कुल ₹{amt}।", "hinglish": "{n} active FD, total ₹{amt}."},
     "sum_loan": {"en": "{n} {word} with ₹{amt} outstanding.", "hi": "{n} लोन, ₹{amt} बकाया।", "hinglish": "{n} loan, ₹{amt} outstanding."},
@@ -341,10 +345,10 @@ T = {
                      "hi": "सबसे ज़्यादा बकाया आपके {type} लोन पर है, ₹{amt}।", "hinglish": "Sabse zyada outstanding aapke {type} loan par hai, ₹{amt}."},
     "upcoming": {"en": "In the next 7 days: {items}.", "hi": "अगले 7 दिनों में: {items}।", "hinglish": "Agle 7 din mein: {items}."},
     "upcoming_none": {"en": "Nothing is due in the next 7 days: no EMI, card bill or FD maturity.",
-                      "hi": "अगले 7 दिनों में कुछ देय नहीं है: न EMI, न कार्ड बिल, न FD मैच्योरिटी।",
+                      "hi": "अगले 7 दिनों में कुछ भी ड्यू नहीं है: न EMI, न कार्ड बिल, न FD मैच्योरिटी।",
                       "hinglish": "Agle 7 din mein kuch due nahi hai: na EMI, na card bill, na FD maturity."},
     "inactive": {"en": "Yes, {items} {verb} inactive.", "hi": "हाँ, {items} इनएक्टिव है।", "hinglish": "Haan, {items} inactive hai."},
-    "inactive_none": {"en": "No, everything you hold is active.", "hi": "नहीं, आपके सभी खाते और उत्पाद एक्टिव हैं।",
+    "inactive_none": {"en": "No, everything you hold is active.", "hi": "नहीं, आपके सभी अकाउंट और उत्पाद एक्टिव हैं।",
                       "hinglish": "Nahi, aapke sabhi accounts aur products active hain."},
     "cannot_see": {"en": "I'm not able to see that detail, but someone from our team can help with it.",
                    "hi": "यह जानकारी मुझे नहीं दिख रही, लेकिन हमारी टीम इसमें मदद कर सकती है।",
@@ -386,6 +390,19 @@ def day(d: date | None, lang: str) -> str:
     if d is None:
         return "-"
     return f"{d.day} {_HI_MONTHS[d.month - 1]} {d.year}" if lang == "hi" else d.strftime("%d %b %Y").lstrip("0")
+
+
+_HI_DAYS = ("सोमवार", "मंगलवार", "बुधवार", "गुरुवार", "शुक्रवार", "शनिवार", "रविवार")
+
+
+def _when(d: date, time: str, lang: str) -> str:
+    """When something happened, as a caller would say it: "On Friday, 6 November 2026, at 9:15"."""
+    clock = time.lstrip("0") if time and not time.startswith("00") else time
+    if lang == "hi":
+        return f"{d.day} {_HI_MONTHS[d.month - 1]} {d.year}, {_HI_DAYS[d.weekday()]} को" + (f", {clock} बजे" if clock else "") + ","
+    if lang == "hinglish":
+        return f"{d.day} {d.strftime('%B %Y')}, {d.strftime('%A')} ko" + (f", {clock} baje" if clock else "") + ","
+    return f"On {d.strftime('%A')}, {d.day} {d.strftime('%B %Y')}" + (f", at {clock}" if clock else "")
 
 
 def period_range(period: str, today: date) -> tuple[date, date] | None:
@@ -434,17 +451,56 @@ def account_choice(text: str) -> str:
     return next((k for k in _KNOWN_TYPES if re.search(rf"\b{k}\b", low)), "")
 
 
-def _listing(items, lang: str, label) -> str:
-    def tag(x) -> str:  # an inactive account is named as such, so the caller can tell which one they mean
-        return t("inactive_tag", lang) if getattr(x, "status", "") == "inactive" else ""
-    return ", ".join(f"{label(x)} {'ending ' if lang != 'hi' else ''}{x.last4}{tag(x)}" for x in items)
+# (en, hi, hinglish, feminine in Hindi) for the things a caller may have several of
+_NOUNS = {"account": ("account", "अकाउंट", "account", False), "FD": ("FD", "FD", "FD", True),
+          "loan": ("loan", "लोन", "loan", False), "credit card": ("credit card", "क्रेडिट कार्ड", "credit card", False),
+          "debit card": ("debit card", "डेबिट कार्ड", "debit card", False)}
+_ORD = {"en": ("first", "second", "third", "fourth", "fifth", "sixth"),
+        "hi": (("पहला", "दूसरा", "तीसरा", "चौथा", "पाँचवाँ", "छठा"), ("पहली", "दूसरी", "तीसरी", "चौथी", "पाँचवीं", "छठी")),
+        "hinglish": (("pehla", "doosra", "teesra", "chautha", "paanchva", "chhatha"), ("pehli", "doosri", "teesri", "chauthi", "paanchvi", "chhathi"))}
+
+
+def plural(noun: str, lang: str) -> str:
+    word = _NOUNS[noun][{"hi": 1, "hinglish": 2}.get(lang, 0)]
+    return word if lang == "hi" or word.endswith("s") else word + "s"
+
+
+def _listing(items, lang: str, label, noun: str) -> str:
+    """The caller's accounts / cards / FDs as one spoken sentence, so they can pick one: "One is your Digital account
+    ending 4512, which is inactive, and the other is your Value account ending 4521." An inactive one is said as such."""
+    en, hi, hinglish, fem = _NOUNS[noun]
+    word = {"hi": hi, "hinglish": hinglish}.get(lang, en)
+    parts = []
+    for x in items:
+        name = " ".join(p for p in (label(x), word) if p)
+        inactive = getattr(x, "status", "") == "inactive"
+        if lang == "hi":
+            parts.append(f"{'आपकी' if fem else 'आपका'} {name}, जिसके आख़िरी चार अंक {x.last4} हैं" + (", जो अभी इनएक्टिव है" if inactive else ""))
+        elif lang == "hinglish":
+            parts.append(f"{'aapki' if fem else 'aapka'} {name}, jiske last 4 digits {x.last4} hain" + (", jo abhi inactive hai" if inactive else ""))
+        else:
+            parts.append(f"your {name} ending {x.last4}" + (", which is inactive" if inactive else ""))
+    if len(parts) == 1:
+        return {"hi": f"आपके पास {parts[0]}", "hinglish": f"Aapke paas {parts[0]}"}.get(lang, f"There's {parts[0]}")
+    if len(parts) == 2:
+        return {"hi": f"एक है {parts[0]}, और {'दूसरी' if fem else 'दूसरा'} है {parts[1]}",
+                "hinglish": f"Ek hai {parts[0]}, aur {'doosri' if fem else 'doosra'} hai {parts[1]}"}.get(
+            lang, f"One is {parts[0]}, and the other is {parts[1]}")
+    if lang == "en":
+        ords = _ORD["en"]
+        said = [f"the {ords[i]} is {p}" for i, p in enumerate(parts[:6])]
+    else:
+        ords = _ORD[lang][1 if fem else 0]
+        said = [f"{ords[i]} {'है' if lang == 'hi' else 'hai'} {p}" for i, p in enumerate(parts[:6])]
+    joined = ", ".join(said[:-1]) + {"hi": ", और ", "hinglish": ", aur "}.get(lang, ", and ") + said[-1]
+    return _cap(joined)
 
 
 def _accounts(customer: Customer, hint: str, lang: str, default_all: bool = False):
     """The account(s) the caller means, or a question back when it's unclear. `default_all`: no account named
     means every account (searches like "was my salary credited", "UPI spend this week")."""
     accounts = customer.accounts
-    listing = _listing(accounts, lang, lambda a: a.type)
+    listing = _listing(accounts, lang, lambda a: a.type, "account")
     h = hint.strip().lower()
     recognised = (h in ("all", "both", "every", "first", "second", "third") or "salary" in h
                   or any(ch.isdigit() for ch in h) or any(k in h for k in _KNOWN_TYPES))
@@ -467,7 +523,7 @@ def _accounts(customer: Customer, hint: str, lang: str, default_all: bool = Fals
     if not picked:
         return None, PersonalAnswer([t("no_match", lang, list=listing)], "clarify")
     if len(picked) > 1 and h not in ("all", "both"):
-        return None, PersonalAnswer([t("which", lang, n=len(picked), list=_listing(picked, lang, lambda a: a.type))], "clarify")
+        return None, PersonalAnswer([t("which", lang, n=len(picked), list=_listing(picked, lang, lambda a: a.type, "account"))], "clarify")
     return picked, None
 
 
@@ -480,7 +536,8 @@ def _pick(items: list, hint: str, lang: str, what: tuple, label, keys) -> tuple[
     picked = [x for x in items if digits and x.last4.endswith(digits[-4:])] if digits else \
         [x for x in items if any(h in k.lower() or k.lower() in h for k in keys(x))]
     if not picked:
-        return None, PersonalAnswer([t("no_match", lang, list=_listing(items, lang, label))], "clarify")
+        noun = {"FDs": "FD", "loans": "loan", "credit cards": "credit card"}.get(what[0], "account")
+        return None, PersonalAnswer([t("no_match", lang, list=_listing(items, lang, label, noun))], "clarify")
     return picked, None
 
 
@@ -616,11 +673,23 @@ def _txn_line(x: Transaction, lang: str, acct4: str = "") -> str:
     """One transaction in words. The ending of the status table decides the verb: "paid" only after success."""
     tails = T["txn_tail"].get(lang, T["txn_tail"]["en"])
     tail = tails.get(x.status, tails["unknown"])[x.kind if x.kind in ("Debit", "Credit") else "Debit"]
-    acct = t("on_acct", lang, l4=acct4) if acct4 else ""
-    who = (f" {'at' if x.channel in ('POS', 'ECOM', 'ATM') else 'to' if x.kind == 'Debit' else 'from'} {x.counterparty}"
-           if x.counterparty and lang == "en" else (f" ({x.counterparty})" if x.counterparty else ""))
-    return t("txn", lang, date=day(x.date, lang), time=f", {x.time}" if x.time else "", desc=x.description, who=who,
-             acct=acct, amt=money(x.amount), tail=tail)
+    debit = x.kind != "Credit"
+    at = x.channel in ("POS", "ECOM", "ATM")
+    when, amt, who = _when(x.date, x.time, lang), money(x.amount), x.counterparty
+    desc = " ".join(w if w.isupper() and len(w) > 1 else w.lower() for w in x.description.split())  # "UPI transfer"
+    if lang == "hi":
+        acct = f"आपके अकाउंट (आख़िरी अंक {acct4}) {'से' if debit else 'में'} " if acct4 else ""
+        party = f"{who} {'पर' if at else 'को' if debit else 'से'} " if who else ""
+        return f"{when} {acct}{party}₹{amt} का {desc} {'हुआ' if debit else 'आया'}{tail}।"
+    if lang == "hinglish":
+        acct = f"aapke account ending {acct4} {'se' if debit else 'mein'} " if acct4 else ""
+        party = f"{who} {'par' if at else 'ko' if debit else 'se'} " if who else ""
+        return f"{when} {acct}{party}₹{amt} ka {desc} {'hua' if debit else 'aaya'}{tail}."
+    party = f" {'at' if at else 'to' if debit else 'from'} {who}" if who else ""
+    acct = f" {'from' if debit else 'into'} your account ending {acct4}" if acct4 else ""
+    first = desc.split()[0] if desc else ""
+    vowel = first[:1].upper() in ("AEFHILMNORSX" if first.isupper() and len(first) > 1 else "AEIO")
+    return f"{when}, there was {'an' if vowel else 'a'} {desc} of ₹{amt}{party}{acct}{tail}."
 
 
 def _transactions(c: Customer, q: PersonalQuery, lang: str, today: date) -> PersonalAnswer:
@@ -703,7 +772,7 @@ def _fd(c: Customer, q: PersonalQuery, lang: str, today: date) -> PersonalAnswer
         return PersonalAnswer([t("fd_first", lang, l4=f.last4, date=day(f.maturity_date, lang)),
                                t("fd_amount_then", lang, mat=money(f.maturity_amount))],
                               fields=[f"fd:{f.last4}:maturity"])
-    picked, ask = _pick(pool, q.item, lang, ("FDs",), lambda f: "FD", lambda f: (f.number,))
+    picked, ask = _pick(pool, q.item, lang, ("FDs",), lambda f: "", lambda f: (f.number,))
     if ask:
         return ask
     if q.detail in ("maturity_amount", "rate", "auto_renew", "premature_value") and len(picked) > 1:
@@ -711,7 +780,7 @@ def _fd(c: Customer, q: PersonalQuery, lang: str, today: date) -> PersonalAnswer
         if (soonest.maturity_date - today).days <= 45:  # "my FD maturing next month" -> the one maturing soon
             picked = [soonest]
         else:
-            return PersonalAnswer([t("which_item", lang, n=len(picked), what="FDs", list=_listing(picked, lang, lambda f: "FD"))], "clarify")
+            return PersonalAnswer([t("which_item", lang, n=len(picked), what=plural("FD", lang), list=_listing(picked, lang, lambda f: "", "FD"))], "clarify")
     lines, fields = [], []
     if len(picked) > 1:
         lines.append(t("fd_count", lang, n=len(picked)))
@@ -754,7 +823,7 @@ def _loan_name(loan: Loan, lang: str) -> str:
 def _loan(c: Customer, q: PersonalQuery, lang: str, today: date) -> PersonalAnswer:
     if not c.loans:
         return PersonalAnswer([t("no_loan", lang)])
-    picked, ask = _pick(c.loans, q.item, lang, ("loans",), lambda x: f"{x.type} loan", lambda x: (x.type, x.number))
+    picked, ask = _pick(c.loans, q.item, lang, ("loans",), lambda x: x.type, lambda x: (x.type, x.number))
     if ask:
         return ask
     lines, fields = [], []
@@ -850,9 +919,8 @@ def _credit_card(c: Customer, q: PersonalQuery, lang: str, today: date) -> Perso
             items = [x for x in items if not span or span[0] <= x.date <= span[1]][:5]
             if items:
                 lines.append(t("cc_txns", lang, l4=k.last4))
-                lines += [t("cc_txn", lang, date=day(x.date, lang), who=x.merchant, amt=money(x.amount),
-                            intl=" (international)" if x.international and lang != "hi" else (" (अंतरराष्ट्रीय)" if x.international else ""))
-                          for x in items]
+                lines += [t("cc_txn", lang, when=_when(x.date, "", lang), who=x.merchant, amt=money(x.amount),
+                            intl=t("cc_intl", lang) if x.international else "") for x in items]
         else:
             if k.total_due:
                 lines.append(t("cc_due", lang, variant=k.variant, l4=k.last4, total=money(k.total_due), min=money(k.minimum_due),
@@ -876,8 +944,8 @@ def _debit_card(c: Customer, q: PersonalQuery, lang: str, today: date) -> Person
     if len(picked) > 1 and q.detail != "declines":
         picked = [d for d in picked if d.status != "blocked"] or picked
         if len(picked) > 1:
-            return PersonalAnswer([t("which_item", lang, n=len(picked), what="debit cards",
-                                     list=_listing(picked, lang, lambda d: d.variant))], "clarify")
+            return PersonalAnswer([t("which_item", lang, n=len(picked), what=plural("debit card", lang),
+                                     list=_listing(picked, lang, lambda d: d.variant, "debit card"))], "clarify")
     on, off = T["on_off"].get(lang, T["on_off"]["en"])
     lines, fields = [], []
     if q.detail == "declines":

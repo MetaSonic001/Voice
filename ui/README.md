@@ -55,7 +55,25 @@ bun run dev      # http://localhost:3000 (the brain must be running: python app.
 | `lib/live-call.ts` | Live call over the WebSocket: microphone in, agent audio out, barge-in clear |
 | `lib/worklets.ts` | Two audio worklets, loaded from in-memory Blob URLs: **capture** (microphone → 16 kHz PCM frames, with the "focus on my voice" gate) and **playback** (gapless agent audio, dropped instantly when the caller interrupts) |
 
-Live calls need a microphone; use headphones so the agent doesn't hear itself. Chrome and Edge work best.
+Live calls need a microphone. The agent's voice plays through a WebRTC loopback inside the page (`lib/echo-safe-output.ts`,
+ADR 0012) so the browser's echo canceller removes it from the mic; speakers are fine. Chrome and Edge work best.
+Check a laptop with `docs/echo-self-test.md`.
+
+## Share the demo over the internet (two tunnels)
+
+The pages only load the UI; the browser then calls the brain directly at `NEXT_PUBLIC_API_URL`. So **both** ports must be
+reachable, and the brain must accept the UI's address. One ngrok tunnel + one Cloudflare quick tunnel works:
+
+1. Brain (Cloudflare, no warning page, works with WebSockets): `cloudflared tunnel --url http://localhost:8000`.
+   Note the `https://…trycloudflare.com` address it prints (new on every run).
+2. UI (ngrok): `ngrok http 3000`. Note the `https://…ngrok-free.app` address (fixed if you use your free static domain).
+3. In `ui/.env.local`: `NEXT_PUBLIC_API_URL=https://<brain>.trycloudflare.com`, then restart `bun run dev`.
+4. In `brain/.env`: `CORS_ORIGINS=http://localhost:3000,https://<ui>.ngrok-free.app`, then restart the brain.
+5. Open the ngrok address (click through ngrok's one-time warning page).
+
+Put the brain behind ngrok instead and its free warning page breaks the API calls. `next.config.ts` already allows
+tunnel hostnames in dev (`allowedDevOrigins`). Anyone with the brain address can use the mock bank and your Groq quota:
+stop both tunnels when done, and set `API_KEY` in `brain/.env` (plus `NEXT_PUBLIC_API_KEY` in `ui/.env.local`) for longer shares.
 
 
 ## Phase 4 additions (6 Nov 2026)

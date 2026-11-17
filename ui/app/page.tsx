@@ -31,7 +31,7 @@ type Message = {
 };
 type Draft = { blob: Blob; url: string };
 type Transfer = HandoffRef & { status: string; position?: number; agent?: string | null; after: number };
-const PHRASES = new Set(["greeting", "filler", "reprompt", "goodbye", "unclear"]); // canned lines, not answers
+const PHRASES = new Set(["greeting", "filler", "reprompt", "code_reminder", "goodbye", "unclear"]); // canned lines, not answers
 
 const OTHER_NUMBER = "9000000001"; // not registered: the agent asks for the registered mobile number
 const WITHHELD = "withheld";
@@ -283,9 +283,15 @@ export default function Console() {
       case "interrupted":
         add({ role: "note", text: "You interrupted: the agent stopped." });
         break;
+      case "echo_warning":
+        add({ role: "note", text: `This browser can't remove the agent's voice from your mic (${String(e.reason)}). Use headphones, or the agent may hear itself.` });
+        break;
       case "handoff":
         if (e.status === "waiting") add({ role: "note", text: `On hold for the ${String(e.name)} team: hold music is playing until someone picks up.` });
         if (e.status === "active") add({ role: "note", text: `${String(e.agent)} has joined the call. You're talking to a person now.` });
+        break;
+      case "busy":
+        add({ role: "note", text: `All lines are busy (this server takes ${String(e.limit)} calls at once). Please try again shortly.` });
         break;
       case "end":
       case "closed":

@@ -158,10 +158,10 @@ FLOWS = {
     ],
     "savings_account": [
         ("purpose", {"en": "What will you mainly use the account for: your salary, everyday savings, or something else?",
-                     "hi": "आप यह खाता मुख्य रूप से किसके लिए इस्तेमाल करेंगे: सैलरी, रोज़ की बचत, या कुछ और?",
+                     "hi": "आप यह अकाउंट मुख्य रूप से किसके लिए इस्तेमाल करेंगे: सैलरी, रोज़ की बचत, या कुछ और?",
                      "hinglish": "Aap yeh account mainly kis liye use karenge: salary, roz ki savings, ya kuch aur?"}),
         ("balance_preference", {"en": "And would you prefer a zero-balance account, or can you keep some balance in it? Roughly how much?",
-                                "hi": "और क्या आप ज़ीरो बैलेंस खाता चाहेंगे, या उसमें कुछ बैलेंस रख सकते हैं? लगभग कितना?",
+                                "hi": "और क्या आप ज़ीरो बैलेंस अकाउंट चाहेंगे, या उसमें कुछ बैलेंस रख सकते हैं? लगभग कितना?",
                                 "hinglish": "Aur kya aap zero balance account chahenge, ya usmein kuch balance rakh sakte hain? Lagbhag kitna?"}),
     ],
     "fd": [
@@ -210,13 +210,13 @@ _THING = {"fd": {"en": "FD", "hi": "FD", "hinglish": "FD"},
           "loan": {"en": "loan", "hi": "लोन", "hinglish": "loan"},
           "credit_card": {"en": "credit card", "hi": "क्रेडिट कार्ड", "hinglish": "credit card"},
           "debit_card": {"en": "debit card", "hi": "डेबिट कार्ड", "hinglish": "debit card"},
-          "savings_account": {"en": "account", "hi": "खाते", "hinglish": "account"},
-          "current_account": {"en": "account", "hi": "खाते", "hinglish": "account"}}
+          "savings_account": {"en": "account", "hi": "अकाउंट", "hinglish": "account"},
+          "current_account": {"en": "account", "hi": "अकाउंट", "hinglish": "account"}}
 _TOPIC = {"fd": "fd", "loan": "loan", "credit_card": "credit_card", "debit_card": "debit_card",
           "savings_account": "charges", "current_account": "charges"}
 OFFER = {
     "unverified": {"en": "Would you like me to check this for your own {thing}? I'll just need to verify you quickly.",
-                   "hi": "क्या आप चाहेंगे कि मैं आपके अपने {thing} के लिए यह देख दूँ? इसके लिए पहले आपकी पहचान की पुष्टि करनी होगी।",
+                   "hi": "क्या आप चाहेंगे कि मैं आपके अपने {thing} के लिए यह देख दूँ? इसके लिए पहले आपकी पहचान वेरिफ़ाई करनी होगी।",
                    "hinglish": "Kya main aapke apne {thing} ke liye yeh check kar doon? Uske liye pehle aapko jaldi se verify karna hoga."},
     "verified": {"en": "Would you like me to check your own {thing}?", "hi": "क्या मैं आपके अपने {thing} के लिए देख दूँ?",
                  "hinglish": "Kya main aapke apne {thing} ke liye check kar doon?"},

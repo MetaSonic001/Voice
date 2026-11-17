@@ -1,0 +1,43 @@
+{
+  "family": "au-search",
+  "requiresCompatibilities": ["EC2"],
+  "networkMode": "awsvpc",
+  "cpu": "4096",
+  "memory": "14336",
+  "runtimePlatform": { "operatingSystemFamily": "LINUX", "cpuArchitecture": "X86_64" },
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/au-ecs-execution",
+  "containerDefinitions": [
+    {
+      "name": "search",
+      "image": "ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/au-brain:IMAGE_TAG",
+      "command": ["python", "-m", "app", "search", "--host", "0.0.0.0", "--port", "8200"],
+      "essential": true,
+      "portMappings": [{ "containerPort": 8200, "protocol": "tcp", "name": "search" }],
+      "resourceRequirements": [{ "type": "GPU", "value": "1" }],
+      "environment": [
+        { "name": "DEVICE", "value": "cuda" },
+        { "name": "LOG_CONSOLE", "value": "json" }
+      ],
+      "secrets": [
+        { "name": "SEARCH_TOKEN", "valueFrom": "arn:aws:secretsmanager:ap-south-1:ACCOUNT_ID:secret:au/brain:SEARCH_TOKEN::" }
+      ],
+      "healthCheck": {
+        "command": ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8200/health', timeout=3)"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 300
+      },
+      "linuxParameters": { "initProcessEnabled": true },
+      "stopTimeout": 30,
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/au-search",
+          "awslogs-region": "ap-south-1",
+          "awslogs-stream-prefix": "search"
+        }
+      }
+    }
+  ]
+}

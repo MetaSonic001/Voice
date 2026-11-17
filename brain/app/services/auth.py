@@ -183,6 +183,12 @@ class AuthService:
         with self.db.connection() as conn:
             self._event(conn, session_id, "data_read", customer.cif, {"topic": topic, "fields": fields})
 
+    def was_read(self, session_id: str, field: str) -> bool:
+        """Whether this call already disclosed a field, e.g. "debit_card:declines" (the caller reported a card failing)."""
+        with self.db.connection() as conn:
+            return conn.execute("SELECT 1 FROM auth_events WHERE session_id = %s AND event = 'data_read' "
+                                "AND detail->'fields' ? %s LIMIT 1", (session_id, field)).fetchone() is not None
+
     # ───────── internals ─────────
 
     def _send(self, session_id: str, auth: dict, customer: Customer) -> AuthResult:

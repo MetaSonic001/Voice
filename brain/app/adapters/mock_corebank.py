@@ -58,13 +58,14 @@ def amb_charge(variant: str, shortfall: float) -> float:
 
 
 def ensure_seeded(db: Database, workbook: Path | None, today: date) -> None:
-    """Seed the mock bank once (deterministic). Does nothing when it already has customers."""
-    with db.connection() as conn:
+    """Seed the mock bank once (deterministic). Does nothing when it already has customers.
+    Under the startup lock, so two copies starting together on an empty database don't both seed."""
+    with db.startup_lock() as conn:
         seeded = conn.execute("SELECT count(*) AS n FROM corebank.customers").fetchone()["n"]
-    if not seeded:
-        t = time.perf_counter()
-        counts = _Seeder(db, workbook, today).run()
-        log(logger, "mock core banking seeded", **counts, ms=round((time.perf_counter() - t) * 1000))
+        if not seeded:
+            t = time.perf_counter()
+            counts = _Seeder(db, workbook, today).run()
+            log(logger, "mock core banking seeded", **counts, ms=round((time.perf_counter() - t) * 1000))
 
 
 class MockCoreBank:

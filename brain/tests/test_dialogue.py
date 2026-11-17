@@ -78,7 +78,7 @@ def test_fewer_transactions_than_asked_is_said_honestly(client):
     first = _ask(client, sid, "Show my last 5 transactions on account 4512")
     code = re.search(r"(\d{6})", first["auth"]["simulated_sms"]).group(1)
     reply = client.post("/v1/auth/verify", json={"session_id": sid, "code": code}).json()["reply"]
-    assert reply["answer"].startswith("There's only one transaction on the account ending 4512")
+    assert reply["answer"].startswith("There's only one transaction on your account ending 4512")
     assert "inactive" in reply["answer"]
 
 
@@ -245,6 +245,28 @@ def test_blocked_card_unblock_then_carries_on_with_the_requested_setting(client,
     assert after["outcome"] == "confirm" and "international" in after["answer"].lower() and "AU" in after["answer"]
     done = _ask(client, sid, "yes")
     assert done["outcome"] == "action_done"
+
+
+def test_card_call_cfdda8da_keeps_the_shop_problem_after_another_request(client, container):
+    """The live call: card not working at shops -> "can I use it abroad?" -> "switch on international" -> yes."""
+    def arjun_card(status: str, on: bool) -> None:  # the mock bank is shared by the test session: start from his seeded card
+        with container.db.connection() as conn:
+            conn.execute("UPDATE corebank.debit_cards SET status = %s, pos = %s, international = %s WHERE last4 = '5521'",
+                         (status, on, on))
+    arjun_card("temp_blocked", False)
+    sid = _session(client, "9000000103")  # Arjun: debit card 5521 temporarily blocked, shop payments and international off
+    first = _ask(client, sid, "My debit card is not working at shops")
+    code = re.search(r"(\d{6})", first["auth"]["simulated_sms"]).group(1)
+    client.post("/v1/auth/verify", json={"session_id": sid, "code": code})
+    abroad = _ask(client, sid, "Can I use it abroad? I'm travelling next week")
+    assert "complaint" not in abroad["answer"].lower() and "how much" not in abroad["answer"].lower()
+    switch = _ask(client, sid, "Please switch on international payments on my debit card")
+    assert switch["outcome"] == "confirm" and "unblock" in switch["answer"]  # an action, not a general answer
+    assert "international" in _ask(client, sid, "yes")["answer"].lower()
+    done = _ask(client, sid, "yes")  # international switched on; the shop problem is brought back, not forgotten
+    assert done["outcome"] == "confirm" and "still switched off" in done["answer"] and "switch on shop payments" in done["answer"]
+    assert _ask(client, sid, "yes")["outcome"] == "action_done"
+    arjun_card("temp_blocked", False)
 
 
 def test_each_turn_records_the_bank_systems_it_called(client, container):

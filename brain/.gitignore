@@ -10,3 +10,4 @@ evals/reports/*.json
 models/
 evals/cache/
 evals/reports/*.log
+sarvam-check/

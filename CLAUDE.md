@@ -3,20 +3,24 @@
 An inbound AI voice agent for AU Small Finance Bank. It answers product questions from the bank's documents (RAG), verifies callers with a keypad code, reads their own bank data, does a few controlled card actions with confirmation, raises tickets, and hands over to human agents with context. It works in English, Hindi and Hinglish.
 
 - `brain/`: Python FastAPI service (text and voice), Postgres via pgserver with pgvector, bge-m3 embedder and reranker on the GPU, Groq LLMs.
-- `ui/`: Next.js + shadcn test console. Pages: `/` (console), `/kb`, `/calls`, `/desk`.
+- `ui/`: Next.js + shadcn test console. Pages: `/` (console), `/kb`, `/calls`, `/desk`, `/fixes`.
+- **Production target (proposed, 13 Nov 2026):** callers → AU's Cisco → our app on AWS Mumbai (ECS), Sarvam for speech, gpt-oss-120b on Bedrock Mumbai. Details: `docs/deployment-options-and-costs.md`.
 
 ## Read before doing anything
 
 1. `context/progress-tracker.md`: **where we are**: what's built, what's live, the current step, open questions. Always read it first.
-2. `PHASE-4-PLAN.md`: the Phase 4 design (built 6 Nov 2026; the tracker lists where the build differs). `docs/adr/` records why each decision was made.
-3. `PROJECT-GUIDE.md`: how the whole system works (architecture, data, voice, security, tests); §23 is Phase 3.
-4. `brain/README.md` and `ui/README.md`: how to run, configure and test each part.
-5. `docs/adr/`: **why** each major decision was made (Architecture Decision Records). Check them before changing something they cover. For a new decision that is expensive to reverse, add an ADR from `docs/adr/template.md`. Never rewrite an accepted one; supersede it.
-6. Only when needed:
-   - `ROADMAP.md`: production research;
+   Then `context/pending-work.md`: **what is left**, for the local demo and for production on AWS.
+2. `reference/PROJECT-GUIDE.md`: **the one detailed document**. How the whole system works (§1–24; §23 Phase 3, §24 Phase 4), what each phase built and what the calls showed (§25), going live on Cisco / AWS / Sarvam (§26), every Indian language (§27), lessons from other voice agents (§28), production research (§29), open questions (§30). §31 maps the sections of the merged documents (`PHASE-4-PLAN.md`, `ROADMAP.md`, the deep dive, the playbook) to their new place, so old references in ADRs and code comments still resolve.
+3. `brain/README.md` and `ui/README.md`: how to run, configure and test each part.
+4. `adr/`: **why** each major decision was made (Architecture Decision Records). Check them before changing something they cover. For a new decision that is expensive to reverse, add an ADR from `adr/template.md`. Never rewrite an accepted one; supersede it.
+5. Only when needed:
+   - `docs/deployment-options-and-costs.md` + `docs/deployment-costs-and-options.xlsx`: AWS design proposals and the cost estimate;
+   - `deploy/README.md`: Docker images (`brain/Dockerfile`, `ui/Dockerfile`) and how to run them on AWS ECS;
+   - `reference/aws-primer.md` (AWS from scratch) and `reference/briefing-security-state-scale.md` (long-form review answers);
    - `Sample Questions/`: problem statement, sample questions, dummy data, KB.
 
-**Removed on 6 Nov 2026** (old plans, replaced by the guide, the ADRs and the tracker; they are in git history): `mvp2-plan.md`, `phase-a-plan.md`, `platform-build-plan.md`, `gaps-and-next-steps.md`, `scenario-map.md`, `tech-architecture.md`, `PHASE-3-PLAN.md`. Decisions live in `docs/adr/`.
+**Removed on 6 Nov 2026** (old plans, replaced by the guide, the ADRs and the tracker; they are in git history): `mvp2-plan.md`, `phase-a-plan.md`, `platform-build-plan.md`, `gaps-and-next-steps.md`, `scenario-map.md`, `tech-architecture.md`, `PHASE-3-PLAN.md`.
+**Merged into `reference/PROJECT-GUIDE.md` and removed on 14 Nov 2026:** `PHASE-4-PLAN.md`, `ROADMAP.md`, `reference/voice-agent-playbook.md` (in git history) and `reference/system-deep-dive-and-go-live.md` (never committed; its content is guide §26–27).
 
 ## Rules (from the project owner; follow them exactly)
 
@@ -54,10 +58,10 @@ An inbound AI voice agent for AU Small Finance Bank. It answers product question
 
 **Groq free tier**
 - The limits are 8k tokens per minute and **1,000 requests per day per model**, and the owner's own testing shares that budget.
-- Don't run the full benchmark casually. Prefer offline tests and the small smoke set (`evals.smoke`, replay-cached); see PHASE-4-PLAN §10.
+- Don't run the full benchmark casually. Prefer offline tests and the small smoke set (`evals.smoke`, replay-cached); see PROJECT-GUIDE §20.
 
 **Production-only (don't build now)**
-- Sarvam STT/TTS, Cisco telephony, SSO, India-hosted LLM and Kubernetes are production items.
+- Sarvam STT/TTS, Cisco telephony, SSO, India-hosted LLM (Bedrock) and the AWS deployment are production items. Code switches already exist (`STT_PROVIDER`, `TTS_PROVIDER`, `LLM_PROVIDER`, `DATABASE_URL`, `FILE_STORE`); what is missing is in `context/pending-work.md` B2.
 
 ## Commands (Windows; run from `brain/` or `ui/`)
 
@@ -76,7 +80,7 @@ Demo callers (mock core bank): mobiles `9000000101`–`9000000107`. For example,
 ## Keep the docs in sync
 
 - After each meaningful change, update `context/progress-tracker.md`: what was done, test and benchmark numbers, what's live vs needs a restart, and the next step.
-- If a change alters architecture, scope or rules, update `PROJECT-GUIDE.md`, the relevant README, or this file in the same piece of work.
+- If a change alters architecture, scope or rules, update `reference/PROJECT-GUIDE.md`, the relevant README, or this file in the same piece of work.
 - New unresolved decisions go under **Open questions** in the tracker. Don't invent product behaviour; ask.
 
 ## Writing style for docs and replies

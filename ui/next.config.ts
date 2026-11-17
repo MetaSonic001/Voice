@@ -4,6 +4,8 @@ import type { NextConfig } from "next";
 // No Node server in production. `bun run dev` runs the dev server with hot reload.
 const nextConfig: NextConfig = {
   output: "export",
+  // Dev only: let a demo shared through a tunnel (ngrok / Cloudflare quick tunnel) load. See ui/README.md "Share the demo".
+  allowedDevOrigins: ["*.ngrok-free.app", "*.ngrok-free.dev", "*.ngrok.app", "*.trycloudflare.com"],
   turbopack: {
     rules: {
       "*.css": {

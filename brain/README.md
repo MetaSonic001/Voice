@@ -67,6 +67,8 @@ That's the test UI at http://localhost:3000.
 - **Models**: if `models/bge-m3` and `models/bge-reranker-v2-m3` exist they're loaded from there (offline); otherwise they're downloaded from Hugging Face on first start.
 - **Bank data (MVP 2)**: read-only from `../Sample Questions/Inbound_Voice_Agent_Dummy_Data.xlsx` (the file is never changed or indexed). "Today" is fixed at 31 Dec 2026, because the dummy transactions end then (`DEMO_TODAY`).
 - **GPU**: `DEVICE=auto` (default) uses an NVIDIA GPU in fp16 when present (here an RTX 3050: rerank ~0.5 s instead of ~25 s on CPU). `GET /health/ready` and the startup log show the device.
+- **Search models in another process** (optional; AWS uses it): `SEARCH_PROVIDER=local` (default) loads the two models in the brain. `SEARCH_PROVIDER=http` calls a search server instead, started with `uv run python -m app search` (port 8200, on the GPU machine; set the same `SEARCH_TOKEN` on both sides when it listens beyond 127.0.0.1). Same models, same scores. If the server is down, product questions get the "system problem" reply with a hand-over; everything else keeps working. See `deploy/README.md`.
+- **Live-call limit**: `MAX_LIVE_CALLS=9` (default; `0` = no limit). One process takes at most this many live voice calls; the next caller gets a `busy` event and the WebSocket closes with code 1013. `/health/ready` shows `live_calls`; `/metrics` has `brain_live_calls` and `brain_calls_refused_total`. Why 9: PROJECT-GUIDE §26.11.
 
 ## Use it
 
@@ -156,7 +158,7 @@ uv run brain eval --only en-zenith-fee hi-senior-fd-1y
 - **Stats:** `GET /v1/stats` gives a quick summary for the last 24 h.
 
 ### 7. Try the voice agent
-- **UI:** use **Voice note** (record, then send) or **Live call** (continuous two-way; use headphones). Verification works the same in calls: the keypad code goes over the socket as data, not speech.
+- **UI:** use **Voice note** (record, then send) or **Live call** (continuous two-way; speakers work: the console plays the agent through a WebRTC loopback so the browser removes the echo, ADR 0012). Verification works the same in calls: the keypad code goes over the socket as data, not speech.
 - **CLI:**
 
 ```bash
@@ -184,8 +186,10 @@ Every conversation (typed, voice notes, live calls) is saved as a **call record*
   verification steps, interruptions, alerts and the audit trail; **Transcript** downloads the record as text and
   **Save as PDF** prints it.
 - **Recordings:** live calls are stereo (caller left, agent right), voice notes are the question followed by the
-  spoken reply. Opus, encrypted on disk with AES-256-GCM (`RECORDING_KEY`; a local key file in dev), hash-checked on
+  spoken reply. Opus, encrypted with AES-256-GCM (`RECORDING_KEY`; a local key file in dev), hash-checked on
   playback, deleted after `RECORDING_RETENTION_DAYS`. Keypad codes are typed, so they are never in a recording.
+  Stored in `data/recordings/` (`FILE_STORE=local`, the default) or under `<S3_PREFIX>recordings/` in the bucket
+  (`FILE_STORE=s3`, which refuses to start without `RECORDING_KEY`, since a key file would be lost with the container).
 - **Tamper evidence:** each turn stores SHA-256(previous turn's hash + this turn); the call shows **Record intact** or
   **Record altered** (which turn, and whether it was changed or removed).
 - **Grounding level** per answer: high / medium / low from the best cited source's reranker score (≥ 0.5 / ≥ 0.15),
@@ -270,7 +274,7 @@ uv run pytest -m live         # tests against the real Groq API
 brain clean-slate [--yes]     # delete every recorded call, ticket and handoff; the KB is kept; the mock bank is re-seeded
 ```
 
-**Eval tiers (PHASE-4-PLAN §10).** T0 = the offline tests (every change). T1 = a replay cache: with `LLM_REPLAY_DIR` set (the
+**Eval tiers (`reference/PROJECT-GUIDE.md` §20).** T0 = the offline tests (every change). T1 = a replay cache: with `LLM_REPLAY_DIR` set (the
 smoke runner does this, into `evals/cache/`), each real LLM response is stored keyed by the exact request (model, prompts,
 schema, limits), so re-running an unchanged item makes no Groq request and a changed prompt is always a miss. T2 = the 40-item
 smoke set (`evals/smoke.yaml`). T3 = the full benchmark. The post-call judge uses a different model (`JUDGE_MODEL`) so its
@@ -406,8 +410,17 @@ tests/             unit, API end-to-end, voice scenarios, live Groq checks (test
 | Piece | Local / dev | Production | Settings |
 |---|---|---|---|
 | LLM | Groq | AWS Bedrock | `LLM_PROVIDER=bedrock`, `AWS_REGION`, `UNDERSTAND_MODEL`, `ANSWER_MODEL` (AWS credentials from IAM role / env) |
-| STT | Groq Whisper | Sarvam saaras | `STT_PROVIDER=sarvam`, `STT_MODEL=saaras:v3`, `SARVAM_API_KEY` |
-| TTS | Edge | Sarvam bulbul | `TTS_PROVIDER=sarvam`, `SARVAM_API_KEY`, `SARVAM_SPEAKER` |
+| STT | Groq Whisper | Sarvam saaras | `STT_PROVIDER=sarvam`, `SARVAM_API_KEY`, `SARVAM_STT_MODEL` (saaras:v4), `SARVAM_STT_MODE` (codemix) |
+| TTS | Edge | Sarvam bulbul | `TTS_PROVIDER=sarvam`, `SARVAM_API_KEY`, `SARVAM_TTS_MODEL` (bulbul:v4-flash), `SARVAM_V4_SPEAKERS` (or `SARVAM_SPEAKER` for v3), `SARVAM_PACE` |
+
+**Sarvam on trial credits.** Check the key with `uv run python -m app.cli sarvam-check --out-dir sarvam-check`
+(about ₹2): it compares bulbul:v4-flash with v3 on one short reply per language, packed with the words most often
+said wrong (AU, Zenith+, Laksya, BSBDA, 0101, KYC, OTP, UPI, NEFT, EMI, an amount and a rate) and rewritten exactly as a
+live call rewrites them (first-audio time over warm connections,
+speaking speed, the audio transcribed back) and saves WAVs to listen to. With `SPEECH_FALLBACK=true` (default), a failed Sarvam request is served by Whisper / Edge, and "out of
+credits" or "bad key" switches to them until the next restart, so a call never breaks when credits run out. The fixed
+phrases of a paid voice are kept in `data/tts-cache` so restarts don't buy them again. Going back for good: comment out
+`STT_PROVIDER` / `TTS_PROVIDER` and restart.
 | Files | local disk | S3 (or MinIO) | `FILE_STORE=s3`, `S3_BUCKET`, `S3_PREFIX`, `S3_ENDPOINT_URL` (MinIO only) |
 | Database | private pgserver | RDS / Aurora Postgres + pgvector | `DATABASE_URL` |
 | Embedder | bge-m3 | same, or any | `EMBED_MODEL`, `EMBED_DIM`, then `POST /v1/reindex` (embeddings stored per model) |
@@ -452,5 +465,5 @@ Pronunciation of "AU" is fixed in `services/pronunciation.py` (`SPELLING`). The 
 - **Other Indian languages**: English, Hindi and Hinglish today; Sarvam's speech models add 10 Indian languages in production.
 - **Edge TTS is for development only** (unofficial, no SLA, adds ~1 s). Use Sarvam in production.
 - **Groq free tier** rate-limits (429) under load; production uses Bedrock or a paid tier. Retries get a total budget (`LLM_RETRY_BUDGET_S`, 4 s); after that the caller hears "I'm having trouble right now… I can connect you to our team" instead of silence.
-- **Echo:** without headphones, laptop speakers can trigger a barge-in. The echo check resumes the agent, but use headphones, or a phone line with echo cancellation.
+- **Echo:** the console now plays the agent through a WebRTC loopback (`ui/lib/echo-safe-output.ts`) so the browser's echo canceller removes it from the mic; the server's echo check is the backup. On real phone lines the handset and network cancel echo.
 - **Third-party services:** Groq (LLM + Whisper API), Edge TTS / Sarvam (speech), Hugging Face models (BAAI bge-m3, bge-reranker-v2-m3, Silero VAD; all run locally), pdfplumber (local).

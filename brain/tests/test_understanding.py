@@ -172,3 +172,42 @@ def test_the_llm_cannot_turn_a_how_to_question_into_a_fraud_report():
     assert with_risk(u, "How do I block my card if I lose it?").intent == "action"
     u = Understanding("en", "action", "q", "", requests=[Request("action", "x")], risk=["lost_card"])
     assert with_risk(u, "I lost my card").intent == "fraud"
+
+
+# ───────── a broad charges question is asked back once, never answered with a guessed product ─────────
+from app.services.understanding import broad_charges, own_data, wants_own_charges  # noqa: E402
+
+
+def _general(question: str, product: str = "") -> Understanding:
+    return Understanding("en", "general", question, question, requests=[Request("general", question, product=product)])
+
+
+@pytest.mark.parametrize("text", [
+    "मुझे अपने account के charges के बारे में जानना है।", "Mujhe apne account ke charges ke baare mein jaanna hai",
+    "I want to know the charges on my account", "Tell me about your charges",
+])
+def test_broad_charges_question_is_asked_back(text):
+    assert broad_charges(_general(text), text)
+
+
+@pytest.mark.parametrize("text,product", [
+    ("What is the minimum balance charge on the Digital account?", ""), ("Why was I charged on my account?", ""),
+    ("What are the ATM charges?", ""), ("Mere account se 590 ka charge kyun kata?", ""),
+    ("What are the charges for a savings account?", "savings_account"), ("Debit card annual fee kitni hai?", ""),
+])
+def test_specific_charges_questions_are_not_asked_back(text, product):
+    assert not broad_charges(_general(text, product), text)
+
+
+@pytest.mark.parametrize("text,own", [
+    ("The ones taken from my account", True), ("mere account se kate hue", True), ("अपने अकाउंट से कटे हुए", True),
+    ("General charges please", False), ("minimum balance wale", False), ("दूसरा वाला", False), ("ATM charges", False),
+])
+def test_reply_to_the_charges_question(text, own):
+    assert wants_own_charges(text) is own
+
+
+def test_own_account_charges_in_mixed_script_is_the_callers_own_data():
+    text = "मेरे account से कौन से charges कटे हैं?"
+    u = own_data(_general(text), text)
+    assert u.requests[0].kind == "personal" and u.requests[0].personal["topic"] == "charges"

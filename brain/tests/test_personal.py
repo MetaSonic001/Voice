@@ -74,7 +74,7 @@ def _customer() -> Customer:
 def test_account_choice_salary_account_and_indian_grouping():
     c, today = _customer(), date(2026, 12, 31)
     ask = answer(c, PersonalQuery("balance"), "en", today)
-    assert ask.outcome == "clarify" and "Value ending 0009" in ask.sentences[0]
+    assert ask.outcome == "clarify" and "Value account ending 0009" in ask.sentences[0] and ask.sentences[0].endswith("Which one would you like me to check?")
     salary = answer(c, PersonalQuery("balance", account="salary"), "hinglish", today)
     assert salary.sentences == ["Aapke Value account (ending 0009) mein ₹52,000.50 hain."]
     assert money(1234567) == "12,34,567"

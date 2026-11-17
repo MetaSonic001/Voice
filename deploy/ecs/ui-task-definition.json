@@ -1,0 +1,32 @@
+{
+  "family": "au-ui",
+  "requiresCompatibilities": ["FARGATE"],
+  "networkMode": "awsvpc",
+  "cpu": "256",
+  "memory": "512",
+  "runtimePlatform": { "operatingSystemFamily": "LINUX", "cpuArchitecture": "X86_64" },
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/au-ecs-execution",
+  "containerDefinitions": [
+    {
+      "name": "ui",
+      "image": "ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/au-ui:IMAGE_TAG",
+      "essential": true,
+      "portMappings": [{ "containerPort": 8080, "protocol": "tcp", "name": "http" }],
+      "healthCheck": {
+        "command": ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 10
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/au-ui",
+          "awslogs-region": "ap-south-1",
+          "awslogs-stream-prefix": "ui"
+        }
+      }
+    }
+  ]
+}

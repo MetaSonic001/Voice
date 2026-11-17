@@ -4,6 +4,7 @@ Providers are picked by config (`.env`); tests pass their own adapters through `
 With VOICE_ENABLED=false nothing voice-related is imported or loaded (brain-only mode).
 """
 
+import asyncio
 import json
 import logging
 import time
@@ -40,6 +41,10 @@ class VoiceRuntime:
     tts: TTS
     vad_factory: Callable[[], VAD]  # VAD models are stateful: one per call
     phrases: object  # PhraseCache
+
+    async def warm(self) -> None:
+        """Open the speech providers' connections when a call starts (saves a TLS handshake on the first turn)."""
+        await asyncio.gather(*(p.warm() for p in (self.stt, self.tts) if hasattr(p, "warm")))
 
     async def close(self) -> None:
         for p in (self.stt, self.tts):
@@ -81,6 +86,8 @@ class Container:
             self.bank_server.close()
         if hasattr(self.bank, "close"):
             self.bank.close()
+        if hasattr(self.embedder, "client"):  # search server connections (SEARCH_PROVIDER=http)
+            self.embedder.client.close()
         self.db.close()
 
 
@@ -118,26 +125,91 @@ def build_store(s: Settings) -> FileStore:
     raise ValueError(f"unknown FILE_STORE '{s.file_store}' (use local or s3)")
 
 
-def build_voice(s: Settings) -> VoiceRuntime:
-    from app.voice.phrases import PhraseCache
-    from app.voice.providers import EdgeTTS, GroqSTT, SarvamSTT, SarvamTTS, SileroVAD
+def build_recording_files(s: Settings) -> FileStore:
+    """Where encrypted call recordings are kept: data_dir/recordings on this machine (laptop; Docker with a volume),
+    or <S3_PREFIX>recordings/ in the bucket (AWS), so they survive restarts and deploys and every copy can play them."""
+    if s.file_store == "s3":
+        if s.record_calls and not s.recording_key.get_secret_value():
+            # the dev fallback (a key file on local disk) would be lost with the container, and with it every recording
+            raise ValueError("RECORDING_KEY is required when FILE_STORE=s3 and RECORD_CALLS=true "
+                             "(base64 of 32 random bytes, from the key vault)")
+        return S3FileStore(s.s3_bucket, s.s3_prefix + "recordings/", s.aws_region, s.s3_endpoint_url)
+    if s.file_store == "local":
+        return LocalFileStore(s.data_dir / "recordings")
+    raise ValueError(f"unknown FILE_STORE '{s.file_store}' (use local or s3)")
 
-    if s.stt_provider == "groq":
-        stt = GroqSTT(s.groq_api_key.get_secret_value(), s.llm_base_url, s.stt_model, vocabulary=s.stt_vocabulary)
-    elif s.stt_provider == "sarvam":
-        stt = SarvamSTT(s.sarvam_api_key.get_secret_value(), s.stt_model)
+
+def build_search(s: Settings) -> tuple[Embedder, Reranker]:
+    """The embedder and reranker: loaded in this process (local), or on the GPU search server (http)."""
+    if s.search_provider == "http":
+        from app.adapters.search_http import HttpEmbedder, HttpReranker, SearchClient
+
+        client = SearchClient(s.search_url, s.search_token.get_secret_value(), embed_model=s.embed_model,
+                              dim=s.embed_dim, rerank_model=s.rerank_model, timeout_s=s.search_timeout_s,
+                              ingest_timeout_s=s.search_ingest_timeout_s)
+        if client.try_verify():  # wakes the server's GPU too, like the local warm-up below
+            client.post("/v1/rerank", {"query": "warm up", "passages": ["warm up"]})
+        return HttpEmbedder(client), HttpReranker(client)
+    if s.search_provider != "local":
+        raise ValueError(f"unknown SEARCH_PROVIDER '{s.search_provider}' (use local or http)")
+    from app.adapters.models import CrossEncoderReranker, TransformerEmbedder
+
+    models_dir = ROOT / "models"
+    embedder = TransformerEmbedder(s.embed_model, s.embed_dim, s.device, models_dir=models_dir)
+    reranker = CrossEncoderReranker(s.rerank_model, s.device, s.rerank_max_tokens, models_dir=models_dir)
+    embedder.embed_query("warm up")  # first call is slow; pay it at startup, not on the first question
+    reranker.score("warm up", ["warm up"])
+    return embedder, reranker
+
+
+def build_stt(s: Settings, provider: str) -> STT:
+    from app.voice.providers import GroqSTT, SarvamSTT
+
+    if provider == "groq":
+        return GroqSTT(s.groq_api_key.get_secret_value(), s.llm_base_url, s.stt_model, vocabulary=s.stt_vocabulary)
+    if provider == "sarvam":
+        from app.voice.vocab import terms_for
+
+        return SarvamSTT(s.sarvam_api_key.get_secret_value(), s.sarvam_stt_model, s.sarvam_stt_mode,
+                         keyterms=terms_for(s.stt_vocabulary) if s.stt_vocabulary != "none" else [])
+    raise ValueError(f"unknown STT_PROVIDER '{provider}' (use groq or sarvam)")
+
+
+def build_tts(s: Settings, provider: str) -> TTS:
+    from app.voice.providers import EdgeTTS
+
+    if provider == "edge":
+        return EdgeTTS({"en": s.tts_voice_en, "hi": s.tts_voice_hi, "hinglish": s.tts_voice_hinglish}, s.audio_rate,
+                       s.tts_speed_pct)
+    if provider == "sarvam":
+        return build_sarvam_tts(s, s.sarvam_tts_model)
+    raise ValueError(f"unknown TTS_PROVIDER '{provider}' (use edge or sarvam)")
+
+
+def build_sarvam_tts(s: Settings, model: str) -> TTS:
+    """Bulbul with the voices that fit `model`: personas per language for v4, one bare name for v3 / v2."""
+    from app.voice.providers import SarvamTTS
+
+    if model.startswith("bulbul:v4"):
+        speakers = dict(pair.split(":", 1) for pair in s.sarvam_v4_speakers.replace(" ", "").split(",") if ":" in pair)
     else:
-        raise ValueError(f"unknown STT_PROVIDER '{s.stt_provider}' (use groq or sarvam)")
-    if s.tts_provider == "edge":
-        tts = EdgeTTS({"en": s.tts_voice_en, "hi": s.tts_voice_hi, "hinglish": s.tts_voice_hinglish}, s.audio_rate,
-                      s.tts_speed_pct)
-    elif s.tts_provider == "sarvam":
-        tts = SarvamTTS(s.sarvam_api_key.get_secret_value(), s.audio_rate, s.sarvam_tts_model, s.sarvam_speaker,
-                        pace=1 + s.tts_speed_pct / 100)
-    else:
-        raise ValueError(f"unknown TTS_PROVIDER '{s.tts_provider}' (use edge or sarvam)")
+        speakers = {lang: s.sarvam_speaker for lang in ("en", "hi", "hinglish")}
+    return SarvamTTS(s.sarvam_api_key.get_secret_value(), s.audio_rate, model, speakers, pace=s.sarvam_pace)
+
+
+def build_voice(s: Settings) -> VoiceRuntime:
+    from app.voice.fallback import FallbackSTT, FallbackTTS
+    from app.voice.phrases import PhraseCache
+    from app.voice.providers import SileroVAD
+
+    stt, tts = build_stt(s, s.stt_provider), build_tts(s, s.tts_provider)
+    if s.speech_fallback:  # a paid provider gets the free one behind it (app/voice/fallback.py)
+        if s.stt_provider != "groq" and s.groq_api_key.get_secret_value():
+            stt = FallbackSTT(stt, build_stt(s, "groq"))
+        if s.tts_provider != "edge":
+            tts = FallbackTTS(tts, build_tts(s, "edge"))
     SileroVAD(s.audio_rate)  # load once now so the first call doesn't pay for it
-    return VoiceRuntime(stt, tts, lambda: SileroVAD(s.audio_rate), PhraseCache(tts))
+    return VoiceRuntime(stt, tts, lambda: SileroVAD(s.audio_rate), PhraseCache(tts, s.data_dir / "tts-cache"))
 
 
 def build_bank(s: Settings, db: Database) -> tuple[Bank | None, object | None]:
@@ -185,13 +257,7 @@ def build(settings: Settings, *, start_worker: bool = True, overrides: dict | No
     if "embedder" in o:
         embedder, reranker = o["embedder"], o["reranker"]
     else:
-        from app.adapters.models import CrossEncoderReranker, TransformerEmbedder
-
-        models_dir = ROOT / "models"
-        embedder = TransformerEmbedder(settings.embed_model, settings.embed_dim, settings.device, models_dir=models_dir)
-        reranker = CrossEncoderReranker(settings.rerank_model, settings.device, settings.rerank_max_tokens, models_dir=models_dir)
-        embedder.embed_query("warm up")  # first call is slow; pay it at startup, not on the first question
-        reranker.score("warm up", ["warm up"])
+        embedder, reranker = build_search(settings)
     llm = o.get("llm") or build_llm(settings)
     store = o.get("store") or build_store(settings)
     voice = o.get("voice") or (build_voice(settings) if settings.voice_enabled else None)
@@ -204,7 +270,7 @@ def build(settings: Settings, *, start_worker: bool = True, overrides: dict | No
     retriever = Retriever(db, embedder, reranker, settings)
     auth = AuthService(db, bank, settings) if bank else None
     audit = AuditStore(db)
-    recordings = RecordingStore(db, settings)
+    recordings = RecordingStore(db, settings, o.get("recording_files") or build_recording_files(settings))
     service_desk = LocalServiceDesk(db, settings.demo_today)
     handoffs = HandoffService(db, settings)
     ticket_desk = service_desk

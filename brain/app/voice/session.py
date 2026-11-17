@@ -19,7 +19,8 @@ Turn-taking rules
   "ruko", "stop", "wait" or a real question -> the agent stops, drops queued audio and listens.
 - Talking while the agent is still thinking = correction/addition: the pending answer is cancelled and the new
   words are appended to the previous question.
-- Silence after the agent finishes: re-prompt after `no_input_s`, then say goodbye and end the call.
+- Silence after the agent finishes: re-prompt after `no_input_s`, then say goodbye and end the call. While a keypad
+  code is awaited, the wait is `code_wait_s` and the reminder is about the code (finding an SMS takes time).
 - A filler ("one moment") plays if the first sentence isn't ready after `filler_after_ms`.
 - Transfer to a person (after the caller said yes): the agent stops listening, hold music plays with a "thank
   you for waiting" every 30 s, and when someone accepts at the desk their audio is bridged to the caller (and
@@ -48,6 +49,7 @@ logger = logging.getLogger(__name__)
 SPECULATIVE_MS = 300  # start transcribing after this much silence
 BARGE_DECIDE_SILENCE_MS = 300  # how long the caller pauses before we judge an interruption
 BARGE_DECIDE_MAX_MS = 1500  # or judge after this much speech
+CODE_PENDING = {"otp_sent", "invalid"}  # verification states in which the caller still has to type the code
 PREROLL_MS = 300  # audio kept from before speech was confirmed, so first syllables aren't lost
 BARGE_VAD_START = 0.65  # while the agent talks, a frame must score this high to start a possible interruption (else 0.5)
 BARGE_QUIET_RATIO = 0.25  # ... and be at least this loud relative to the caller's own speech (-12 dB)
@@ -113,6 +115,7 @@ class VoiceSession:
         self._last_question = ""  # for merging a correction made while the agent was thinking
         self._no_input_task: asyncio.Task | None = None
         self._reprompts = 0
+        self._awaiting_code = False  # a keypad code was asked for and not yet entered
         self._unclear = 0  # consecutive turns the recogniser was unsure of
         self._tasks: set[asyncio.Task] = set()
         self.closed = asyncio.Event()
@@ -339,6 +342,7 @@ class VoiceSession:
 
     async def _reply(self, question: str, stt_language: str | None, user_end_wall: float, timings: dict) -> None:
         self._agent_audio_started = False
+        self._awaiting_code = False  # set again below if this reply asks for a code
         await self.send_json({"type": "user", "text": question, "stt_language": stt_language})
         first_audio = {}
 
@@ -362,6 +366,7 @@ class VoiceSession:
                     if event.kind == "understood":
                         self.language = event.language
                     elif event.kind == "auth":  # show the keypad / simulated SMS on the client
+                        self._awaiting_code = event.auth.get("status") in CODE_PENDING
                         await self.send_json({"type": "auth", **event.auth})
                     elif event.kind == "sentence":
                         await sentences.put(event)
@@ -491,7 +496,8 @@ class VoiceSession:
             self._no_input_task.cancel()
 
     async def _no_input(self) -> None:
-        await asyncio.sleep(self.s.no_input_s)
+        code = self._awaiting_code
+        await asyncio.sleep(self.s.code_wait_s if code else self.s.no_input_s)
         if self._capture is not None or self.agent_active or self.mode != "ai":
             return
         self._reprompts += 1
@@ -499,7 +505,7 @@ class VoiceSession:
             await self._say_once("goodbye")
             await self.close("no_input")
             return
-        self._agent_task = self._spawn(self._say_phrase("reprompt", self.language))
+        self._agent_task = self._spawn(self._say_phrase("code_reminder" if code else "reprompt", self.language))
 
     async def _say_once(self, kind: str) -> None:
         self.player.enqueue(await self.phrases.get(kind, self.language))
@@ -523,6 +529,7 @@ class VoiceSession:
         if self.agent_active:
             await self._interrupt()
         auth, message, language = await self.brain.verify(self.session_id, code)
+        self._awaiting_code = auth.get("status") in CODE_PENDING  # a wrong code can be typed again
         pending = auth.pop("pending_question", None)
         await self.send_json({"type": "auth", **auth})
         self.language = language

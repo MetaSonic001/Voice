@@ -1,12 +1,14 @@
 """Command line: `brain serve`, plus thin API clients for everyday tasks.
 
   brain serve  (or: python -m app)     start the API on http://127.0.0.1:8000
+  brain search [--host H --port 8200]  GPU search server (embed + rerank) for SEARCH_PROVIDER=http
   brain upload FILE... [--category X]  upload documents and wait until they're indexed
   brain ask "question" [--session ID]  ask one question and print the answer + citations + timings
   brain chat                           interactive session with follow-ups
   brain eval [--golden v1]             run the golden set and print the summary
   brain status                         documents, jobs and recent stats
   brain say "text" [--lang hi] -o F    synthesize test audio (WAV) with the configured TTS
+  brain sarvam-check [--out-dir D]     Sarvam key check: Bulbul v4-flash vs v3, pronunciation + speed (~Rs 2)
   brain voice FILE [--out reply.wav]   stream an audio file through the live call (WebSocket) in real time
   brain clean-slate [--yes]            delete every recorded call, ticket and handoff; re-seed the mock bank (KB kept)
 """
@@ -33,6 +35,17 @@ def serve(args) -> None:
     import uvicorn
 
     uvicorn.run("app.main:app", host=args.host, port=args.port, log_config=None)
+
+
+def search(args) -> None:
+    import uvicorn
+
+    from app.config import get_settings
+    from app.search_server import check_bind, from_settings
+
+    settings = get_settings()
+    check_bind(args.host, settings.search_token.get_secret_value())
+    uvicorn.run(from_settings(settings), host=args.host, port=args.port, log_config=None)
 
 
 def upload(args) -> None:
@@ -131,6 +144,107 @@ def say(args) -> None:
         print(f"{args.out}: first audio {r.headers['x-first-audio-ms']} ms, total {r.headers['x-total-ms']} ms")
 
 
+# One short reply per language, packed with the words most likely to be said wrong: the bank's name, product names,
+# acronyms, an amount, a rate and the app name. Written as the answer model writes them; the check sends them through
+# the same rewrite a live call uses (AU -> A.U. / एयू, Zenith+ -> Zenith Plus, amounts in words), so the audio is
+# exactly what a caller hears. Kept short on purpose: about 350 characters per model (about Rs 2 for both models).
+CHECK_TEXTS = {
+    "en": "Welcome to AU Small Finance Bank. Your Zenith+ debit card is blocked, and your FD of Rs 2,50,000 earns 7.25% p.a.",
+    "hi": "AU बैंक में स्वागत है। आपके Laksya और BSBDA खाते का KYC पूरा है, OTP आपके मोबाइल पर भेजा है।",
+    "hinglish": "AU 0101 app mein UPI aur NEFT dono chalte hain. Aapki EMI Vikaas account se kategi.",
+}
+TTS_RS_PER_1000 = {"bulbul:v4-flash": 2.0, "bulbul:v3": 3.0, "bulbul:v2": 3.0}  # Nov 2026, pay as you go, before GST
+
+
+def sarvam_check(args) -> None:
+    """Paid, straight to Sarvam (the brain need not run). For each Bulbul model: warm the connection, speak one typical
+    reply per language `--rounds` times (first-audio and total time, speaking speed), then transcribe the first take
+    with Saaras and print it next to the input (a round-trip check, not a listening test). Prints no key."""
+    from statistics import median
+
+    from app.config import get_settings
+    from app.container import build_sarvam_tts
+    from app.services.numbers import speech_text
+    from app.voice.audio import duration_ms, to_wav
+    from app.voice.providers import SarvamSTT, SpeechError
+    from app.voice.vocab import terms_for
+
+    s = get_settings()
+    if not s.sarvam_api_key.get_secret_value():
+        sys.exit("SARVAM_API_KEY is empty. Paste your key into brain/.env (SARVAM_API_KEY=...) and run this again.")
+    sys.stdout.reconfigure(errors="replace")  # Hindi text must not crash a terminal on an old code page
+    models = [m.strip() for m in args.models.split(",") if m.strip()]
+    languages = [args.lang] if args.lang else list(CHECK_TEXTS)
+    spoken = {lang: speech_text(CHECK_TEXTS[lang], lang) for lang in languages}  # as a live call would send it
+    chars = sum(len(spoken[lang]) for lang in languages) * args.rounds
+    cost = sum(chars * TTS_RS_PER_1000.get(m, 3.0) / 1000 for m in models) + 0.49 * len(models) * len(languages) * 6 / 60
+    print(f"About Rs {cost:.2f} of credit ({chars} characters per model, {len(models) * len(languages)} short transcriptions)")
+    print("\nSent to the voice (after the live call's pronunciation rewrite):")
+    for lang in languages:
+        print(f"  {lang:<8} {spoken[lang]}")
+    out_dir = Path(args.out_dir) if args.out_dir else None
+    if out_dir:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    stt = SarvamSTT(s.sarvam_api_key.get_secret_value(), s.sarvam_stt_model, s.sarvam_stt_mode,
+                    keyterms=terms_for(s.stt_vocabulary) if s.stt_vocabulary != "none" else [])
+
+    async def speak(tts, text: str, language: str) -> tuple[bytes, float, float]:
+        t0, first, pcm = time.perf_counter(), None, bytearray()
+        async for chunk in tts.stream(text, language):
+            first = first or time.perf_counter()
+            pcm += chunk
+        return bytes(pcm), ((first or t0) - t0) * 1000, (time.perf_counter() - t0) * 1000
+
+    async def check_one(tts, model: str, lang: str) -> None:
+        text, firsts, totals, take = spoken[lang], [], [], b""
+        for _ in range(args.rounds):
+            pcm, first, total = await speak(tts, text, lang)
+            firsts.append(first)
+            totals.append(total)
+            take = take or pcm
+        seconds = duration_ms(take, s.audio_rate) / 1000
+        print(f"  {lang:<8} {tts.speaker(lang):<22} first audio {', '.join(f'{f:.0f}' for f in firsts)} ms"
+              f" (median {median(firsts):.0f}), total median {median(totals):.0f} ms,"
+              f" {seconds:.2f} s of audio, {len(text) / max(seconds, 0.01):.1f} chars/s")
+        if out_dir:
+            (out_dir / f"{model.replace(':', '_')}_{lang}.wav").write_bytes(to_wav(take, s.audio_rate))
+        heard = await stt.transcribe(take, s.audio_rate)
+        print(f"           heard back ({s.sarvam_stt_model}): {heard.text}")
+
+    async def run():
+        try:
+            await stt.warm()
+            for model in models:
+                try:
+                    tts = build_sarvam_tts(s, model)
+                except SpeechError as e:
+                    print(f"\n{model}: skipped - {e}")
+                    continue
+                print(f"\n{model}  pace {tts.pace}  (first audio per round, warm connection)")
+                await tts.warm()
+                try:
+                    for lang in languages:
+                        try:  # one failing language or voice (say a wrong speaker ID) doesn't stop the rest
+                            await check_one(tts, model, lang)
+                        except SpeechError as e:
+                            if e.out_of_credit:
+                                raise
+                            hint = (" - check the voice ID against docs.sarvam.ai/api/api-guides-tutorials/text-to-speech/voices"
+                                    if e.status in (400, 422) else "")
+                            print(f"  {lang:<8} {tts.speaker(lang):<22} FAILED: {e}{hint}")
+                finally:
+                    await tts.close()
+            if out_dir:
+                print(f"\nWAV files to listen to: {out_dir.resolve()}")
+        except SpeechError as e:
+            hint = " (out of credits or wrong key)" if e.out_of_credit else ""
+            sys.exit(f"Sarvam failed{hint}: {e}")
+        finally:
+            await stt.close()
+
+    asyncio.run(run())
+
+
 def voice(args) -> None:
     """Plays a file into the live call at real-time speed (20 ms frames) and prints every event with a timestamp."""
     import websockets
@@ -182,10 +296,12 @@ def voice(args) -> None:
 def clean_slate(args) -> None:
     """Works on the database directly (a running brain keeps working: it re-seeds the mock bank on its next start)."""
     from app.config import get_settings
+    from app.container import build_recording_files
     from app.db import Database
     from app.services import maintenance
 
     settings = get_settings()
+    recording_files = build_recording_files(settings)
     db = Database(settings.database_url, settings.data_dir)
     try:
         print("This will delete:")
@@ -194,7 +310,7 @@ def clean_slate(args) -> None:
         print("The knowledge base and eval history are kept. This cannot be undone.")
         if not args.yes and input("Type DELETE to continue: ").strip() != "DELETE":
             sys.exit("cancelled")
-        print(json.dumps(maintenance.clean_slate(db, settings.data_dir, confirm=True)))
+        print(json.dumps(maintenance.clean_slate(db, recording_files, confirm=True)))
     finally:
         db.close()
 
@@ -206,6 +322,10 @@ def main() -> None:
     s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--port", type=int, default=8000)
     s.set_defaults(fn=serve)
+    s = sub.add_parser("search", help="GPU search server (embed + rerank) for SEARCH_PROVIDER=http")
+    s.add_argument("--host", default="127.0.0.1")
+    s.add_argument("--port", type=int, default=8200)
+    s.set_defaults(fn=search)
     s = sub.add_parser("upload")
     s.add_argument("files", nargs="+")
     s.add_argument("--category")
@@ -227,6 +347,12 @@ def main() -> None:
     s.add_argument("--lang", default="en", choices=["en", "hi", "hinglish"])
     s.add_argument("-o", "--out", default="say.wav")
     s.set_defaults(fn=say)
+    s = sub.add_parser("sarvam-check", help="Sarvam key check + Bulbul model comparison with pronunciation sentences (paid, about Rs 2)")
+    s.add_argument("--models", default="bulbul:v4-flash,bulbul:v3", help="comma-separated Bulbul models to compare")
+    s.add_argument("--lang", choices=["en", "hi", "hinglish"], help="only this reply language (default: all three)")
+    s.add_argument("--rounds", type=int, default=1, help="takes per sentence; 3 gives steadier timings (costs 3x)")
+    s.add_argument("--out-dir", help="save one WAV per model and language here, to listen to")
+    s.set_defaults(fn=sarvam_check)
     s = sub.add_parser("voice")
     s.add_argument("file", help="any audio file (wav/mp3/m4a/...)")
     s.add_argument("--lang", default="en", choices=["en", "hi"], help="greeting language")

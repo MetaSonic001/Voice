@@ -227,6 +227,42 @@ async def test_silence_reprompts_then_ends_call():
     assert spoken & set(h.tts.spoken)
 
 
+class CodeBrain(StubBrain):
+    """Asks for a keypad code (as a personal question does); `verify` accepts it."""
+
+    async def turn(self, question, session_id, extra_timings=None):
+        self.questions.append(question)
+        yield TurnEvent("understood", "en", "personal")
+        yield TurnEvent("auth", "en", "personal", auth={"status": "otp_sent"})
+        text = "Please type the code sent to your mobile."
+        yield TurnEvent("sentence", "en", "personal", text, text)
+        yield TurnEvent("done", reply=Reply("trace-1", session_id, "auth_required", "personal", "en", text, text))
+
+    async def verify(self, session_id, code):
+        return {"status": "verified"}, "Thank you, you are verified.", "en"
+
+
+async def test_waiting_for_the_code_reminds_about_the_code_not_the_menu():
+    h = await Harness(brain=CodeBrain(), no_input_s=0.2, code_wait_s=0.8).start()
+    await h.feed(quiet(200) + speech(300) + quiet(1000))
+    await h.wait_for("auth", status="otp_sent")
+    await h.wait_for("agent_text", phrase="code_reminder", timeout=5)
+    assert not any(e.get("phrase") == "reprompt" for e in h.events)  # not "are you still there? ask about loans..."
+    end = await h.wait_for("end", timeout=10)
+    assert end["reason"] == "no_input"
+
+
+async def test_after_the_code_the_normal_silence_prompt_returns():
+    h = await Harness(brain=CodeBrain(), no_input_s=0.3, code_wait_s=30).start()
+    await h.feed(quiet(200) + speech(300) + quiet(1000))
+    await h.wait_for("auth", status="otp_sent")
+    await h.session.submit_code("123456")
+    await h.wait_for("auth", status="verified")
+    await h.wait_for("agent_text", phrase="reprompt", timeout=5)  # 0.3 s, not the 30 s code wait
+    assert not any(e.get("phrase") == "code_reminder" for e in h.events)
+    await h.close()
+
+
 async def test_greeting_plays_and_can_be_interrupted():
     h = await Harness().start(greet=True)
     await h.wait_for("agent_text", phrase="greeting")

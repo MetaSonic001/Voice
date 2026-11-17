@@ -8,10 +8,10 @@ It cannot be undone, so the caller must pass `confirm=True`.
 """
 
 import logging
-import shutil
 
 from app.db import Database
 from app.logs import log
+from app.ports import FileStore
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ def preview(db: Database) -> dict:
     return out
 
 
-def clean_slate(db: Database, data_dir, *, confirm: bool = False) -> dict:
+def clean_slate(db: Database, recording_files: FileStore, *, confirm: bool = False) -> dict:
     if not confirm:
         raise ValueError("clean_slate deletes every recorded call and cannot be undone: pass confirm=True")
     removed = preview(db)
@@ -53,16 +53,12 @@ def clean_slate(db: Database, data_dir, *, confirm: bool = False) -> dict:
             "SELECT table_name FROM information_schema.tables WHERE table_schema = %s AND table_type = 'BASE TABLE'", (BANK_SCHEMA,)).fetchall()]
         if bank:
             conn.execute(f"TRUNCATE {', '.join(f'{BANK_SCHEMA}.{t}' for t in bank)} RESTART IDENTITY CASCADE")
-    recordings = data_dir / "recordings"
-    files = sum(1 for _ in recordings.glob("*")) if recordings.is_dir() else 0
-    if recordings.is_dir():
-        shutil.rmtree(recordings)
-    removed["recording_files"] = files
+    recording_files.delete_prefix("")  # every encrypted recording file (local folder or the bucket's recordings/ prefix)
     log(logger, "clean slate done", **removed)
     return removed
 
 
-def delete_call(db: Database, data_dir, session_id: str) -> dict | None:
+def delete_call(db: Database, recording_files: FileStore, session_id: str) -> dict | None:
     """Delete one call for good: its turns, timeline, verification events, alerts, review, fix-list items, handoffs and
     their messages, recordings (rows and encrypted files) and the call itself. Tickets raised in the mock bank's CRM stay
     (they are the bank's records); their link to the call is cleared. Returns what was deleted, or None if no such call."""
@@ -81,7 +77,7 @@ def delete_call(db: Database, data_dir, session_id: str) -> dict | None:
                 removed[table] = conn.execute(f"DELETE FROM {table} WHERE session_id = %s", (session_id,)).rowcount
         removed["sessions"] = conn.execute("DELETE FROM sessions WHERE id = %s", (session_id,)).rowcount
     for name in files:
-        (data_dir / "recordings" / name).unlink(missing_ok=True)
+        recording_files.delete_prefix(name)
     removed["recording_files"] = len(files)
     log(logger, "call deleted", call=session_id, **removed)
     return removed

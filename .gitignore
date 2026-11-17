@@ -1,0 +1,46 @@
+# Root .gitignore: project-wide rules only.
+# brain/.gitignore (Python: .venv, data, models, eval reports) and
+# ui/.gitignore (Next.js: node_modules, .next) still apply to their folders.
+
+# Docs folder (kept local, not in git)
+docs/
+
+# Secrets: never commit real env files (examples are fine)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python leftovers anywhere
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Node leftovers anywhere
+node_modules/
+
+# Logs
+*.log
+logs/
+
+# Office lock files (open .xlsx/.docx)
+~$*
+
+# Claude Code personal settings
+.claude/settings.local.json
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+
+/reference
+/docs
+
+# Sarvam check audio (brain sarvam-check --out-dir)
+sarvam-check/

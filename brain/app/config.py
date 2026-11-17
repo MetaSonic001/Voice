@@ -31,6 +31,13 @@ class Settings(BaseSettings):
     embed_dim: int = 1024
     rerank_model: str = "BAAI/bge-reranker-v2-m3"
     device: str = "auto"  # auto = GPU (fp16) when available, else CPU; or force "cpu" / "cuda"
+    # Where the two models run: "local" = inside this process (default) | "http" = a search server
+    # (`python -m app search`, on a GPU machine). Same models, same scores; see app/search_server.py.
+    search_provider: str = "local"
+    search_url: str = ""  # http mode: e.g. http://au-search.internal:8200
+    search_token: SecretStr = SecretStr("")  # shared by brain and search server; never printed
+    search_timeout_s: float = 3.0  # per question-time request (embed one query / rerank one list)
+    search_ingest_timeout_s: float = 60.0  # per batch of chunks while a document is indexed
 
     # ── Storage ──
     data_dir: Path = ROOT / "data"
@@ -60,11 +67,18 @@ class Settings(BaseSettings):
     voice_enabled: bool = True
     stt_provider: str = "groq"  # groq (Whisper API) | sarvam
     tts_provider: str = "edge"  # edge (free, dev only) | sarvam
-    stt_model: str = "whisper-large-v3-turbo"  # sarvam: saaras:v3
+    stt_model: str = "whisper-large-v3-turbo"  # Groq Whisper model (STT_PROVIDER=groq, and the Sarvam fallback)
     stt_vocabulary: str = "extended"  # base (product names) | extended (+ banking terms) | none; "extended" won the A/B test of 6 Nov (evals/stt_ab.py)
     sarvam_api_key: SecretStr = SecretStr("")
-    sarvam_tts_model: str = "bulbul:v3"
-    sarvam_speaker: str = "priya"
+    sarvam_stt_model: str = "saaras:v4"  # saaras:v4 (latest; same price; takes key terms from STT_VOCABULARY) | saaras:v3
+    sarvam_stt_mode: str = "codemix"  # transcribe | codemix (Hinglish keeps English words in Latin script) | translit | verbatim
+    # bulbul:v4-flash: Rs 2 / 1,000 chars, 60 requests a minute on the basic plan | bulbul:v3: Rs 3, capped at 30 a minute
+    sarvam_tts_model: str = "bulbul:v4-flash"
+    # bulbul:v4-flash voices are personas per language; the same woman (Ishita) in all three of our reply languages
+    sarvam_v4_speakers: str = "en:ishita_en_customer,hi:ishita_hi_banking,hinglish:ishita_enhi_customer"
+    sarvam_speaker: str = "priya"  # bulbul:v3 / v2 voice for every language (v3 female: priya, neha, ritu, pooja, kavya, shruti)
+    sarvam_pace: float = 1.0  # 0.5-2.0. Tune by ear: v4-flash at 1.0 already speaks ~6-7% faster than v3 at 1.0
+    speech_fallback: bool = True  # if Sarvam fails, that request uses Groq Whisper / Edge; out of credits or bad key -> backup until restart
     # Edge voices per reply language. Neerja: Indian English and the fastest Edge voice (~1 s to first audio);
     # the "Expressive" and "Multilingual" voices sound a little more natural but take 3-5 s. Production: Sarvam.
     tts_voice_en: str = "en-IN-NeerjaNeural"
@@ -78,11 +92,13 @@ class Settings(BaseSettings):
     max_utterance_s: float = 30.0
     bargein_min_ms: int = 350  # caller speech while the agent talks must last this long to lower the agent's volume
     no_input_s: float = 8.0  # re-prompt after this much silence; end the call after the second time
+    code_wait_s: float = 30.0  # while a keypad code is awaited (finding the SMS takes time): remind after this, end after twice
     filler_after_ms: int = 1200  # say "one moment" if the first sentence isn't ready by then
     playback_lead_ms: int = 200  # how far ahead of real time agent audio is sent (smaller = faster barge-in)
+    max_live_calls: int = 9  # live voice calls this process takes at once; the next is refused as "busy" (WebSocket close 1013). 0 = no limit. 9 = the cost sheet's calls per container (one process = one core; PROJECT-GUIDE §26.11)
 
     # ── Call audit: recordings ──
-    record_calls: bool = True  # live calls (stereo) and voice notes are recorded, encrypted, under data_dir/recordings
+    record_calls: bool = True  # live calls (stereo) and voice notes are recorded, encrypted: data_dir/recordings, or S3 with file_store=s3
     recording_key: SecretStr = SecretStr("")  # base64 of 32 bytes (AES-256); empty = a local key file (dev only)
     judge_mode: str = "all"  # post-call review: all (every call, development) | selective (risk-weighted + 10% sample) | off
     recording_retention_days: int = 0  # delete recordings older than this; 0 = keep (set by the bank's policy)

@@ -33,9 +33,9 @@ def test_last_five_across_accounts_is_exactly_five_newest_first_each_with_its_ac
 
 def datetime_of(line: str) -> tuple:
     months = {m: i for i, m in enumerate("Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(), 1)}
-    d, m, y = re.match(r"(\d+) (\w{3}) (\d{4})", line).groups()
-    t = re.search(r", (\d\d:\d\d):", line)
-    return int(y), months[m], int(d), t.group(1) if t else ""
+    d, m, y = re.search(r"(\d+) (\w+) (\d{4})", line).groups()
+    t = re.search(r"at (\d{1,2}):(\d\d)", line)
+    return int(y), months[m[:3]], int(d), (int(t.group(1)), int(t.group(2))) if t else (0, 0)
 
 
 def test_saying_go_on_reads_the_rest(client):
@@ -50,14 +50,15 @@ def test_saying_go_on_reads_the_rest(client):
 
 
 @pytest.mark.parametrize("status,kind,must,must_not", [
-    ("success", "Debit", "paid", ""), ("success", "Credit", "received", ""),
-    ("pending", "Debit", "still processing", "paid"), ("failed", "Debit", "no money moved", "paid"),
-    ("reversed", "Debit", "reversed and returned", "paid"), ("mystery", "Debit", "can't confirm its status", "paid"),
+    ("success", "Debit", "there was a UPI transfer of ₹10,000 to Suresh Patel.", "processing"),
+    ("success", "Credit", "there was a UPI transfer of ₹10,000 from Suresh Patel.", "didn't"),
+    ("pending", "Debit", "and it's still processing", ""), ("failed", "Debit", "didn't go through, so no money left your account", ""),
+    ("reversed", "Debit", "reversed, so the money came back to you", ""), ("mystery", "Debit", "can't confirm whether it went through", ""),
 ])
-def test_paid_is_only_said_for_a_completed_transaction(status, kind, must, must_not):
+def test_each_transaction_is_one_full_sentence_with_its_status(status, kind, must, must_not):
     x = Transaction(date(2026, 11, 5), "UPI Transfer", kind, 10000, "UPI", "Suresh Patel", status, "UTR1", "", "09:15")
     line = _txn_line(x, "en")
-    assert must in line and (not must_not or must_not not in line)
+    assert line.startswith("On Thursday, 5 November 2026, at 9:15, ") and must in line and (not must_not or must_not not in line)
     for lang in ("hi", "hinglish"):
         assert "₹10,000" in _txn_line(x, lang) and "(failed)" not in _txn_line(x, lang)
 

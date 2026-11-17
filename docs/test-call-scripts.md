@@ -190,3 +190,73 @@ Number: 9000000103
 3. Pichhle do din mein card se koi payment hua kya?
 4. मुझे नया कार्ड कब तक मिलेगा?
 5. Fraud team se baat karwa dijiye.
+
+---
+
+## Part C - Sarvam voice test (16 Nov 2026): three short calls
+
+**Corrected 16 Nov:** the first version asked for a 60 s silent wait, which the no-input timer turns into a hang-up.
+
+Goal: check Sarvam speech-to-text (saaras:v4, Hinglish mode) and voice (bulbul:v4-flash, Ishita) on real calls,
+inside the free Groq limits and the Sarvam trial credit. The questions are taken from calls that already worked
+(A2, A6, A7), so a failure points at Sarvam, not at a new question.
+
+**Budget.** About 17 turns in all: about 80,000 tokens of gpt-oss-120b (40% of its 200,000 a day; your other testing
+shares it) and about ₹12 of Sarvam (₹4 once for the fixed phrases on the first start, then ₹2-3 a call).
+
+**Setup (once)**
+1. `brain/.env`: uncomment `STT_PROVIDER=sarvam` and `TTS_PROVIDER=sarvam`; add `NO_INPUT_S=25` (the agent otherwise
+   re-prompts after 8 s of silence and hangs up after 16 s, which leaves no room to pace yourself; remove it after testing).
+2. Restart the brain. After it starts, `brain/data/tts-cache/` should fill with `.pcm` files (the fixed phrases).
+3. Test console (`/`), voice call, headphones on (no speaker echo).
+
+**Pacing (Groq allows 8,000 tokens a minute; a normal turn uses about 3,500-4,500, a product question about 8,000)**
+- After the agent finishes, wait about **15 s** before the next line (count slowly to 15). Never more than about
+  20 s: with `NO_INPUT_S=25` the agent asks "are you still there?" at 25 s and **hangs up at 50 s**.
+- The one **rate / product question** (marked ⏱) uses a whole minute of Groq tokens, so it is the **last** line of
+  its call: hang up after the answer.
+- Say each line in **one breath**: a pause between two sentences can split it into two turns (seen on 7 Nov).
+- When asked for a code, type the 6 digits from the simulated SMS on the keypad. Never say it.
+- Wait about 2 minutes between calls (the post-call review runs on gpt-oss-20b, a separate budget).
+
+### C1. Ravi - English: pronunciation, keypad, barge-in, card action
+Number: 9000000101. Greeting: English.
+1. What's my balance in both accounts? *(asks for a code: type it)*
+2. Show me my last five transactions in the salary account.
+   - **While it reads them, say "hmm, okay"** - the voice should dip briefly and carry on (a backchannel, not an interruption).
+3. Was my last EMI paid?
+4. Block my credit card ending 6712 temporarily.
+5. Yes. *(after it reads the card back)*
+   - **While it confirms, say "wait, stop"** - it should stop talking and listen.
+6. **Cough once, or tap the microphone, and stay silent** - it should ignore it (Sarvam gives no "no speech" score, so
+   if it answers a cough, note it: that is the known gap).
+7. Thanks, that's all.
+
+Listen for: "A.U." as two letters, amounts in lakh, "6712", the card name; whether "hmm" and "wait" were handled right.
+
+### C2. Pooja - Hinglish: code-mixed speech, the Hinglish voice, an unfinished sentence
+Number: 9000000106. Greeting: English.
+1. Mera salary is month credit hua kya? *(type the code)*
+2. Is week UPI se kitna kharcha hua?
+3. Aaj Rajesh se paise aaye kya?
+4. Aur mujhe ek cheez poochni thi ki... *(pause about 1 second)* ...mera debit card abroad mein chalega?
+   - It should wait for the end of the sentence ("ki..." sounds unfinished), not answer half of it.
+5. Mujhe kisi agent se baat karni hai.
+   - It confirms, then hold music plays. Accept on `/desk` to test the bridge, or just hang up.
+
+Look at `/calls` afterwards: the transcripts should be Hinglish in Latin letters (Whisper once wrote this in Urdu
+script). Listen for: "UPI", "Rajesh", the amount, natural Hinglish.
+
+### C3. Sunita - Hindi: Devanagari, a follow-up, one product question
+Number: 9000000107. Greeting: Hindi.
+1. मेरे गोल्ड लोन की अगली किस्त कब है? *(type the code)*
+2. और कितना लोन बाकी है?
+3. ⏱ दो साल की एफडी पर ब्याज दर कितनी है? *(product question: hang up after the answer)*
+
+Listen for: "एयू", the date and amounts in Hindi, the rate, "प्रतिशत".
+
+### After each call
+- `/calls`: the transcript (what Sarvam heard), per-turn speech-to-text time and first audio, the review.
+- The brain's log: a line "speech-to-text: sarvam-stt failed; this request uses groq-whisper" (or text-to-speech /
+  edge-tts) means the fallback was used. "out of credit or the key is wrong" means it switched for good.
+- If the agent says it is having trouble, Groq's per-minute limit was hit: wait a minute and go on more slowly.

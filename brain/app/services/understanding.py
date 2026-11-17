@@ -297,9 +297,44 @@ _EMI_BOUNCE = re.compile(r"\b(emi|loan|instal+ment|kisht|kist)\b.{0,40}\b(bounce
                          r"\bbounce\w*\b.{0,40}\b(emi|loan|charge\w*|fee|penalty)\b|"
                          r"\b(charge\w*|fee|penalty)\b.{0,40}\bbounce\w*\b|ईएमआई.{0,30}(बाउंस|फेल)", re.I)
 _HOW_TO = re.compile(r"\b(how (do|can|to|should)|what happens|kaise|kya hota)\b|कैसे", re.I)
-_OWN_ACCOUNT = re.compile(r"\b(my|mere|mera|meri|apne|apna|apni)\b.{0,25}\b(account|a/c|khat[ae]|savings)\b.{0,30}"
-                          r"\b(charges?|kata|kate|kat gaya|balance|transactions?|statement|minimum balance)\b|"
-                          r"(मेरे|मेरा|अपने|अपना).{0,25}(खाते|खाता|अकाउंट).{0,30}(चार्ज|शुल्क|बैलेंस|लेनदेन)", re.I)
+# Mixed script is normal in speech-to-text output ("अपने account के charges"), so each part accepts either script.
+_POSSESSIVE = r"(?:\b(?:my|mere|mera|meri|apne|apna|apni)\b|मेरे|मेरा|मेरी|अपने|अपना|अपनी)"
+_OWN_ACCOUNT = re.compile(rf"{_POSSESSIVE}.{{0,25}}(?:\b(?:account|a/c|khat[ae]|savings)\b|खाते|खाता|अकाउंट).{{0,30}}"
+                          r"(?:\b(?:charges?|kata|kate|kat gaya|balance|transactions?|statement|minimum balance)\b|"
+                          r"चार्ज|शुल्क|बैलेंस|लेनदेन|ट्रांज़ैक्शन)", re.I)
+_CHARGES = re.compile(r"\b(charges?|fees?|shulk)\b|चार्ज|शुल्क|फीस", re.I)
+# A charge type, product or reason named: the question is specific enough to answer (or to look up) directly.
+_CHARGE_DETAIL = re.compile(
+    r"\b(minimum|amb|average|atm|annual|joining|renewal|card|sms|cheque|chequebook|neft|imps|rtgs|upi|locker|bounce\w*|"
+    r"late|forex|markup|emi|loan|fd|deposit|processing|stamp|statement|dd|draft|cash|interest|penalty|"
+    r"royale|digital|value|platinum|swadesh|vikaas|bsbda|kisan|aarambh|zenith\w*|altura|ananta)\b|"
+    r"मिनिमम|न्यूनतम|एटीएम|कार्ड|लोन|ईएमआई|सालाना|बाउंस", re.I)
+_CHARGE_REASON = re.compile(r"\b(why|kyun|kyon|kat\w*|deduct\w*|debited|cut|taken|charged me|wrong|galat|twice|double)\b|"
+                            r"क्यों|कट|काट|गलत", re.I)
+
+
+_OWN_CHARGES = re.compile(r"\b(kat\w*|deduct\w*|debited|cut|taken|first|pehl\w*|mine|mere|meri|mera|apne|my|check\w*)\b|"
+                          r"कट|काट|पहल|मेरे|अपने|चेक", re.I)
+_GENERAL_CHARGES = re.compile(r"\b(general|aam|normal|usual|second|dusr\w*|doosr\w*|minimum|atm|debit card)\b|आम|सामान्य|दूसर|मिनिमम|एटीएम",
+                              re.I)
+
+
+def wants_own_charges(raw: str) -> bool:
+    """The reply to "charges taken from your account, or our general charges?" picks the caller's own account."""
+    return bool(_OWN_CHARGES.search(raw)) and not _GENERAL_CHARGES.search(raw)
+
+
+def broad_charges(u: Understanding, raw: str) -> bool:
+    """"I want to know about the charges on my account" names no charge type, product or reason: it could mean charges
+    taken from the caller's account or the bank's general charges (found in a live call that answered with one
+    particular account's figures). Such a question is asked back once, in code, instead of guessing a product."""
+    if u.risk or any(r.kind in ("action", "human", "fraud") for r in u.requests) or len(raw.split()) > 16:
+        return False
+    if not _CHARGES.search(raw) or _CHARGE_DETAIL.search(raw) or _CHARGE_REASON.search(raw) or _HOW_TO.search(raw):
+        return False
+    first = u.requests[0] if u.requests else None
+    named = bool(first and (first.product or first.named))
+    return bool(re.search(_POSSESSIVE, raw, re.I)) or not named
 
 
 def own_data(u: Understanding, raw: str) -> Understanding:

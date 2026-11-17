@@ -18,7 +18,7 @@ With AU's real systems this pattern is wrong:
 - one system being down (loans) can break an unrelated answer (balance).
 
 What is already right and stays: the LLM never chooses which bank call to make, and it never receives bank data - bank
-answers are code templates (ADR 0023); authorisation is checked in code before any personal answer.
+answers are code templates (ADR 0024); authorisation is checked in code before any personal answer.
 
 ## Decision
 
@@ -73,4 +73,4 @@ teams; this ADR is an architecture decision, not a legal determination.
 ## Links
 
 `brain/app/adapters/http_bank.py` (today's full read), `services/auth.py` (prefetch, verification), `services/personal.py`
-(topics and details), ADR 0023 (templates for bank data), `context/progress-tracker.md`.
+(topics and details), ADR 0024 (templates for bank data), `context/progress-tracker.md`.

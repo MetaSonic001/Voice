@@ -94,8 +94,8 @@ def test_clean_slate_removes_calls_but_keeps_the_knowledge_base(client, containe
         docs_before = conn.execute("SELECT count(*) AS n FROM documents").fetchone()["n"]
         loose_before = conn.execute("SELECT count(*) AS n FROM traces WHERE session_id IS NULL").fetchone()["n"]
     with pytest.raises(ValueError):
-        maintenance.clean_slate(container.db, container.settings.data_dir)  # needs an explicit confirm
-    removed = maintenance.clean_slate(container.db, container.settings.data_dir, confirm=True)
+        maintenance.clean_slate(container.db, container.recordings.files)  # needs an explicit confirm
+    removed = maintenance.clean_slate(container.db, container.recordings.files, confirm=True)
     assert removed["sessions"] >= 1
     with container.db.connection() as conn:
         assert conn.execute("SELECT count(*) AS n FROM sessions").fetchone()["n"] == 0

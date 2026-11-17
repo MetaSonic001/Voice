@@ -1,8 +1,9 @@
-# ADR-0024: Dialogue decisions in code: strategy, guided flows, scoped facts, progressive disclosure
+# ADR-0024: How the agent replies: dialogue decisions in code; bank-data replies stay templates
 
 - **Status:** Accepted
 - **Date:** 2026-11-06
 - **Deciders:** project owner
+- **Merged on 14 Nov 2026:** this file now also holds the former ADR 0023 (bank-data replies stay templates, section 7 below). That number is not reused.
 
 ## Context
 
@@ -43,6 +44,13 @@ decisions as plain code in `services/dialogue.py`:
 6. **Fraud**: an opening line that fits the report, said once; a request to reach the fraud team is a transfer with no
    verification; OTP shared → what went out lately + fraud team; a vague "money was taken" → the latest debits and
    "is it one of these?" (asking, never guessing).
+7. **Bank-data replies stay fixed templates** (English, Hindi, Hinglish), with **no LLM phrasing call**. The Phase 4
+   plan proposed an LLM call (streamed, figure-checked) to phrase lists and explanations of bank data, at 300–500 ms more
+   to first audio on those turns. But the failures in the call review (a list of 1 + 5 from two accounts, "paid (failed)",
+   replies too long) came from how data was merged and labelled, not from wording. They are fixed in code: one merged
+   newest-first list cut to exactly N with each line's account, read three at a time ("Want the other 2?"); one status
+   table in which "paid" and "received" follow only a successful transaction; short lines for small talk. Every number
+   comes straight from bank data, and nothing from the bank goes to the LLM.
 
 ## Options considered
 
@@ -53,6 +61,8 @@ decisions as plain code in `services/dialogue.py`:
 | LangGraph / LangChain agent graph | Checkpointing, graph tooling | We already keep state in Postgres; a large new dependency for the bank's review; does not fix prompts, data or playbooks |
 | An LLM-written rolling summary of the call | Handles very long calls | One more model call per turn; calls are 5-15 turns; structured facts and state carry what must persist |
 | A hard global word cap | Simple | Cuts conditions and full breakdowns the caller asked for |
+| **Bank data: templates with the fixes in point 7 (chosen)** | No added latency; every number from bank data; easy to test | Wording is plainer than an LLM would write |
+| Bank data: LLM phrasing of validated facts + a figure check | Less robotic | +300–500 ms on the slowest turns, more quota, a risk of invented words, to fix problems that were not about wording |
 
 ## Consequences
 
@@ -60,8 +70,11 @@ decisions as plain code in `services/dialogue.py`:
   flow (a list of fact keys and questions).
 - **Harder / costs:** the router output has three more fields per request (`goal`, `product`, `own_check`) and more fact
   keys; its output still needs 800 tokens (600 truncated the JSON on the real model).
+- **Bank-data turns:** latency and accuracy unchanged; wording plainer than an LLM's.
 - **Revisit when:** flows need branching beyond "ask the next unknown fact", or calls routinely exceed about 20 turns
-  (then add a code-built summary of older turns).
+  (then add a code-built summary of older turns). For bank data: if the owner still finds replies robotic after
+  hearing them, phrase only lists and explanations, behind the existing figure check, and measure first-audio latency
+  before and after.
 
 ## Implementation notes (6 Nov 2026, second pass)
 
@@ -87,5 +100,5 @@ decisions as plain code in `services/dialogue.py`:
 ## Links
 
 `brain/app/services/dialogue.py`, `conversation.py` (`_dispatch`, `_guided`, `_flow`, `_recommend`, `_answer`),
-`understanding.py`, `journeys.py` (fraud), `numbers.clean_markup`, `tests/test_dialogue.py`. Related: ADR 0023
-(templates for bank data), the progress tracker's 6 Nov "dialogue layer" entry.
+`understanding.py`, `journeys.py` (fraud), `numbers.clean_markup`, `personal.py` (bank-data templates),
+`tests/test_dialogue.py`. Related: ADR 0006, ADR 0008, the progress tracker's 6 Nov "dialogue layer" entry.

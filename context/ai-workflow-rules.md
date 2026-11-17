@@ -2,7 +2,7 @@
 
 ## Approach
 
-Plan-driven. `CLAUDE.md` holds the owner's rules; `PHASE-4-PLAN.md` holds what to build. Read `progress-tracker.md` first,
+Plan-driven. `CLAUDE.md` holds the owner's rules; `context/pending-work.md` holds what is left to build; `reference/PROJECT-GUIDE.md` explains the design. Read `progress-tracker.md` first,
 build in the plan's order, and change the plan only for a stated reason (a better or simpler option found by research).
 Record every deviation in the tracker.
 
@@ -32,7 +32,7 @@ Record every deviation in the tracker.
 ## Keeping docs in sync
 
 After each meaningful change update: `progress-tracker.md` (what, numbers, live vs needs restart, next step). If architecture,
-scope or rules changed, also `PROJECT-GUIDE.md`, the relevant README, `architecture.md` or `CLAUDE.md`, in the same piece of work.
+scope or rules changed, also `reference/PROJECT-GUIDE.md`, the relevant README, `architecture.md` or `CLAUDE.md`, in the same piece of work.
 
 ## Before moving to the next unit
 

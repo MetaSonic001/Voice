@@ -11,3 +11,8 @@ HINTS = {"base": BASE, "extended": EXTENDED, "none": ""}
 
 def hint_for(name: str) -> str:
     return HINTS.get(name, BASE)
+
+
+def terms_for(name: str) -> list[str]:
+    """The same vocabulary as a list of terms (Sarvam saaras:v4 `keyterms`, at most 50)."""
+    return [t.strip() for t in hint_for(name).replace(".", ",").split(",") if t.strip()]

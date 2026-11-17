@@ -1,6 +1,8 @@
 // Thin client for the brain API (FastAPI). Set NEXT_PUBLIC_API_URL if the API isn't on 127.0.0.1:8000.
+// "/" means the API is on the same address as these pages (on AWS the load balancer routes /v1/* to the brain).
 
-export const API = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+export const API = API_URL === "/" ? "" : API_URL.replace(/\/+$/, "");
 const KEY = process.env.NEXT_PUBLIC_API_KEY; // local testing only: never ship a real key to a browser
 
 export type Auth = {
@@ -285,5 +287,7 @@ export const desk = {
   send: (sessionId: string, text: string) => post<HandoffMessage>(`/v1/handoffs/${sessionId}/messages`, { text }),
 };
 
-export const wsUrl = (path: string) => API.replace(/^http/, "ws") + path + (KEY ? `?key=${encodeURIComponent(KEY)}` : "");
+// Same-address API ("/"): build ws:// or wss:// from this page's own address.
+export const wsUrl = (path: string) =>
+  (API || window.location.origin).replace(/^http/, "ws") + path + (KEY ? `?key=${encodeURIComponent(KEY)}` : "");
 export const traceUrl = (id: string) => `${API}/v1/traces/${id}`;

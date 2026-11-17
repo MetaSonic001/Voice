@@ -50,10 +50,10 @@ from app.services.smalltalk import REPLIES as SMALLTALK, is_courtesy, is_fragmen
 from app.services.state import CallState, StateStore
 from app.services.store import TraceStore
 from app.services.understanding import repair
-from app.services.understanding import MAX_REQUESTS, UNDERSTAND_SCHEMA, UNDERSTAND_SCHEMA_LENIENT, UNDERSTAND_SYSTEM, build_input, card_failing, correct, own_data, parse, with_risk
+from app.services.understanding import MAX_REQUESTS, UNDERSTAND_SCHEMA, UNDERSTAND_SCHEMA_LENIENT, UNDERSTAND_SYSTEM, broad_charges, build_input, card_failing, correct, own_data, parse, wants_own_charges, with_risk
 
 logger = logging.getLogger(__name__)
-PROMPT_VERSION = "2026-11-06.4"  # dialogue layer (ADR 0024) + router scope / named products
+PROMPT_VERSION = "2026-11-11.1"  # everyday Hindi in answers; dialogue layer (ADR 0024) + router scope / named products
 
 ANSWER_SYSTEM = """You are a customer service representative at AU Small Finance Bank, talking to a customer on the phone. You are warm, calm and helpful, and you sound like a real person: short natural sentences, everyday words, contractions.
 
@@ -83,7 +83,9 @@ Rules:
 
 LANGUAGE_INSTRUCTIONS = {
     "en": "reply in English",
-    "hi": "reply in Hindi, in Devanagari script; keep product names and numbers exactly as written",
+    "hi": "reply in everyday spoken Hindi, in Devanagari script, the way people talk today: keep common banking words in "
+          "English as people say them (अकाउंट, बैलेंस, चार्ज, मिनिमम बैलेंस, डेबिट कार्ड, पेमेंट, ट्रांज़ैक्शन, EMI, FD), never "
+          "bookish words (not शुल्क, रख-रखाव, आवश्यकता, न्यूनतम, लेनदेन, भुगतान); keep product names and numbers exactly as written",
     "hinglish": "reply in Hinglish - conversational Hindi written in Latin script mixed with English, like the caller",
 }
 
@@ -105,17 +107,17 @@ TEMPLATES = {
     },
     "partial_refer": {  # nothing usable was said before the check failed
         "en": "I can't confirm the rest of that, so I'd rather not guess. I can connect you to a specialist. Shall I?",
-        "hi": "इसके आगे की जानकारी की मैं पुष्टि नहीं कर सकती, इसलिए अंदाज़ा नहीं लगाऊँगी। मैं आपको विशेषज्ञ से जोड़ सकती हूँ। जोड़ दूँ?",
+        "hi": "इसके आगे की जानकारी मैं पक्के तौर पर नहीं बता सकती, इसलिए अंदाज़ा नहीं लगाऊँगी। मैं आपको स्पेशलिस्ट से जोड़ सकती हूँ। जोड़ दूँ?",
         "hinglish": "Iske aage ki jaankari main confirm nahi kar sakti, isliye guess nahi karungi. Main aapko specialist se connect kar sakti hoon. Kar doon?",
     },
     "conflict": {  # two approved figures for exactly the same thing: never pick one
         "en": "I'm seeing two different figures for that, and I don't want to give you a wrong number. A specialist can confirm the right one for you. Shall I connect you?",
-        "hi": "मुझे इसके दो अलग-अलग आँकड़े दिख रहे हैं, और मैं आपको गलत जानकारी नहीं देना चाहती। विशेषज्ञ सही आँकड़ा बता सकते हैं। क्या मैं आपको जोड़ दूँ?",
+        "hi": "मुझे इसके दो अलग-अलग आँकड़े दिख रहे हैं, और मैं आपको गलत जानकारी नहीं देना चाहती। स्पेशलिस्ट सही आँकड़ा बता सकते हैं। क्या मैं आपको जोड़ दूँ?",
         "hinglish": "Mujhe iske do alag figures dikh rahe hain, aur main aapko galat number nahi dena chahti. Specialist sahi figure confirm kar denge. Kya main aapko connect kar doon?",
     },
     "needs_verification": {
         "en": "That needs your account details, so I'll first need to verify it's you. Please call from your registered mobile number, or I can connect you to our team.",
-        "hi": "इसके लिए आपके खाते की जानकारी चाहिए, इसलिए पहले आपकी पहचान की पुष्टि करनी होगी। कृपया अपने रजिस्टर्ड मोबाइल से कॉल करें, या मैं आपको हमारी टीम से जोड़ सकती हूँ।",
+        "hi": "इसके लिए आपके अकाउंट की जानकारी चाहिए, इसलिए पहले आपकी पहचान वेरिफ़ाई करनी होगी। कृपया अपने रजिस्टर्ड मोबाइल से कॉल करें, या मैं आपको हमारी टीम से जोड़ सकती हूँ।",
         "hinglish": "Iske liye aapke account ki details chahiye, toh pehle verify karna hoga ki yeh aap hi hain. Please apne registered mobile se call kijiye, ya main aapko hamari team se connect kar sakti hoon.",
     },
     "handoff": {
@@ -125,8 +127,13 @@ TEMPLATES = {
     },
     "smalltalk": {
         "en": "Hi! I'm AU Bank's assistant, happy to help. You can ask me about your accounts, cards, deposits or loans.",
-        "hi": "नमस्ते! मैं AU बैंक की सहायक हूँ, बताइए मैं कैसे मदद करूँ। आप अपने खाते, कार्ड, जमा या लोन के बारे में पूछ सकते हैं।",
+        "hi": "नमस्ते! मैं AU बैंक की सहायक हूँ, बताइए मैं कैसे मदद करूँ। आप अपने अकाउंट, कार्ड, जमा या लोन के बारे में पूछ सकते हैं।",
         "hinglish": "Namaste! Main AU Bank ki assistant hoon, bataiye kaise madad karun. Aap apne accounts, cards, deposits ya loans ke baare mein pooch sakte hain.",
+    },
+    "charges_which": {  # decided in code: a charges question that names no charge type, product or reason
+        "en": "Sure. Would you like me to check the charges taken from your account, or would you like to know our general charges, like minimum balance, debit card or ATM charges?",
+        "hi": "ज़रूर। क्या आप अपने अकाउंट से कटे हुए चार्ज चेक करवाना चाहते हैं, या हमारे आम चार्ज जानना चाहते हैं, जैसे मिनिमम बैलेंस, डेबिट कार्ड या ATM चार्ज?",
+        "hinglish": "Zaroor. Kya aap apne account se kate hue charges check karwana chahte hain, ya hamare general charges jaanna chahte hain, jaise minimum balance, debit card ya ATM charges?",
     },
     "variant_clarify": {  # decided in code: a generic question whose best passages belong to particular variants
         "en": "That depends on which one. Do you already have one with us, or are you thinking of getting one? If you know the name, like {list}, just tell me.",
@@ -152,34 +159,34 @@ TEMPLATES.update({
     },
     "need_mobile": {
         "en": "For your security I need to verify you first. Please tell me your registered mobile number.",
-        "hi": "आपकी सुरक्षा के लिए पहले पहचान की पुष्टि करनी होगी। कृपया अपना रजिस्टर्ड मोबाइल नंबर बताइए।",
+        "hi": "आपकी सुरक्षा के लिए पहले पहचान वेरिफ़ाई करनी होगी। कृपया अपना रजिस्टर्ड मोबाइल नंबर बताइए।",
         "hinglish": "Aapki security ke liye pehle verification zaroori hai. Please apna registered mobile number bataiye.",
     },
     "not_registered": {
         "en": "That number isn't registered with us. Please tell me the mobile number registered with your account.",
-        "hi": "यह नंबर हमारे पास रजिस्टर्ड नहीं है। कृपया अपने खाते से जुड़ा मोबाइल नंबर बताइए।",
+        "hi": "यह नंबर हमारे पास रजिस्टर्ड नहीं है। कृपया अपने अकाउंट से जुड़ा मोबाइल नंबर बताइए।",
         "hinglish": "Yeh number hamare paas registered nahi hai. Please apne account se juda mobile number bataiye.",
     },
     "locked": {
         "en": "I'm sorry, I'm not able to verify you on this call. Our team can help you another way. Shall I connect you?",
-        "hi": "माफ़ कीजिए, इस कॉल पर मैं आपकी पहचान की पुष्टि नहीं कर पा रही। हमारी टीम दूसरे तरीके से मदद कर सकती है। क्या मैं आपको जोड़ दूँ?",
+        "hi": "माफ़ कीजिए, इस कॉल पर मैं आपकी पहचान वेरिफ़ाई नहीं कर पा रही। हमारी टीम दूसरे तरीके से मदद कर सकती है। क्या मैं आपको जोड़ दूँ?",
         "hinglish": "Sorry, is call par main aapko verify nahi kar pa rahi. Hamari team dusre tareeke se madad kar sakti hai. Kya main aapko connect kar doon?",
     },
     "verified": {
-        "en": "Thank you, you're verified.", "hi": "धन्यवाद, आपकी पहचान की पुष्टि हो गई है।",
+        "en": "Thank you, you're verified.", "hi": "धन्यवाद, आपकी पहचान वेरिफ़ाई हो गई है।",
         "hinglish": "Thank you, aap verify ho gaye hain.",
     },
     # The first line of a fraud report fits what happened (said once per call; the journey does not repeat it).
     "fraud_first": {
-        "en": "Thanks for telling me. Let's make sure your account is safe.", "hi": "बताने के लिए धन्यवाद। चलिए पक्का करते हैं कि आपका खाता सुरक्षित है।",
+        "en": "Thanks for telling me. Let's make sure your account is safe.", "hi": "बताने के लिए धन्यवाद। चलिए पक्का करते हैं कि आपका अकाउंट सुरक्षित है।",
         "hinglish": "Batane ke liye thank you. Chaliye pakka karte hain ki aapka account safe hai.",
     },
     "fraud_open_otp_shared": {
-        "en": "Okay, let's secure your account first.", "hi": "ठीक है, पहले आपका खाता सुरक्षित करते हैं।",
+        "en": "Okay, let's secure your account first.", "hi": "ठीक है, पहले आपका अकाउंट सुरक्षित करते हैं।",
         "hinglish": "Theek hai, pehle aapka account secure karte hain.",
     },
     "fraud_open_unrecognised_debit": {
-        "en": "Let's look into that payment right away.", "hi": "चलिए, उस भुगतान को अभी देखते हैं।",
+        "en": "Let's look into that payment right away.", "hi": "चलिए, उस पेमेंट को अभी देखते हैं।",
         "hinglish": "Chaliye, us payment ko abhi dekhte hain.",
     },
     "fraud_open_lost_card": {
@@ -202,7 +209,7 @@ TEMPLATES.update({
         "hinglish": "Sorry, abhi yeh jaankari laane mein dikkat ho rahi hai. Thodi der mein phir try kijiye, ya main aapko hamari team se connect kar sakti hoon.",
     },
     "already_verified": {
-        "en": "You're already verified. Go ahead with your question.", "hi": "आपकी पहचान पहले से पुष्टि हो चुकी है। आप अपना सवाल पूछिए।",
+        "en": "You're already verified. Go ahead with your question.", "hi": "आपकी पहचान पहले ही वेरिफ़ाई हो चुकी है। आप अपना सवाल पूछिए।",
         "hinglish": "Aap pehle se verified hain. Apna sawaal poochiye.",
     },
     "no_code": {
@@ -216,7 +223,7 @@ TEMPLATES.update({
     },
     "action_unavailable": {
         "en": "To make changes on your account I first need to verify it's you. Please call from your registered mobile number, or I can connect you to our team.",
-        "hi": "खाते में बदलाव से पहले मुझे आपकी पहचान की पुष्टि करनी होगी। कृपया रजिस्टर्ड मोबाइल से कॉल करें, या मैं आपको हमारी टीम से जोड़ सकती हूँ।",
+        "hi": "अकाउंट में बदलाव से पहले मुझे आपकी पहचान वेरिफ़ाई करनी होगी। कृपया रजिस्टर्ड मोबाइल से कॉल करें, या मैं आपको हमारी टीम से जोड़ सकती हूँ।",
         "hinglish": "Account mein changes se pehle mujhe verify karna hoga ki yeh aap hi hain. Please registered mobile se call kijiye, ya main aapko hamari team se connect kar sakti hoon.",
     },
     "issue": {
@@ -269,7 +276,8 @@ def describe_pending(p: dict) -> str:
     return {"handoff": "Shall I connect you to our team?", "ticket": "Shall I raise a complaint or request for this?",
             "fraud_followup": "Shall I raise a dispute and connect you to the fraud team?",
             "lead": "Would you like someone from our team to call you to help open an account?",
-            "action_target": "Which card is it?", "check_own": p.get("text", "")}.get(kind, "a yes or no question")
+            "action_target": "Which card is it?", "check_own": p.get("text", ""),
+            "charges_which": p.get("text", "")}.get(kind, "a yes or no question")
 
 
 def _merge(replies: list) -> "Reply":
@@ -452,6 +460,8 @@ class Conversation:
                 lang = waiting.get("lang", "en")
                 if waiting.get("kind") == "check_own" and not expired(waiting) and read_reply(raw) == "yes":
                     own_yes = waiting  # handled below, like any other request for the caller's own data
+                elif waiting.get("kind") == "charges_which":  # "taken from my account" -> their charges; else the router reads it
+                    own_yes = waiting if not expired(waiting) and wants_own_charges(raw) else None
                 elif not expired(waiting):
                     step = await asyncio.to_thread(self.journeys.resolve, session_id, waiting, raw, lang, channel)
                 if step is None:
@@ -596,6 +606,15 @@ class Conversation:
             data["safety_trigger"] = {"risk": u.risk}
         lang = u.language if u.language in LANGUAGE_INSTRUCTIONS else "en"
         yield TurnEvent("understood", lang, u.intent)
+        if broad_charges(u, raw):  # "charges on my account": taken from it, or the bank's general charges? Asked, not guessed
+            text = template("charges_which", lang)
+            data["clarify"] = "charges_which"
+            if session_id and self.journeys:
+                await asyncio.to_thread(self.traces.set_pending, session_id, make_pending(
+                    "charges_which", lang, text=text, question=u.standalone_question, personal={"topic": "charges", "detail": "charges"}))
+            async for event in self._say(tid, session_id, u.intent, lang, text, "clarify"):
+                yield event
+            return
         if dropped and u.reply_to_pending == "decline":  # a "no" that came with a new request still counts as a no
             state.mark(str(dropped.get("kind")), declined=True)
         if state.flow and not u.risk:  # a guided "help me choose" flow is waiting for this answer

@@ -20,8 +20,11 @@ from app.domain import Hit
 AUTHORITY = {"rate_card": 5, "schedule_of_charges": 4, "terms": 3, "product_guide": 2, "policy": 2, "faq": 2, "brochure": 1}
 DOC_TYPES = tuple(AUTHORITY)
 _FAMILY = re.compile(r"^(?P<variant>.+?) (?P<family>Savings Account|Credit Card|Current Account|Fixed Deposit|Debit Card)$", re.I)
+# A question about a product family, not a named variant. Plain "account" and "minimum balance" count too: a live call
+# asked about "account charges" and was answered with one particular account's figures.
 _GENERIC = re.compile(
-    r"\b(savings?|credit|debit|current) (account|acct|card)s?\b|बचत खाता|सेविंग|क्रेडिट कार्ड|डेबिट कार्ड|savings? khata", re.I)
+    r"\b(savings?|credit|debit|current) (account|acct|card)s?\b|बचत खाता|सेविंग|क्रेडिट कार्ड|डेबिट कार्ड|savings? khata|"
+    r"\b(account|a/c|khata)\b|minimum balance|average monthly balance|\bamb\b|अकाउंट|खाता|खाते|मिनिमम बैलेंस", re.I)
 _COMPARE = re.compile(
     r"\b(compare|comparison|difference|differ|versus|vs|which|best|suits?|suitable|recommend|options?|types?|kinds?|list|all|"
     r"offer|available|kaunsa|kaunsi|konsa|konsi|konse|sabse|fark|behtar)\b|विकल्प|कौन|कौनसा|कौन सा|फ़र्क|फर्क|सबसे", re.I)

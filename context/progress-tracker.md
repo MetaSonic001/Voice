@@ -4,9 +4,15 @@ Update this file after every meaningful change: what was done, the numbers, what
 
 ## Current phase
 
-**Phase 4: built 6 Nov 2026 (code, tests and docs); live checks pending, see "Next steps".** Owner asked for plan sections 1, 3-12, 15, 16 (not 2, 13, 14). Brain changes below are in code and need a brain restart to go live; the owner's demo was left running untouched.
+**Phase 4 is built and live (6–11 Nov 2026); since 12 Nov the work is production planning.** The brain last changed on
+16 Nov (GPU search server, B2.1; off by default); the owner's running brain uses the 11 Nov code (restarted 13 Nov). The clean slate ran on 6 Nov. Since 12 Nov:
+- deployment design and cost estimate (documents only);
+- the browser echo fix (ADR 0012, formerly 0028);
+- tunnel hostnames allowed in `ui/next.config.ts`.
 
-The plan is `PHASE-4-PLAN.md`. Work in its §17 order and tick the steps off below.
+**What is left, for the local demo and for AWS: [`pending-work.md`](pending-work.md).** Start there in a new session.
+
+The Phase 4 plan, `ROADMAP.md`, the deep dive and the voice-agent playbook were merged into `PROJECT-GUIDE.md` on 14 Nov 2026 (it now lives at `reference/PROJECT-GUIDE.md`) (§31 maps their old section numbers, so `PHASE-4-PLAN §x` references in this log still resolve). The steps below are kept for the record.
 
 ## Current goal
 
@@ -382,13 +388,398 @@ Each point says why, with file and line references and labels: now / before go-l
 
 **Live:** needs a brain restart.
 
-### Next steps (in this order)
+### 11 Nov: charges question, card call, natural sentences, everyday Hindi
 
-1. **Restart the brain** (`python app.py` in `brain/`): none of the Phase 4 code is live in your running instance. It also applies migrations 006 to 009. Not done by me, because your demo is running.
-2. **Run the clean slate** (it deletes every recorded call, ticket and handoff and re-seeds the mock bank relative to today; the KB is kept). Do it right after stopping the brain, then start it again: `cd brain && uv run python -m app.cli clean-slate` (type DELETE). I did not run it: it cannot be undone and it would break your running brain, which reads the mock bank tables.
-3. (done: A.U. / एयू fixed in code)
-4. Tomorrow, after the Groq quota resets: `python -m evals.smoke`, then `python -m evals.benchmark routing`, and compare with the 84% / 0.9 s numbers above. Do not run the golden set or the full benchmark casually.
-5. Optional: set `LLM_FALLBACK` only after the fallback model passes the smoke set.
+**Charges call** ("मुझे अपने account के charges के बारे में जानना है" answered with Royale figures).
+
+Causes:
+- the own-account safety net missed mixed script ("अपने **account**");
+- the "which product?" gate fired only for "savings account" / "credit card" wording.
+
+Fixes:
+- **Clarify first.** A charges question that names no charge type, product or reason is asked back once, in code (`understanding.broad_charges`): "taken from your account, or our general charges like minimum balance, debit card or ATM?". The pending kind is `charges_which`.
+  - "Taken from my account" goes to the caller's own charges, with verification (`wants_own_charges`).
+  - Anything else goes to the router with the question as context.
+- **Mixed-script own-account regex** fixed.
+- **The "which account?" gate** (`kbmeta._GENERIC`) also fires for plain "account" / "minimum balance", so no product is guessed.
+
+**Card call cfdda8da.** Most of it was already fixed earlier: the card check instead of "how much was it?", "switch on international" as an action, the unblock-then-setting order.
+
+The remaining gap is fixed: after a debit-card change succeeds, if the call had a "card not working" check and shop payments are still off, the agent says so and offers to switch them on (`journeys._do_action`, `auth.was_read`). There's a replay test of the whole call.
+
+**Natural sentences in bank-data replies** (`personal.py`), all three languages:
+- choosers say "One is your Digital account ending 4512, which is inactive, and the other is your Value account ending 4521. Which one would you like me to check?";
+- a transaction is "On Friday, 6 November 2026, at 9:15, there was a UPI transfer of ₹10,000 to Suresh Patel from your account ending 4521, and it's still processing.";
+- intros are sentences, not "label:".
+
+**Everyday Hindi:**
+- 111 Hindi template lines use common words (अकाउंट, पेमेंट, ट्रांज़ैक्शन, डिक्लाइन, मिनिमम बैलेंस…) instead of bookish ones (खाता, भुगतान, लेनदेन, अस्वीकार, न्यूनतम…);
+- the answer prompt's Hindi rule says the same (`PROMPT_VERSION 2026-11-11.1`).
+
+**Seen in call e0f24b03, not fixed:** turn 6 (English) was answered in Hinglish, carried over from turn 5's Hindi.
+
+**Numbers:** offline tests **297 → 316 pass** (19 new: charges clarify, reply reading, mixed script, card call replay). No Groq calls. Smoke set not run (quota): the router and answer behaviour on the real LLM is not measured.
+
+**Live:** needs a brain restart.
+
+### 11 Nov: system deep dive and go-live plan
+
+`docs/system-deep-dive-and-go-live.md`, written for AU's chosen stack (Cisco telephony, AWS with Bedrock, Sarvam speech).
+
+- **Part A, how every part works today:** components, the database (pgserver is a real Postgres process with data on disk, not in-memory), the voice call and brain turn step by step, RAG, auth, the bank adapter, memory, audit, what's dev-only.
+- **Part B, the plan:**
+  - Cisco integration: SIP from CUBE to a media gateway, DTMF for the OTP, transfer with context as call variables;
+  - Sarvam streaming; AWS services and why;
+  - what's containerised and how each part scales;
+  - capacity from 100 to 10,000 calls at once;
+  - 20 failure scenarios;
+  - the security plan, rollout phases and a readiness checklist.
+
+Docs only, no code change.
+
+**Added the same day: §B11, every Indian language.**
+- Sarvam STT understands all 22 scheduled languages; Sarvam TTS speaks 10 plus English.
+- Tiers:
+  - Tier 1 (en/hi/Hinglish) is built;
+  - Tier 2 is the 9 other Sarvam voice languages, covering about 90% of people together with Tier 1;
+  - Tier 3 is understood only: the closest language or a human.
+- The code is tied to 3 languages in templates (about 270), safety word lists, digits and dates. The plan is a one-time refactor (about 2 weeks), then about 1–1.5 weeks per language with native-speaker review and an eval gate.
+- **No translation step:** the router already writes the English search query in the same call, and the answer LLM writes directly in the caller's language, so there's no added latency.
+- **Search:** the embedder and reranker are multilingual and see English. Only Postgres keyword search is English-only, which matters only if AU adds regional-language documents (§B11.5).
+
+**Open questions for AU** (see the doc §B10): peak calls at once, which Cisco product, API gateway catalogue, SMS gateway, retention periods, AWS account rules.
+
+### 12 Nov: deployment design for AWS (documents only, no code change)
+
+- `docs/deployment-options-and-costs.md`: how to read the cost workbook; decisions kept out of it; Cisco notes (internal);
+  monolith readiness (§5); load-test plan (§6).
+- `docs/architecture-diagrams.md` §3–4 and `docs/diagrams/`: the deployed design; how one app copy serves many calls
+  (`call-waiting-and-sizing.png`, Mermaid version alongside).
+- **Proposed (not yet ADRs, owner and AU to confirm):**
+  - one VPC in Mumbai with ALB + WAF;
+  - ECS;
+  - a modular monolith (app + GPU search server + staff UI);
+  - Aurora (RDS for a pilot);
+  - no Redis, SQS or RDS Proxy at launch;
+  - Converse API, not Responses (Responses re-bills the stored chat every turn: ~1.7x the LLM cost);
+  - Sarvam for speech, gpt-oss-120b on Bedrock Mumbai;
+  - own GPUs for search (Bedrock rerank isn't offered in Mumbai and costs more).
+- **Measured on the laptop:**
+  - Silero VAD 0.92 ms per 32 ms of audio (~2.9% of a core per call);
+  - reranking on CPU 20–37 s (so a GPU is needed);
+  - first audio of the real answer **3.6 s typical, 5.8 s slow** (22 recorded turns; "one moment" plays at 2.3 s);
+  - signing: HMAC 6 µs, ES256 56/132 µs, RSA sign 1.1 ms (keep HMAC for the OTP).
+
+### 12 Nov: echo fix in the browser console (UI only; ADR 0028 supersedes 0013)
+
+- Chrome's echo canceller only subtracts audio from a WebRTC connection; our agent audio played through Web Audio.
+  `ui/lib/echo-safe-output.ts` plays it through a loopback of two peer connections in the page and an `<audio>` element
+  (console and desk call). It falls back to direct playback with a warning if the loopback can't connect.
+- **Verified:** `bun run build` passes; in Chromium the loopback connects (~35 ms) and adds ~46 ms of buffering.
+- **Not verified:** real speakers + mic. Owner to run `docs/echo-self-test.md` (pass ≥ 15 dB removed).
+
+### 13 Nov: cost estimate, call volume, rate limits, tunnels, context clean-up
+
+- **Cost workbook** `docs/deployment-costs-and-options.xlsx`: two plain sheets.
+  - **Estimate:** calls, usage per call, what runs where, servers (monolith vs microservices), monthly cost, choices within AWS, what to confirm.
+  - **Prices:** every price, its value in ₹ and its source, at ₹94 = $1.
+  - Covers **100 calls at once only**: monolith ₹29.9 lakh a month, ₹7.97 a call, 75% to Sarvam; microservices +₹24,497 (one more app server).
+  - The other `.xlsx` files in `docs/` are older versions.
+- **Call volume is a placeholder.** 12,500 calls a day came from treating 100 slots as fully busy, which is wrong.
+  - What 100 slots can carry: Erlang B at 1% blocking gives ~84 calls in progress, ~1,260 in the busiest hour, **~10,500 a day**.
+  - What AU probably receives: no public figure exists. SBI FY16 (4 lakh calls a day, 30 crore customers) gives 0.48 calls per customer a year; for AU's 1.2 crore customers that's **~16,400 a day**, needing ~150 slots.
+  - AU's FY26 BRSR reports 58,652 customer complaints in the year.
+  - **Owner to choose** which volume the sheet uses; AU's real data replaces both.
+- **Prices checked 13 Nov (AWS price list, Mumbai):**
+  - Transcribe streaming $0.01/min (about twice Sarvam);
+  - Polly Neural $16 per 1M characters (half Sarvam v3; Generative voices not offered in Mumbai);
+  - Sarvam's own models can be self-hosted in our AWS account (Saaras v3: $4/h software fee).
+- **Groq 429s on 13 Nov explained** (no code change caused them).
+  - The free tier allows 8,000 tokens a minute, about one full turn.
+  - A product question makes 2 LLM calls, and a mid-sentence pause re-ran the same question 2 s later.
+  - The understanding prompt is the same size as on 11 Nov (3,221 vs 3,222 tokens).
+- **Sharing the demo:** UI on ngrok, brain on a Cloudflare quick tunnel, plus `NEXT_PUBLIC_API_URL` and `CORS_ORIGINS`
+  (`ui/README.md`). `allowedDevOrigins` added to `ui/next.config.ts`; the UI dev server needs a restart to pick it up.
+- **Docker images for AWS ECS (written, not built or run yet):** `brain/Dockerfile` (the monolith: text, voice, audit,
+  desk, mock bank, search models baked in; non-root; needs a GPU), `ui/Dockerfile` (static pages on nginx, port 8080),
+  root `.dockerignore`, `deploy/ecs/*-task-definition.json`, `deploy/README.md`. No Compose (ECS doesn't use it).
+  UI change: `NEXT_PUBLIC_API_URL=/` means "API on the same address" (the ALB routes `/v1/*` to the brain); `tsc` passes.
+  Limit: run exactly one brain task until pending-work B2.1-B2.3 are done.
+- **Context clean-up so a new session works:** `context/pending-work.md` (new); ADR 0028; CLAUDE.md, this file,
+  `architecture.md`, `project-overview.md`, PROJECT-GUIDE §21 and the go-live checklist corrected where they had gone stale.
+
+### 14 Nov: one project guide (documents only, no code change)
+
+- `PHASE-4-PLAN.md`, `ROADMAP.md`, `reference/voice-agent-playbook.md` and `reference/system-deep-dive-and-go-live.md`
+  merged into the guide, then deleted. The deep dive had never been committed, so it is not in git history; its content
+  is guide §26–27. The guide now lives at `reference/PROJECT-GUIDE.md` (moved by the owner).
+- Guide: text and tables only (diagrams stay in `docs/diagrams/diagrams.md`); §1–24 keep their old numbers so ADR
+  references still work; new §25 history, §26 go-live, §27 languages, §28 other voice agents, §29 research to act on,
+  §30 open questions, §31 where each old section went. Stale facts corrected (316 tests, card actions built, file list).
+- README, CLAUDE.md, `context/` files and `brain/README.md` point to the guide. ADRs not edited (accepted ADRs are never
+  rewritten); their `PROJECT-GUIDE.md` §n citations still match the section numbers.
+- Found: `docs/echo-self-test.md` (pending-work A4) no longer exists.
+- No ADR: a document reorganisation is not an architecture decision. Nothing committed.
+- **ADRs merged (owner's request: no unnecessary ADRs), 28 → 24 files:** 0013 (echo not fixed, superseded) and 0028
+  (echo loopback) folded into **0012** (browser test audio: WebSocket transport + loopback playback); 0023 (bank-data
+  templates) folded into **0024** (how the agent replies); 0001 (record ADRs) folded into `adr/README.md`, which now also
+  says "keep the set small; removed numbers are never reused". 0001, 0013 and 0023 are in git history (under the old
+  `docs/adr/` path); 0028 was never committed, so its full text lives on only in 0012. References in the guide, READMEs, context files, the
+  briefing and ADR 0025 updated; older log entries above keep the old numbers (see the ADR README for the mapping).
+  Reviewed the other 24 and kept them: each records a separate decision (e.g. 0021 Redis/Kafka vs 0026 stateless LLM;
+  0009 ports vs 0025 selective reads, a different status: design only).
+
+### 15 Nov: cost workbook v2, second pass, now a Google Sheet (documents only, no code change)
+
+- The workbook now lives in Google Sheets: "AU voice agent - AWS and Sarvam cost estimate (v2)"
+  (https://docs.google.com/spreadsheets/d/1bl04HOma47wsYDxGEdWE0NoDE1GZVsdAPkay-FVYXuU). The owner's original sheet is
+  untouched. The local `docs/deployment-costs-and-options-v2.xlsx` is now out of date.
+- **Simplified:** the Servers sheet keeps only the processor working (9.5 → plan with 9 calls per container). The
+  LLM-connection and helper-thread limits (about 20 calls) are a note, because they don't change the answer. The
+  microservices sizing moved to one typed estimate on Choices. "Copy" is now called "container". Cost lost the
+  microservices summary rows and gained a "What exactly we use" column. The Estimate check now reads busiest-hour
+  calls → call minutes ÷ 60 → calls at the same time on average.
+- **Found in the code:** `app/voice/session.py` already sends only the caller's speech to speech-to-text: the VAD cuts
+  utterances, and Sarvam REST `saaras:v3` gets one request per utterance. TTS is one request per sentence. The estimate
+  still counts the whole call (an upper limit); the 40% case is on Choices (saves ₹3.69 lakh a month).
+- **Sarvam plan is now Growth, not Pro.** Pro allows 100 STT and 200 TTS requests a minute; at 100 calls at the same
+  time we need about 300 and 600. The Growth fee of ₹49,999 a month comes back in full as credits, so it adds ₹0. Sources:
+  sarvam.ai/api-pricing and the Sarvam docs pricing page. The docs show Bulbul v4 Flash at half the pricing-page rate;
+  still to confirm.
+- **Result:** ₹28,59,913 a month, ₹7.63 a call, ₹1.91 a minute; Sarvam 69.3%, Bedrock 15.3%, other AWS 15.4%.
+  4 app servers, 16 containers (6.25 calls each at the busiest moment, at most 9). All formulas checked with a script
+  (0 errors), and the values were read back from Google Sheets.
+
+### 15 Nov: cost workbook v2 (documents only, no code change)
+
+- New `docs/deployment-costs-and-options-v2.xlsx`, built from the owner's Google Sheet (that sheet and the old local
+  file are untouched). Sheets: Estimate, Servers, Cost, Choices, Negotiation, Storage, Prices, Answers, DB_Tables.
+  Every formula is one step (×, ÷, +, −, SUM); no ROUND, lookups or IFs. Yellow cells are typed inputs.
+- **Servers now worked out, worst case:** three limits per copy (processor 9.5 calls, LLM connections 20, helper
+  threads 21.6), plan with 9 calls per copy → 11 copies → 4 c7i.2xlarge app servers (3 needed + 1 spare), 36 calls per
+  server. The old "2 servers, well over 100 calls each" assumed the voice detector could use every core; it can't
+  (one main loop per process). The VAD already runs on every frame, so barge-in is in the 0.92 ms figure.
+- **Fixed in the numbers:** recordings were priced at Standard-IA ($0.0138) under the name S3; now S3 Standard 1 month
+  then Glacier Instant Retrieval. Added data leaving AWS (audio to Sarvam and to AU's Cisco), disks, monitoring, ECR and
+  a VPN to Cisco (to confirm). Staff screens moved to Fargate (as in `deploy/README.md`). Sarvam rates moved to the Pro
+  plan (pay as you go allows only 20 calls at once).
+- **Result at 100 at once / 3,75,000 calls a month:** ₹29,95,851 a month, ₹7.99 a call, ₹2.00 a minute; Sarvam 70.7%,
+  Bedrock LLM 14.6%, other AWS 14.7%. Storage and traffic ₹0.29 a call (was ₹0.06). Microservices: 7 app servers,
+  +₹74,264 a month.
+- Not verified: no Excel recalculation available; all formulas were evaluated by a script (0 errors) and totals
+  cross-checked. Bedrock gpt-oss-120b Mumbai price, internet egress, Glacier read price and Cisco audio format are
+  still "to confirm".
+- Found and left for the owner: the old Answers sheet said Responses costs ~2.3x the LLM bill; this tracker and the
+  costs doc say ~1.7x. The new Answers sheet gives no multiple.
+
+### 16 Nov: GPU search server (pending-work B2.1)
+
+The embed and rerank models can now run in a separate process, so brain copies on AWS don't each need a GPU.
+- `SEARCH_PROVIDER=local` (default, the laptop demo): unchanged. The brain loads both models itself; the code only moved
+  into `container.build_search()`.
+- `SEARCH_PROVIDER=http`: the brain calls `python -m app search` (`app/search_server.py`, port 8200) through
+  `adapters/search_http.py`. Same model classes, so vectors and scores are identical (checked bit for bit).
+- Safety: bearer token (`SEARCH_TOKEN`), and the server refuses to start on 0.0.0.0 without one; it never logs texts. The
+  brain refuses to start if the server runs different models (name or size). If the server is down, the brain still
+  starts; product questions get the "system problem" reply with a hand-over, everything else works. `/health/ready`
+  shows `search` but doesn't fail on it.
+- Docker: one Dockerfile. `au-search` = the default build with the `search` command; the brain can be built without
+  models (`--build-arg SEARCH_MODELS=0`). `deploy/ecs/search-task-definition.json` and the steps in `deploy/README.md`.
+- No new libraries (FastAPI, uvicorn, httpx were already used).
+
+**Numbers:**
+- Offline tests **316 → 323 pass** (7 new, `tests/test_search_server.py`).
+- Latency on the RTX 3050, same model objects, 60 interleaved runs: embed one question p50 47.1 → 54.0 ms
+  (p95 70 → 76); rerank 16 passages p50 230.6 → 236.0 ms (p95 236 → 241). **About +12 ms per question in http mode**,
+  most of it local HTTP and JSON on Windows. Local mode: no change. Not measured on AWS yet.
+- Smoke set (local mode, the default): **19 / 24 passed (79.2%)**, `evals/reports/smoke-20261116-1111*.md`. About 40 real
+  Groq requests in total (the cache was stale from the 11 Nov prompt changes); a repeat run made 1. The 5 misses are
+  understanding and dialogue choices (A1, A3 multi-request kinds; G1 variant clarify; R5 "how do I block" treated as an
+  action; D1), not search. There is no earlier smoke run on the 11 Nov code to compare with, so this is the new baseline.
+- **Found, not fixed:** `python -m evals.smoke` crashes on Windows while closing the Groq client at the very end
+  ("Event loop is closed"), so it never writes its report. The results were saved with a throwaway wrapper.
+
+**Live:** nothing changes for the running demo (local is the default). A brain restart picks up the new code.
+
+### 16 Nov (2): capacity, barge-in and the job queue written up (documents only, no code change)
+
+The manager's point: Timelines A and B ignored barge-in. Checked against the code and the cost sheet, then written into
+the guide and diagrams.
+- **Barge-in is already in the CPU numbers.** `voice/session.py` runs the voice detector on every 32 ms frame for the whole
+  call, also while the agent speaks. "Always listening" is about 3% of a core, not 100%. Barge-in adds one STT request
+  and a decision per possible interruption.
+- **Sizing now follows the cost sheet** (v2, Servers sheet): 6.3% of a core per call on AWS (worst case), 60% of a core
+  at most, **9 calls per container** (one process, 2 vCPUs), 4 servers for 100 calls (3 + 1 spare), 13 for 400. The old
+  diagrams text (25 per vCPU, 36 per container, 3 servers for 400) is replaced.
+- **No Redis/SQS "watchman"**: a queue can't recognise speech, and 12,500 audio chunks a second (400 calls) through a
+  queue costs more than the detector itself.
+- **Correction:** the Postgres `jobs` table handles only document ingestion. The post-call review is an in-process task
+  (lost if the container stops), and the worker's start-up reset would requeue another copy's running job. Both added
+  as pending-work B2.13.
+- **Files:** `reference/PROJECT-GUIDE.md` §14 (review wording), §26.2 (more pre-pilot changes; Redis conflict), §26.4
+  (Sarvam rate limits; why streaming waits and when), §26.6 (CPU per call, what the old sizing got wrong, the watchman,
+  the job queue, code needed before the pilot), §26.7 (two failure rows), §26.10, §30, §32;
+  `docs/diagrams/diagrams.md` §7–8 (both timelines redrawn: listening all call, REST STT after a pause, an interruption,
+  a burst collision; new sizing); `reference/call-waiting-and-sizing.md` (same; `call-waiting-and-sizing.png` is now out
+  of date); `context/pending-work.md` (A12 laptop load-test harness; B1.7; B2.4; B2.6; B2.11–B2.14; B3; B4 Load).
+- **Found:** `docs/deployment-options-and-costs.md` and the local cost workbooks are no longer in the folder (never
+  committed); CLAUDE.md, README, pending-work and the guide still link to them. The Google Sheet is the current workbook.
+- **Not verified:** only the 0.92 ms detector figure is measured. The 1.5× AWS slow-down and the 2% "everything else"
+  are the sheet's assumptions until a load test. No tests run (documents only).
+- **Later the same day:** the guide §26.6 gained the sheet's GPU, database and staff-screen sizing (2 GPU servers at 100
+  calls, 3 at 400; 2 databases; 2 staff containers), which was the last thing only `reference/call-waiting-and-sizing.md`
+  held (with an older GPU path: 20 s turns, 0.13 s a search). That file was then **deleted** at the owner's request (it
+  was never committed); its timelines live in `docs/diagrams/diagrams.md` §7–8. Its README row removed. The PNG it
+  mentions was not in the folder.
+
+### 16 Nov (3): concurrency explained, measured; live-call limit built
+
+- **New guide §26.11** "Concurrency, processes, threads and memory": server → physical core → vCPU → container →
+  process → thread → event loop → task → call; the GIL; what runs on the main thread and in each helper pool (with file
+  references); CPU and memory per call and per process; how the numbers stack up on a server; the call limit; quick answers.
+- **Measured on the laptop** (throwaway brain on port 8011, fresh data folder, judge off, calls streaming noise so no
+  STT or LLM was called): idle 5% of a core, 2.6–3.0 GB (local search models); 10 calls 40% (~3.5% each), 20 calls 89%
+  (~4.2% each), **40 calls 99%: one core full**, although the laptop has 16. Silero: 0.88 ms CPU per frame with 1 torch
+  thread, 1.8 ms with 2, 3.7 ms with 4 (same wall time); `silero_vad` sets torch to 1 thread on import. Torch import
+  ~450 MB; each call's Silero copy 8.7 MB; the recorder 3.8 MB per call-minute.
+- **Built: `MAX_LIVE_CALLS`** (default 9; `app/config.py`, `app/api/voice.py`, `app/metrics.py`, `app/api/ops.py`,
+  `ui/app/page.tsx`, `.env.example`, `brain/README.md`). Over the limit: `busy` event + close 1013. `/health/ready`
+  shows `live_calls` and stays ready. Metrics `brain_live_calls`, `brain_calls_refused_total`. The counter is freed in
+  an outer `finally`: the first version leaked a line when the task was cancelled during clean-up (found by the new test).
+- **Numbers:** offline tests **323 → 324 pass** (1 new: `test_live_calls_over_the_limit_are_refused`). UI build passes.
+  No Groq calls; smoke set not run (no change to answers or routing). The demo handles 1–2 calls, so the limit of 9
+  changes nothing in normal use.
+- **Live:** the UI note is live (hot reload). **The brain needs a restart** to pick up the limit.
+- **Found:** silent calls alone measure ~1–1.3% beyond the detector on the laptop. With turn bursts, real calls may
+  need ~6.5–7.5% of an AWS vCPU, a little above the sheet's 6.3% (8–9 calls per container). Kept 9; the AWS load test
+  decides (open question).
+
+### 16 Nov (4): GIL, threads, processes and vCPUs clarified (documents only, no code change)
+
+- Guide §26.11: the GIL subsection rewritten (the old wording "one process uses one core" and "each process has its own
+  core" was imprecise). Added "Common confusions, cleared up" (GIL ≠ one thread; a process isn't one vCPU or pinned;
+  a call isn't a thread; STT/LLM/TTS run on Sarvam's and AWS's machines, not our CPU; the main thread is the event
+  loop in our app; torch releasing the GIL doesn't help when called on the loop) and "One turn of one call: who does
+  what, and where" (each pipeline step: machine, thread, CPU). Evidence used: the same process at 99% of one core with
+  40 calls and 156% right after while recordings were encoded (16 Nov measurement). Wording also fixed in §26.6, the
+  quick answers and `docs/diagrams/diagrams.md` §8.
+
+### 16 Nov (5): recordings on S3 (B2.2) and the startup lock
+
+- **Recordings** now go through the file store (`services/recordings.py`, `container.build_recording_files`):
+  `data/recordings` locally (same folder as before, so old recordings still play) or `<S3_PREFIX>recordings/` with
+  `FILE_STORE=s3`. `FILE_STORE=s3` + recording on + no `RECORDING_KEY` → the brain refuses to start (a key file on the
+  container's disk would be lost). `maintenance.clean_slate` / `delete_call` take the recording file store (the CLI
+  builds it). No S3 lifecycle rule: retention stays in the app, so rows and files agree. No MinIO in the setup: Docker
+  on the laptop keeps the `au-brain-data` volume.
+- **Startup lock** (`db.py` `STARTUP_LOCK`, a Postgres advisory lock): migrations, the vector index and mock-bank
+  seeding run one copy at a time.
+- **Decided not to change:** the desk "live" flag and `LIVE_SESSIONS` stay per copy. The UI uses the flag to decide
+  whether it can join the call's audio, which only works on the copy holding the call; a database flag would also show
+  "live" for calls cut by a brain restart. The live-call gauge (`brain_live_calls`) was already built (16 Nov (3)).
+- Guide: new §26.12 (running more than one copy: what is per copy, what is built, order of work); §14, §21, §26.1,
+  §26.5, §26.6 table, §30 (Object Lock vs delete-a-call) updated. `deploy/README.md`, `pending-work.md` B2.2–B2.4,
+  `brain/README.md`, `.env.example` updated.
+- **Numbers:** offline tests **324 → 328 pass** (4 new, `tests/test_recordings.py`: S3 save / play / tamper / delete,
+  delete-call and clean-slate on S3 leave other prefixes alone, the key guard, the lock blocks a second copy). No change
+  on the call path, so voice latency is unchanged by design; not re-measured. Not verified: a real S3 bucket or MinIO
+  (tested with the stub S3 client the document store tests use). Smoke set not re-run (no LLM-facing change).
+- **Needs a brain restart** to take effect locally (behaviour on the laptop is the same either way).
+
+### 16 Nov (6): how calls stay apart, and why no queue for calls (documents only, no code change)
+
+- Guide §26.11: new part "How many calls in one process stay apart". It covers one WebSocket → one `stream()` task →
+  one `VoiceSession` (own detector, buffer, player); the OS routes bytes by socket; replies are awaited by the calling
+  task; `session_id` on every row; the send lock; keep-alive; the `finally` clean-up. It also explains why the detector
+  takes turns (9 × 0.92 ms ≈ 8.3 ms per 32 ms window, ≈ 12.4 ms on AWS) and costs the same whether callers talk or not,
+  why live calls don't go through SQS or another queue, and that a Cisco media gateway may turn SIP/RTP into one
+  WebSocket per call (to confirm).
+- Guide §17: new row "Amazon SQS for calls". §22 glossary: "Message queue (SQS)" and "asyncio task".
+- Not verified: the ALB idle timeout and uvicorn ping interval are their defaults (60 s, 20 s), not checked on AWS.
+
+### 16 Nov (7): Sarvam speech made ready for the trial credits (code; needs the key and a brain restart)
+
+The owner has temporary Sarvam access (₹100 of credits). Plan: Sarvam STT + TTS while credits last, then back to
+Whisper + Edge. The LLM stays on Groq. The `SarvamSTT` / `SarvamTTS` adapters already existed but had never run; they
+were checked against docs.sarvam.ai and fixed.
+
+| Change | Why |
+|---|---|
+| `enable_preprocessing` sent only for `bulbul:v2` | The docs mark it "not supported" on bulbul:v3 (could reject every sentence) |
+| TTS stream reply read as raw PCM, WAV (streaming header, size 0) or MP3 | The docs don't say which `/text-to-speech/stream` returns; the old WAV stripper returned nothing for a size-0 header |
+| `SARVAM_STT_MODEL` (saaras:v3) and `SARVAM_STT_MODE` (codemix) are separate settings | `STT_MODEL` is Whisper's; forgetting to change it sent a Whisper name to Sarvam |
+| Typed errors (`SpeechError.out_of_credit` / `.retryable`); 429/5xx retried, 402/403 never | Sarvam: 402 = no credits, 403 = bad key, 429 can also mean "budget exhausted" |
+| STT audio cut at 29.5 s | The REST endpoint takes 30 s at most; `MAX_UTTERANCE_S` is 30 |
+| `SPEECH_FALLBACK=true`: a failed Sarvam request uses Whisper / Edge; out of credits or bad key → backup until restart (`voice/fallback.py`) | When credits run out mid-call, the call carries on instead of failing. Half-spoken sentences are not repeated in the other voice |
+| Fixed phrases of paid voices kept on disk (`data/tts-cache`, keyed by voice, settings and exact text) | The warm-up synthesises ~1,900 characters: about ₹5.7 per brain start with Bulbul v3 |
+| `brain sarvam-check` | One TTS + STT round trip straight to Sarvam (under ₹1) to check the key; prints no key |
+
+- `brain/.env` got a commented Sarvam block (key empty, providers commented out), so the running demo is unchanged.
+- The `sarvamai` SDK was not added: httpx already does the two REST calls; one fewer dependency for the security review.
+  The chat-completion test script from Sarvam's onboarding prompt was skipped: the LLM stays on Groq.
+- Tests: offline **343 pass** (328 before; +15 in `tests/test_sarvam.py`, Sarvam faked with `httpx.MockTransport`).
+  No Groq or Sarvam requests were made. Smoke set not run (no change to text answers).
+- **Not verified (no key yet):** real Sarvam replies, the actual stream format, latency, Hinglish quality of `codemix`
+  and `priya`'s voice. Run `sarvam-check` first.
+- Credit budget (Nov 2026 prices): STT ₹0.49 a minute; Bulbul v3 ₹3 per 1,000 characters. ₹100 ≈ 33,000 spoken
+  characters, i.e. roughly 30–60 short test calls. `bulbul:v4-flash` is ₹1 per 1,000 but uses its own speaker IDs (not wired).
+- Live: no. The brain needs a restart after the key is in and `STT_PROVIDER` / `TTS_PROVIDER` are uncommented.
+
+### 16 Nov (8): newer Sarvam models, warm connections (code; needs a brain restart)
+
+Checked against Sarvam's model and pricing pages and a third-party benchmark of Bulbul v4-flash vs v3 (A. Mathew,
+13 Oct 2026: first audio only ~20 ms faster on v4-flash; connection reuse worth 100-250 ms; v3 speaker names give
+HTTP 400 on v4-flash; v4-flash speaks ~6-7% faster at the same pace; basic plan caps v3 at 30 requests a minute,
+v4-flash at 60; price ₹2 per 1,000 characters after the launch offer ended 12 Nov).
+
+| Change | Why |
+|---|---|
+| **Speech connections kept 300 s** (httpx default was 5 s) for Groq Whisper and Sarvam | Most turns of a call paid a fresh TLS handshake (100-250 ms). Affects today's Groq STT too. Same as the LLM client |
+| Connections opened when a call starts (`VoiceRuntime.warm`, a tiny free GET) | The first turn doesn't pay the handshake either |
+| STT default `saaras:v4` (was v3) + key terms from `STT_VOCABULARY` (39 product and banking words) | Sarvam's current default, same price, codemix supported; key terms do what the Whisper word list does |
+| TTS default `bulbul:v4-flash` (was v3), voices per language: Ishita (`ishita_en_customer`, `ishita_hi_banking`, `ishita_enhi_customer`) | ₹2 vs ₹3 per 1,000 characters, twice the rate limit; customer/banking personas; the same voice in all three languages |
+| Speaker names checked against the model at startup | A v3 name on v4-flash (or the reverse) would fail every sentence with 400 |
+| Own `SARVAM_PACE` (1.0), no longer Edge's +10% | v4-flash is already faster at 1.0; tune by ear |
+| `sarvam-check` compares v4-flash and v3 (3 languages, 2 takes, warm connections; WAVs with `--out-dir`) | The benchmark's method on our own sentences; about ₹2-3 |
+
+- Kept: HTTP streaming (the benchmark found it faster than one WebSocket per request).
+- Not done: Malayalam and 8 kHz phone audio (later, with Cisco); a second voice provider for comparison.
+- Tests: offline **347 pass** (343 before; +4). No Groq or Sarvam requests.
+- **Not verified:** the Ishita persona IDs come from Sarvam's voices page, not a live call (a wrong ID shows as a 400
+  in `sarvam-check`); v4-flash voice quality against v3 (no published study); the latency gain from keep-alive was not
+  measured here (it needs live calls).
+- Live: no. The keep-alive change also reaches the current Groq Whisper path after a brain restart.
+- Later the same day: `sarvam-check` sentences now carry the words most often said wrong (AU, Zenith+, Laksya, BSBDA,
+  0101, KYC, OTP, UPI, NEFT, EMI, an amount, a rate) and go through the live call's pronunciation rewrite
+  (`speech_text`), so the WAVs are what a caller hears. One take by default; about 350 characters per model, about ₹2
+  for both models. The pronunciation rules were tuned on Edge voices (6 Nov) and are untested on Sarvam.
+- **First real `sarvam-check` (owner, 16 Nov 15:20):** the key works; all six takes came back (both models, all three
+  Ishita voice IDs accepted); the WAVs are clean speech (stream decoding works). Billed ₹2.25 of ₹100 (₹97.74 left):
+  bulbul:v3 349 chars ₹1.05 (₹3 / 1,000), **bulbul:v4-flash 349 chars ₹0.70 (₹2 / 1,000: the ₹1 on the docs pricing
+  page is wrong)**, saaras:v4 ~1 min ₹0.51. Speaking speed at pace 1.0 (chars/s, v3 → v4-flash): English 11.6 → 14.8,
+  Hinglish 9.6 → 11.8, Hindi 13.0 → 10.8 (v4-flash slower in Hindi, as the benchmark article also found). Timings and
+  the heard-back transcripts were in the owner's terminal, not recorded here; the listening verdict is pending.
+- **Fix: silence while a keypad code is awaited.** Before, the normal 8 s timer ran: the caller still opening the
+  SMS heard the general "are you still there? You can ask about accounts..." and the call **ended at 16 s**,
+  mid-verification. Now, while the code is awaited (verification status `otp_sent` or `invalid`), the wait is
+  `CODE_WAIT_S` (30 s), the reminder is a new phrase `code_reminder` ("Please type the six-digit code sent to your
+  mobile on the keypad. Take your time.", en / hi / hinglish), and the call ends only after a second 30 s. Any new
+  turn or an accepted code returns to the normal timer. `voice/session.py`, `voice/phrases.py`, `config.py`; the UI
+  lists the phrase as a canned line (`ui/app/page.tsx`, live now through hot reload). Offline tests **349 pass** (+2).
+  Needs a brain restart; with Sarvam the new phrase costs about ₹0.5 to record once. Open question for the owner / PM:
+  is ending a normal call after two silences (16 s in all) too quick for elderly callers?
+- Sarvam test scripts: `docs/test-call-scripts.md` Part C (three calls, about 17 turns; corrected so that no silent wait
+  runs into the no-input hang-up).
+- Noted, not changed: with Sarvam, the "unclear speech" filter never fires and noise is caught only by empty text or
+  known Whisper phrases, because Sarvam returns no no-speech or confidence score (Whisper does). Watch in test calls.
+
+### 16 Nov (5): timeline corrections (documents only)
+
+- `docs/diagrams/diagrams.md` §7: the barge-in was drawn too early. The code ducks the agent after 0.35 s of caller
+  speech and decides only after the caller pauses 0.3 s (or after 1.5 s of speech): now duck 7.35 s, stop ~8.0 s,
+  next turn ~9.6 s, new reply ~11.3 s. §8: the always-on band was the detector alone (39%); with audio handling it is
+  ~50% for 9 calls (sheet: ~57% with turn bursts). Collisions cost milliseconds, not 0.1 s (bars drawn wider).
+  Excalidraw versions (sequence diagrams) given in chat; Excalidraw doesn't import Gantt.
 
 ## Completed (before Phase 4)
 
@@ -413,9 +804,10 @@ Each point says why, with file and line references and labels: now / before go-l
 
 ## Live state (check before testing)
 
-- **The owner's running brain was started before the fixes above.** Restart it (`python app.py` in `brain/`) to test them. Migration 005 is already applied.
-- 100 offline tests pass (`uv run pytest -m "not live"`).
-- UI production build passes.
+- Brain code: 16 Nov 2026 (search server B2.1, live-call limit, recordings via the file store B2.2, startup lock; local behaviour unchanged). If the running brain started before that, restart it (`python app.py` in `brain/`).
+- **328 offline tests** pass (16 Nov): `uv run pytest -m "not live"`. UI production build passes (12 Nov).
+- `.env` runs both LLM steps on `openai/gpt-oss-120b` (code default for understanding is 20b; ADR 0007 notes). The judge is 20b.
+- Groq free tier: 8,000 tokens a minute and a daily token cap per model. Expect 429s on fast product questions.
 
 ## Latest numbers
 
@@ -426,11 +818,15 @@ Each point says why, with file and line references and labels: now / before go-l
 | Understanding latency | ≈ 0.9 s p50 (old schema); the new schema measured +190 ms before it was made nullable, not re-measured since | 5 Nov |
 | Retrieval | ~85 ms warm | after the GPU warm-up fix |
 
-There is **no clean end-to-end "first audio" latency number yet**. PHASE-4-PLAN §7.1 adds it.
+| First audio of the real answer (voice) | **3.6 s typical, 5.8 s slow**; "one moment" at 2.3 s | 12 Nov, 22 recorded turns, laptop + Groq + Edge TTS. Biggest parts: end-of-speech wait 1.1 s, understanding 1.35 s, search 0.8 s |
+
+Re-measure after any voice or prompt change (pending-work A3).
 
 ## Issue tracker
 
 An issue counts as done only when its **acceptance test passes**, not when code changes. Plan sections are in PHASE-4-PLAN.
+
+**Statuses below date from 6 Nov.** Phase 4 fixed most of these in code (see the log); live acceptance tests were not all re-run (pending-work A5).
 
 | # | Issue (from the call review, §1) | Root cause | Decision | Status | Acceptance test |
 |---|---|---|---|---|---|
@@ -446,7 +842,7 @@ An issue counts as done only when its **acceptance test passes**, not when code 
 | I | "So, you know" / "Oh dear" → full greeting | Fixed greeting template; fragments treated as turns | §4.4, §6.2 | open | Fragments get a short reply or none; greeting only once per call |
 | J | Explicit fraud-desk request asked "Is that okay?" | Every transfer asks consent | §6.3 | open | Explicit request transfers directly |
 | K | Unrecognised ₹2,000 debit → plain complaint | No fraud workflow states | Fraud trigger (fixed, not live) + full workflow (§3.4) | partly fixed | Card block offered first; "no matching debit" handled honestly |
-| L | Hears itself on speakers | Chrome doesn't echo-cancel Web Audio | **Not fixing**: browser only, use earphones (§2) | won't fix | n/a |
+| L | Hears itself on speakers | Chrome doesn't echo-cancel Web Audio | WebRTC loopback playback (ADR 0012, formerly 0028, 12 Nov) | fixed in UI, not measured on hardware | `docs/echo-self-test.md` ≥ 15 dB |
 | M | OTP stored as a turn | Typed code took the normal path | Verification-state routing (§9.2) | open, **fix first** | A typed code never shows up in turns, logs or LLM input |
 | N | 429 → "I'm having trouble" for many turns | No fallback | Bounded retry + tested fallback + breaker (§7.3) | open | Forced 429 → answer from the fallback, or an honest callback offer |
 | O | Answers too long | No length guidance | Chunked explanations, top-3 lists (§4.1) | open | No reply over ~80 words without a check-in |
@@ -454,6 +850,35 @@ An issue counts as done only when its **acceptance test passes**, not when code 
 | UI | `/calls` 1,557 px wide on a phone; `/kb` table overflows | Flex rows don't wrap | §15 | open | No horizontal scroll at 390 / 768 / 1024 px |
 
 ## Open questions (for the owner or the PM)
+
+- **Deployment proposals (12 Nov) to confirm before writing ADRs** (Cisco details are for later, per the owner):
+  - how Cisco hands calls to us (audio stream, or SIP + a media gateway);
+  - a modular monolith;
+  - GPU servers for embedding and reranking (1 + a spare);
+  - Aurora (RDS for a pilot);
+  - no Valkey or SQS at launch;
+  - Converse, not Responses.
+
+  See `docs/deployment-options-and-costs.md`.
+- **Redis at the first multi-server deployment or not?** ADR 0021 (accepted) says add it then; the 12 Nov AWS proposal
+  and pending-work B3 say no Redis at launch (Secrets Manager + Postgres are enough for a few copies). A new ADR should
+  supersede 0021 once decided.
+- `docs/deployment-options-and-costs.md` (and the local cost workbooks) are missing from the folder but still linked
+  from CLAUDE.md, README and the guide. Restore it, or point the links at the Google Sheet and the guide?
+- **Calls per container: 9 or 8?** The laptop measurement suggests real calls may use ~6.5–7.5% of an AWS vCPU (the sheet
+  plans 6.3%, giving 9). `MAX_LIVE_CALLS` is 9 for now; lower it to 8 if the owner prefers the safer side before the AWS test.
+- **For AU's Cisco team:**
+  - UCCE/CVP versions;
+  - Cloud Connect and the Webex region where the audio is processed;
+  - BYOVA licences;
+  - SIP trunk details if BYOVA isn't possible.
+- **For AU:**
+  - peak calls at once and the hourly curve;
+  - is the line 24×7?
+  - retention for recordings and transcripts;
+  - who issues the bank API tokens;
+  - EKS or ECS as their standard (we propose ECS);
+  - a human agent's cost per call.
 
 - Is sending (redacted) call transcripts to the judge model approved for this data? It is the same provider (Groq) as the
   agent, but a separate model does not mean a separate privacy or compliance boundary. Same for transcript retention.

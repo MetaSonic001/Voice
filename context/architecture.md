@@ -1,6 +1,6 @@
 # Architecture Context
 
-Full detail: `PROJECT-GUIDE.md`. Phase 4 design: `PHASE-4-PLAN.md`. This file is the short version.
+Full detail, including the Phase 4 design (§24–25): `reference/PROJECT-GUIDE.md`. This file is the short version.
 
 ## Stack
 
@@ -9,8 +9,8 @@ Full detail: `PROJECT-GUIDE.md`. Phase 4 design: `PHASE-4-PLAN.md`. This file is
 | Brain | Python 3.12, FastAPI | Text and voice conversation service (`brain/`) |
 | Database | Postgres via pgserver, pgvector | Calls, audit chain, KB chunks, mock bank |
 | Retrieval | bge-m3 embedder + bge-reranker (GPU) | Hybrid search + rerank |
-| LLM | Groq (gpt-oss-20b understanding, gpt-oss-120b answers) | Understands and phrases; never decides |
-| Voice | Silero VAD, Whisper STT, Edge TTS | Streaming, barge-in |
+| LLM | Groq gpt-oss-120b for understanding and answers (`.env`; code default for understanding is 20b), judge 20b. Production: Bedrock Mumbai, Converse API (ADR 0007, 0026) | Understands and phrases; never decides |
+| Voice | Silero VAD, Whisper STT (Groq), Edge TTS; Sarvam in production | Streaming, barge-in; browser playback via a WebRTC loopback for echo cancellation (ADR 0012) |
 | UI | Next.js, shadcn/ui, Tailwind 4 | Test console (`ui/`) |
 
 ## Request path (per caller turn)

@@ -6,6 +6,7 @@ Synchronous psycopg with a small pool. Async code calls it through `asyncio.to_t
 import json
 import logging
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import psycopg
@@ -17,6 +18,10 @@ from app.logs import log
 
 logger = logging.getLogger(__name__)
 MIGRATIONS = Path(__file__).parent / "migrations"
+# Postgres advisory lock for one-time startup work (migrations, vector index, mock-bank seeding). When several copies
+# of the brain start at once against one database, they take turns: the first does the work, the others then see it
+# done. Released when its connection closes, so a crashed copy can't leave it held.
+STARTUP_LOCK = 7_241_001
 
 
 def _start_private_server(pg_dir: Path, wait_s: float = 120):
@@ -88,8 +93,10 @@ class Database:
         )
 
     def _migrate(self) -> None:
-        """Create the vector extension (needed before register_vector) and apply pending migrations."""
+        """Create the vector extension (needed before register_vector) and apply pending migrations.
+        One copy at a time (STARTUP_LOCK): otherwise two copies on an empty database both create the tables."""
         with psycopg.connect(self.url, autocommit=True) as conn:
+            conn.execute("SELECT pg_advisory_lock(%s)", (STARTUP_LOCK,))  # released when this connection closes
             conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY, applied_at timestamptz DEFAULT now())"
@@ -106,11 +113,21 @@ class Database:
     def ensure_vector_index(self, model: str, dim: int) -> None:
         """Partial HNSW index for one embedding model. Search uses the same cast and WHERE clause."""
         safe = "".join(c if c.isalnum() else "_" for c in model.lower())[:40]
-        with self.pool.connection() as conn:
+        with self.startup_lock() as conn:  # two copies creating the same index at once: one would fail
             conn.execute(
                 f"CREATE INDEX IF NOT EXISTS emb_hnsw_{safe}_{dim} ON chunk_embeddings "
                 f"USING hnsw ((embedding::vector({dim})) vector_cosine_ops) WHERE model = '{model}'"
             )
+
+    @contextmanager
+    def startup_lock(self):
+        """Hold STARTUP_LOCK on a pooled connection while one-time startup work runs (yields that connection)."""
+        with self.pool.connection() as conn:
+            conn.execute("SELECT pg_advisory_lock(%s)", (STARTUP_LOCK,))
+            try:
+                yield conn
+            finally:
+                conn.execute("SELECT pg_advisory_unlock(%s)", (STARTUP_LOCK,))
 
     def connection(self):
         return self.pool.connection()

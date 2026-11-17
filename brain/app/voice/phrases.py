@@ -1,7 +1,9 @@
 """Fixed phrases (greeting, filler, re-prompt, goodbye) per language, synthesised once and cached as PCM."""
 
 import asyncio
+import hashlib
 import logging
+from pathlib import Path
 
 from app.ports import TTS
 from app.services.numbers import speech_text
@@ -23,6 +25,10 @@ PHRASES = {
     "reprompt": {"en": "Are you still there? You can ask me about our accounts, deposits, cards or loans.",
                  "hi": "क्या आप लाइन पर हैं? आप हमारे खातों, जमा, कार्ड या लोन के बारे में पूछ सकते हैं।",
                  "hinglish": "Kya aap line par hain? Aap accounts, deposits, cards ya loans ke baare mein pooch sakte hain."},
+    # Silence while a keypad code is awaited: a reminder about the code, not the general "are you still there?".
+    "code_reminder": {"en": "Please type the six-digit code sent to your mobile on the keypad. Take your time.",
+                      "hi": "कृपया आपके मोबाइल पर भेजा गया छह अंकों का कोड कीपैड पर टाइप कीजिए। आराम से कीजिए।",
+                      "hinglish": "Please aapke mobile par bheja gaya chhe digit ka code keypad par type kijiye. Aaram se kijiye."},
     "goodbye": {"en": "I haven't heard anything, so I'll end the call now. Thank you for calling AU Bank.",
                 "hi": "मुझे कुछ सुनाई नहीं दिया, इसलिए मैं कॉल समाप्त कर रही हूँ। AU बैंक को कॉल करने के लिए धन्यवाद।",
                 "hinglish": "Mujhe kuch sunai nahi diya, isliye main call end kar rahi hoon. AU Bank ko call karne ke liye dhanyavaad."},
@@ -50,8 +56,8 @@ def phrase_text(kind: str, language: str, variant: int = 0) -> str:
 
 
 class PhraseCache:
-    def __init__(self, tts: TTS):
-        self.tts = tts
+    def __init__(self, tts: TTS, disk_dir: Path | None = None):
+        self.tts, self.disk_dir = tts, disk_dir
         self._cache: dict[tuple[str, str], bytes] = {}
         self._lock = asyncio.Lock()
 
@@ -63,8 +69,24 @@ class PhraseCache:
             async with self._lock:
                 if key not in self._cache:
                     spoken = speech_text(phrase_text(kind, language, variant), language)  # with the pronunciation list
-                    self._cache[key] = b"".join([c async for c in self.tts.stream(spoken, language)])
+                    self._cache[key] = await self._synthesise(spoken, language)
         return self._cache[key]
+
+    async def _synthesise(self, spoken: str, language: str) -> bytes:
+        """Paid voices (they have a `voice_tag`) keep their phrases on disk, so a restart doesn't buy them again
+        (about 1,900 characters, Rs 5-6 with Sarvam). The file name covers voice, settings, language and exact text."""
+        tag = getattr(self.tts, "voice_tag", None)
+        path = None
+        if self.disk_dir and tag:
+            name = hashlib.sha256(f"{tag}|{language}|{spoken}".encode()).hexdigest()[:32]
+            path = self.disk_dir / f"{name}.pcm"
+            if path.is_file():
+                return path.read_bytes()
+        pcm = b"".join([c async for c in self.tts.stream(spoken, language)])
+        if path and pcm and getattr(self.tts, "voice_tag", None) == tag:  # not if a fallback voice made it meanwhile
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(pcm)
+        return pcm
 
     def clear(self) -> None:
         """Forget the synthesised phrases (e.g. after the pronunciation choice changed) so they are made again."""

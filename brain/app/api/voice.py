@@ -35,7 +35,7 @@ import numpy as np
 
 from app.api.deps import container, require_key
 from app.container import Container
-from app.metrics import observe_turn
+from app.metrics import CALLS_REFUSED, LIVE_CALLS, observe_turn
 from app.services.audit import mask_number
 from app.services.recordings import CallRecorder
 from app.voice.audio import decode, duration_ms, to_wav
@@ -45,6 +45,12 @@ from app.voice.turntaking import is_noise
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/voice", tags=["voice"])
 MAX_AUDIO_BYTES = 10 * 1024 * 1024
+BUSY_CLOSE = 1013  # WebSocket "try again later": the caller's gateway sends the call to another copy or to people
+_live_calls = 0  # live calls in this process, counted from accept to close (one event loop, so no lock is needed)
+
+
+def live_calls() -> int:
+    return _live_calls
 
 
 def _voice(c: Container):
@@ -68,7 +74,8 @@ def providers(c: Container = Depends(container)):
     v = _voice(c)
     s = c.settings
     return {"stt": v.stt.name, "tts": v.tts.name, "vad": "silero", "llm": s.llm_provider,
-            "models": {"understand": s.understand_model, "answer": s.answer_model, "stt": s.stt_model},
+            "models": {"understand": s.understand_model, "answer": s.answer_model,
+                       "stt": s.sarvam_stt_model if s.stt_provider == "sarvam" else s.stt_model},
             "audio": {"format": "pcm_s16le", "channels": 1, "sample_rate": s.audio_rate}}
 
 
@@ -149,103 +156,118 @@ async def stream(ws: WebSocket):
         await ws.close(code=4404)
         return
     await ws.accept()
-    lock = asyncio.Lock()
-    open_ = True
+    global _live_calls
+    limit = c.settings.max_live_calls
+    if limit and _live_calls >= limit:  # admission control: one process = one core (PROJECT-GUIDE §26.11)
+        CALLS_REFUSED.inc()
+        logger.warning("live call refused: %d of %d lines in use", _live_calls, limit)
+        await ws.send_text(json.dumps({"type": "busy", "reason": "all lines are busy", "limit": limit}))
+        await ws.close(code=BUSY_CLOSE)
+        return
+    _live_calls += 1  # no await between the check and this line, so two calls can't both take the last line
+    LIVE_CALLS.set(_live_calls)
+    try:  # the line is freed however the call ends, even if this task is cancelled during clean-up
+        lock = asyncio.Lock()
+        open_ = True
 
-    async def send_json(event: dict):
-        if open_:
-            async with lock:
-                await ws.send_text(json.dumps(event, ensure_ascii=False))
+        async def send_json(event: dict):
+            if open_:
+                async with lock:
+                    await ws.send_text(json.dumps(event, ensure_ascii=False))
 
-    async def send_audio(pcm: bytes):
-        if open_:
-            async with lock:
-                await ws.send_bytes(pcm)
+        async def send_audio(pcm: bytes):
+            if open_:
+                async with lock:
+                    await ws.send_bytes(pcm)
 
-    async def save_voice_timings(trace_id: str, timings: dict):
-        observe_turn("voice", "-", timings)
-        await asyncio.to_thread(c.traces.add_voice_timings, trace_id, timings)
+        async def save_voice_timings(trace_id: str, timings: dict):
+            observe_turn("voice", "-", timings)
+            await asyncio.to_thread(c.traces.add_voice_timings, trace_id, timings)
 
-    session: VoiceSession | None = None
-    try:
-        first = json.loads(await asyncio.wait_for(ws.receive_text(), timeout=10))
-        if first.get("type") != "start":
-            await ws.close(code=4400)
-            return
-        session_id = first.get("session_id")
-        if session_id and not c.traces.session_exists(session_id):
-            session_id = None
-        caller = first.get("caller_number")
-        caller = str(caller)[:20] if caller and str(caller).replace("+", "").replace(" ", "").isdigit() else None
-        session_id = session_id or str(c.traces.create_session(first.get("language"), caller)["id"])
-        recorder = CallRecorder(c.settings.audio_rate) if c.settings.record_calls and c.recordings else None
-        loop = asyncio.get_running_loop()
-
-        def on_event(kind: str, **detail):  # call timeline -> database, off the event loop
-            loop.run_in_executor(None, lambda: c.audit.event(session_id, kind, **detail))
-            if kind == "error":
-                loop.run_in_executor(None, lambda: c.audit.system_error(detail.get("source", "voice"), detail.get("error", ""),
-                                                                         session_id))
-
-        on_event("call_started", caller=mask_number(caller), language=first.get("language"), recorded=bool(recorder))
-        session = VoiceSession(brain=c.conversation, stt=c.voice.stt, tts=c.voice.tts, vad=c.voice.vad_factory(),
-                               phrases=c.voice.phrases, settings=c.settings, send_json=send_json, send_audio=send_audio,
-                               session_id=session_id, on_voice_timings=save_voice_timings,
-                               greeting_language=first.get("language") if first.get("language") in ("en", "hi") else "hi",
-                               recorder=recorder, on_event=on_event)
-        LIVE_SESSIONS[session_id] = session
-        await session.start(greet=first.get("greet", True))
-        while not session.closed.is_set():
-            receive = asyncio.ensure_future(ws.receive())
-            closed = asyncio.ensure_future(session.closed.wait())
-            done, _ = await asyncio.wait({receive, closed}, return_when=asyncio.FIRST_COMPLETED)
-            if closed in done:
-                receive.cancel()
-                break
-            closed.cancel()
-            message = receive.result()
-            if message["type"] == "websocket.disconnect":
-                break
-            if message.get("bytes"):
-                session.feed(message["bytes"])
-            elif message.get("text"):
-                event = json.loads(message["text"])
-                if event.get("type") == "stop":
-                    break
-                if event.get("type") == "flush":  # caller finished speaking (push-to-talk / end of file)
-                    session.flush()
-                if event.get("type") == "text" and event.get("text"):
-                    await session.text_turn(str(event["text"])[:1000])
-                if event.get("type") == "otp" and c.auth:  # keypad code: straight to verification, never to STT/LLM
-                    await session.submit_code(str(event.get("code", ""))[:8])
-    except (TimeoutError, WebSocketDisconnect, json.JSONDecodeError):
-        pass
-    except Exception:
-        logger.exception("voice stream failed")
-    finally:
-        if session:
-            LIVE_SESSIONS.pop(session.session_id, None)
-            await session.close("client_closed")
-            if session.handoff and c.handoffs:  # hung up while waiting, or the call with the person ended
-                h = await asyncio.to_thread(c.handoffs.get, session.handoff["id"])
-                if h and h["status"] in ("waiting", "active"):
-                    await asyncio.to_thread(c.handoffs.set_status, h["id"],
-                                            "abandoned" if h["status"] == "waiting" else "completed",
-                                            **({} if h["status"] == "waiting" else {"disposition": "call ended"}))
-        open_ = False
+        session: VoiceSession | None = None
         try:
-            await ws.close()
-        except Exception:
+            first = json.loads(await asyncio.wait_for(ws.receive_text(), timeout=10))
+            if first.get("type") != "start":
+                await ws.close(code=4400)
+                return
+            session_id = first.get("session_id")
+            if session_id and not c.traces.session_exists(session_id):
+                session_id = None
+            caller = first.get("caller_number")
+            caller = str(caller)[:20] if caller and str(caller).replace("+", "").replace(" ", "").isdigit() else None
+            session_id = session_id or str(c.traces.create_session(first.get("language"), caller)["id"])
+            recorder = CallRecorder(c.settings.audio_rate) if c.settings.record_calls and c.recordings else None
+            loop = asyncio.get_running_loop()
+
+            def on_event(kind: str, **detail):  # call timeline -> database, off the event loop
+                loop.run_in_executor(None, lambda: c.audit.event(session_id, kind, **detail))
+                if kind == "error":
+                    loop.run_in_executor(None, lambda: c.audit.system_error(detail.get("source", "voice"), detail.get("error", ""),
+                                                                             session_id))
+
+            on_event("call_started", caller=mask_number(caller), language=first.get("language"), recorded=bool(recorder))
+            warm_task = asyncio.create_task(c.voice.warm())  # noqa: F841 opens STT/TTS connections; referenced so it isn't collected
+            session = VoiceSession(brain=c.conversation, stt=c.voice.stt, tts=c.voice.tts, vad=c.voice.vad_factory(),
+                                   phrases=c.voice.phrases, settings=c.settings, send_json=send_json, send_audio=send_audio,
+                                   session_id=session_id, on_voice_timings=save_voice_timings,
+                                   greeting_language=first.get("language") if first.get("language") in ("en", "hi") else "hi",
+                                   recorder=recorder, on_event=on_event)
+            LIVE_SESSIONS[session_id] = session
+            await session.start(greet=first.get("greet", True))
+            while not session.closed.is_set():
+                receive = asyncio.ensure_future(ws.receive())
+                closed = asyncio.ensure_future(session.closed.wait())
+                done, _ = await asyncio.wait({receive, closed}, return_when=asyncio.FIRST_COMPLETED)
+                if closed in done:
+                    receive.cancel()
+                    break
+                closed.cancel()
+                message = receive.result()
+                if message["type"] == "websocket.disconnect":
+                    break
+                if message.get("bytes"):
+                    session.feed(message["bytes"])
+                elif message.get("text"):
+                    event = json.loads(message["text"])
+                    if event.get("type") == "stop":
+                        break
+                    if event.get("type") == "flush":  # caller finished speaking (push-to-talk / end of file)
+                        session.flush()
+                    if event.get("type") == "text" and event.get("text"):
+                        await session.text_turn(str(event["text"])[:1000])
+                    if event.get("type") == "otp" and c.auth:  # keypad code: straight to verification, never to STT/LLM
+                        await session.submit_code(str(event.get("code", ""))[:8])
+        except (TimeoutError, WebSocketDisconnect, json.JSONDecodeError):
             pass
-        if session:  # audit: end of call, then the recording (encoding takes a few seconds, in a thread)
+        except Exception:
+            logger.exception("voice stream failed")
+        finally:
+            if session:
+                LIVE_SESSIONS.pop(session.session_id, None)
+                await session.close("client_closed")
+                if session.handoff and c.handoffs:  # hung up while waiting, or the call with the person ended
+                    h = await asyncio.to_thread(c.handoffs.get, session.handoff["id"])
+                    if h and h["status"] in ("waiting", "active"):
+                        await asyncio.to_thread(c.handoffs.set_status, h["id"],
+                                                "abandoned" if h["status"] == "waiting" else "completed",
+                                                **({} if h["status"] == "waiting" else {"disposition": "call ended"}))
+            open_ = False
             try:
-                reason = {"no_input": "ended: no response from the caller"}.get(session.end_reason, "caller hung up")
-                await asyncio.to_thread(c.audit.end_call, session.session_id, reason)
-                if c.reviews and c.settings.judge_mode != "off":  # in the background: nothing waits for the review
-                    asyncio.create_task(c.reviews.review(session.session_id))
-                if session.recorder and session.recorder.duration_ms > 500:
-                    await asyncio.to_thread(c.recordings.save, session.session_id, "call", session.recorder.stereo(),
-                                            c.settings.audio_rate, session.recorder.started_at)
+                await ws.close()
             except Exception:
-                logger.exception("saving the call record failed")
+                pass
+            if session:  # audit: end of call, then the recording (encoding takes a few seconds, in a thread)
+                try:
+                    reason = {"no_input": "ended: no response from the caller"}.get(session.end_reason, "caller hung up")
+                    await asyncio.to_thread(c.audit.end_call, session.session_id, reason)
+                    if c.reviews and c.settings.judge_mode != "off":  # in the background: nothing waits for the review
+                        asyncio.create_task(c.reviews.review(session.session_id))
+                    if session.recorder and session.recorder.duration_ms > 500:
+                        await asyncio.to_thread(c.recordings.save, session.session_id, "call", session.recorder.stereo(),
+                                                c.settings.audio_rate, session.recorder.started_at)
+                except Exception:
+                    logger.exception("saving the call record failed")
+    finally:
+        _live_calls -= 1
+        LIVE_CALLS.set(_live_calls)
 
