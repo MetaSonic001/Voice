@@ -1,9 +1,6 @@
 # Root .gitignore: project-wide rules only.
-# brain/.gitignore (Python: .venv, data, models, eval reports) and
+# brain/.gitignore (Python: .venv, data, models, logs) and
 # ui/.gitignore (Next.js: node_modules, .next) still apply to their folders.
-
-# Docs folder (kept local, not in git)
-docs/
 
 # Secrets: never commit real env files (examples are fine)
 .env
@@ -38,9 +35,6 @@ desktop.ini
 .vscode/
 .idea/
 *.swp
-
-/reference
-/docs
 
 # Sarvam check audio (brain sarvam-check --out-dir)
 sarvam-check/
