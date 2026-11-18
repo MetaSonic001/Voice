@@ -125,7 +125,7 @@ def select_sources(question: str, context: list[Hit], today: date) -> tuple[list
 
 
 # ───────── which passages go to the answer model (relevance, identity, duplicates) ─────────
-# Tuned by replaying three saved golden-set runs (evals/context_replay.py, 6 Nov 2026): the evidence each answer needs
+# Tuned by replaying three saved golden-set runs (a one-off replay script, 6 Nov 2026; removed 17 Nov): the evidence each answer needs
 # must survive. 0.30 lost the 2-year FD rate row; a 0.10 floor lost the online-shopping card passages (all scores were
 # low, best 0.118). 0.20 + 0.05 lost nothing on any run and cut the passage text sent by about 22% (3,568 -> 2,792 chars).
 REL_TO_BEST = 0.20  # keep a passage only if it scores at least this share of the best passage ...

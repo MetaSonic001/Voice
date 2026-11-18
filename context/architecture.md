@@ -30,7 +30,7 @@ tools (code, parallel bank calls) -> validate (code) -> respond (template or LLM
 - `adapters/`: mock core bank, HTTP bank client, LLM clients, replay cache, parsers, storage.
 - `mockbank/`: the mock bank systems as a separate HTTP API (own port, own service and customer tokens).
 - `voice/`: call session, turn-taking, player, hold music.
-- `evals/`: routing, decisions, golden, smoke and benchmark tooling.
+- `evals/`: smoke and regression packs, golden set.
 
 ## Storage model
 

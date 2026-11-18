@@ -61,10 +61,26 @@ def ensure_seeded(db: Database, workbook: Path | None, today: date) -> None:
     """Seed the mock bank once (deterministic). Does nothing when it already has customers.
     Under the startup lock, so two copies starting together on an empty database don't both seed."""
     with db.startup_lock() as conn:
+        # The data is written relative to "today" ("₹5,000 from Rajesh today", "UPI payments this week"). Seeded on an
+        # earlier day it goes stale: on 16 Nov the live mock bank still held data seeded on 6 Nov, so "did Rajesh pay me
+        # today?" truly found nothing (call d48a5afe). It is re-seeded for today's date (changes made in test calls,
+        # such as blocked cards and tickets in the mock CRM, go with it: it is test data).
+        conn.execute("CREATE TABLE IF NOT EXISTS corebank.seed_info (seeded_for date NOT NULL)")
         seeded = conn.execute("SELECT count(*) AS n FROM corebank.customers").fetchone()["n"]
+        row = conn.execute("SELECT seeded_for FROM corebank.seed_info LIMIT 1").fetchone()
+        if seeded and (row is None or row["seeded_for"] != today):
+            tables = [r["table_name"] for r in conn.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'corebank' AND table_type = 'BASE TABLE' "
+                "AND table_name <> 'seed_info'").fetchall()]
+            conn.execute(f"TRUNCATE {', '.join(f'corebank.{t}' for t in tables)} RESTART IDENTITY CASCADE")
+            log(logger, "mock core banking re-seeded for today", was=str(row["seeded_for"]) if row else "unknown",
+                today=str(today))
+            seeded = 0
         if not seeded:
             t = time.perf_counter()
             counts = _Seeder(db, workbook, today).run()
+            conn.execute("DELETE FROM corebank.seed_info")
+            conn.execute("INSERT INTO corebank.seed_info (seeded_for) VALUES (%s)", (today,))
             log(logger, "mock core banking seeded", **counts, ms=round((time.perf_counter() - t) * 1000))
 
 
@@ -133,7 +149,7 @@ class MockCoreBank:
             loans=[Loan(x["number"], x["type"], x["rate_type"], float(x["rate"]), float(x["sanctioned"]),
                         float(x["outstanding"]), float(x["emi"]), x["next_due"], x["emis_paid"], x["emis_left"],
                         x["status"], x["debit_account"],
-                        emis=[Emi(e["due_date"], float(e["amount"]), e["status"], e["reason"], float(e["charge"]))
+                        emis=[Emi(e["due_date"], float(e["amount"]), e["status"], e["reason"], float(e["charge"]), e.get("paid_on"))
                               for e in emis if e["loan_number"] == x["number"]],
                         rate_changes=[RateChange(r["changed_on"], float(r["old_rate"]), float(r["new_rate"]),
                                                  float(r["old_emi"]), float(r["new_emi"]))
@@ -298,7 +314,7 @@ class _Seeder:
                 hold = round(balance * rng.uniform(0.02, 0.08)) if rng.random() < 0.12 else 0
                 self.add("accounts", (number, cif, variant, branch, "active", is_salary,
                                       today - timedelta(days=rng.randint(300, 2500)), balance, balance - hold, hold,
-                                      rng.choice(["cheque deposit under clearing", "card authorisation pending"]) if hold else None,
+                                      rng.choice(["a cheque deposit that is still clearing", "a pending card payment"]) if hold else None,
                                       req, round(balance * rng.uniform(0.7, 1.05)), last_amb))
                 if req and last_amb < req:
                     self.add("account_charges", (number, today.replace(day=5), "amb_shortfall",
@@ -355,7 +371,7 @@ class _Seeder:
             failed = bounced and k == 1
             self.add("loan_emis", (number, d, emi, "bounced" if failed else "paid",
                                    "insufficient_balance" if failed else None,
-                                   590 if failed else 0))
+                                   590 if failed else 0, None if failed else d))  # NACH debits on the due date
         if rate_change or (rate_type == "floating" and rng.random() < 0.5):
             old_rate, old_emi = rate_change or (round(rate - 0.5, 2), round(emi * 0.965))
             self.add("loan_rate_changes", (number, today - timedelta(days=75), old_rate, rate, old_emi, emi))
@@ -407,7 +423,7 @@ class _Seeder:
                  "Two accounts ending 4521 (salary) and 4512; home and personal loan (one EMI bounced); two credit "
                  "cards incl. 6712 with a payment still processing; ATM cash not dispensed; ₹10,000 transfer pending")
         account("10020094521", "CIF900101", "Value", "JPR-MNR", 82350, salary=True, hold=2500,
-                hold_reason="card authorisation pending (fuel station)", amb_this=61200, amb_last=58400)
+                hold_reason="a pending card payment at a fuel station", amb_this=61200, amb_last=58400)
         account("10020094512", "CIF900101", "Digital", "JPR-MNR", 1240, status="inactive", amb_this=1240, amb_last=1240)
         debit("10020094521", "3390", "Visa Gold", intl=False)
         debit("10020094512", "7781", "RuPay Platinum")
@@ -492,6 +508,11 @@ class _Seeder:
                  "Basic (BSBDA) account at a rural branch, prefers Hindi; gold loan", language="hi")
         account("10020099501", "CIF900107", "BSBDA", "SKR-01", 8450)
         debit("10020099501", "1180", "RuPay Classic")
+        # her account had no transactions at all: "last five transactions" could only ever say "none" (data audit, 17 Nov)
+        self.txn("10020099501", self.at(d(1), 11, 20), "UPI Payment", "Debit", 450, "UPI", "Sharma Kirana Store")
+        self.txn("10020099501", self.at(d(3), 10, 5), "Cash Deposit", "Credit", 3000, "CASH")
+        self.txn("10020099501", self.at(d(6), 16, 40), "UPI Payment", "Debit", 1200, "UPI", "Jain Medical")
+        self.txn("10020099501", self.at(d(12), 12, 30), "UPI Transfer", "Credit", 2000, "UPI", "Ramesh Devi")
         self.loan("CIF900107", "gold", 60000, 5400, 4, 8, date(today.year, today.month, 15), "10020099501",
                   number="LGO900107", bounce=False)
 
@@ -514,7 +535,7 @@ _COLUMNS = {
                        "maturity_amount", "payout", "auto_renew", "status"),
     "loans": ("number", "cif", "type", "rate_type", "rate", "sanctioned", "outstanding", "emi", "next_due", "emis_paid",
               "emis_left", "debit_account", "status"),
-    "loan_emis": ("loan_number", "due_date", "amount", "status", "reason", "charge"),
+    "loan_emis": ("loan_number", "due_date", "amount", "status", "reason", "charge", "paid_on"),
     "loan_rate_changes": ("loan_number", "changed_on", "old_rate", "new_rate", "old_emi", "new_emi"),
 }
 

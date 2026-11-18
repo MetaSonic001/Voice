@@ -1,12 +1,13 @@
 // A live, two-way call over the brain's WebSocket (/v1/voice/stream).
 //
-// Microphone -> browser echo cancellation + noise suppression -> capture worklet (16 kHz PCM16, 20 ms frames,
+// Microphone -> browser echo cancellation + noise suppression (mic.ts) -> capture worklet (16 kHz PCM16, 20 ms frames,
 // optional "focus on my voice" gate) -> server. Server audio (PCM16) -> playback worklet -> echo-safe output
 // (a WebRTC loopback, so the echo canceller removes the agent's voice from the mic) -> speakers.
 // The server decides turn-taking and barge-in; on {"type":"clear"} we drop any agent audio not yet played.
 
 import { wsUrl } from "./api";
 import { echoSafeOutput, type EchoSafeOutput } from "./echo-safe-output";
+import { openMic } from "./mic";
 import { CAPTURE, moduleUrl, PLAYBACK } from "./worklets";
 
 export type CallEvent = { type: string; [key: string]: unknown };
@@ -24,9 +25,19 @@ export class LiveCall {
   constructor(private onEvent: (event: CallEvent) => void) {}
 
   async start(sessionId: string, language: string, focus: boolean) {
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-    });
+    try {
+      await this.open(sessionId, language, focus);
+    } catch (err) {
+      this.ws?.close();
+      this.release(); // setup failed after the mic opened: don't leave it on
+      throw err;
+    }
+  }
+
+  private async open(sessionId: string, language: string, focus: boolean) {
+    const mic = await openMic(); // echo cancellation, noise suppression, auto gain; reports what was applied
+    this.stream = mic.stream;
+    this.onEvent({ type: "mic", ...mic.report });
     this.ctx = new AudioContext({ sampleRate: RATE }); // the browser resamples the mic to 16 kHz for us
     for (const source of [CAPTURE, PLAYBACK]) {
       const url = moduleUrl(source);
@@ -35,9 +46,9 @@ export class LiveCall {
     }
     this.player = new AudioWorkletNode(this.ctx, "playback");
     this.output = await echoSafeOutput(this.ctx, this.player); // lets the echo canceller hear what we play
-    const aec = this.stream.getAudioTracks()[0]?.getSettings().echoCancellation;
-    if (aec === false || this.output.mode === "direct") {
-      this.onEvent({ type: "echo_warning", reason: aec === false ? "echo cancellation is off" : "echo-safe playback unavailable" });
+    const aec = mic.report.echoCancellation;
+    if (aec === "false" || this.output.mode === "direct") {
+      this.onEvent({ type: "echo_warning", reason: aec === "false" ? "echo cancellation is off" : "echo-safe playback unavailable" });
     }
     this.capture = new AudioWorkletNode(this.ctx, "capture", { processorOptions: { focus } });
     this.ctx.createMediaStreamSource(this.stream).connect(this.capture); // not routed to the speakers

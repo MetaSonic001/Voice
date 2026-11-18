@@ -219,7 +219,12 @@ def _turn_view(t: dict) -> dict:
         "input": timings.get("input") or voice.get("input") or ("speech" if "stt_ms" in timings else "typed"),
         "route": d.get("route"), "reason": d.get("reason"), "bank_calls": d.get("bank_calls") or [],
         "understood": {"question": u.get("standalone_question"), "search": u.get("search_query_en"),
-                       "personal": u.get("personal") or None, "facts": u.get("facts") or None},
+                       "personal": u.get("personal") or None, "facts": u.get("facts") or None,
+                       # every request the turn was split into, as run (after the code corrections), not just the first
+                       "requests": [{"question": r.get("question"), "kind": r.get("kind"),
+                                     "topic": (r.get("personal") or {}).get("topic") or r.get("product") or "",
+                                     "detail": (r.get("personal") or {}).get("detail") or ""}
+                                    for r in u.get("requests") or []]},
         "sources": [{"chunk_id": h["chunk_id"], "document": h.get("document"), "section": h.get("section"),
                      "score": h.get("rerank_score"), "snippet": (h.get("text") or "")[:300]}
                     for h in retrieval.get("reranked", []) if h["chunk_id"] in used],
@@ -243,7 +248,7 @@ REASONS = {"low_relevance": "no relevant passage was found in the knowledge base
            "uncited": "the answer did not point to a source", "malformed_output": "the AI output was malformed",
            "internal_error": "a system error"}
 AUTH_EVENTS = {"mobile_requested": "Asked for the registered mobile number", "mobile_not_registered": "Number is not registered",
-               "otp_sent": "One-time code sent", "otp_failed": "Wrong code entered", "otp_expired": "Code expired",
+               "otp_sent": "One-time code sent", "otp_reused": "Same code kept for the continued question", "otp_failed": "Wrong code entered", "otp_expired": "Code expired",
                "locked": "Verification locked after too many wrong codes", "otp_verified": "Caller verified",
                "too_many_codes": "Too many codes requested", "verification_ended": "Verification ended",
                "verification_expired": "Verification expired (idle)", "data_read": "Account data read"}
@@ -254,8 +259,15 @@ def why(turn: dict) -> list[str]:
     """Plain-language reasons for one reply, built from what was recorded at the time (evidence, not a summary)."""
     lines: list[str] = []
     u, outcome, intent = turn["understood"], turn["outcome"], turn["intent"] or "unknown"
-    if u.get("question"):
-        lines.append(f"Understood as: \"{u['question']}\" ({LANG.get(turn['language'], turn['language'])}, {intent})")
+    requests = u.get("requests") or []
+    if len(requests) > 1:  # PM review: "Understood as: balance" hid the transactions request that was also answered
+        parts = "; ".join(f"\"{r['question']}\" ({r['kind']}{': ' + r['topic'] if r['topic'] else ''}"
+                          f"{', ' + r['detail'] if r['detail'] else ''})" for r in requests)
+        lines.append(f"Understood as {len(requests)} requests ({LANG.get(turn['language'], turn['language'])}): {parts}")
+    elif u.get("question"):
+        detail = (u.get("personal") or {}).get("detail") or ""
+        lines.append(f"Understood as: \"{u['question']}\" ({LANG.get(turn['language'], turn['language'])}, {intent}"
+                     f"{', ' + detail if detail else ''})")
     bank = turn.get("bank") or {}
     journey = turn.get("journey") or {}
     action = journey.get("action") or {}

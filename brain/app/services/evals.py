@@ -228,9 +228,3 @@ class EvalRunner:
     def get(self, run_id: str) -> dict | None:
         with self.db.connection() as conn:
             return conn.execute("SELECT * FROM eval_runs WHERE id::text = %s", (run_id,)).fetchone()
-
-    def runs(self, limit: int = 20) -> list[dict]:
-        with self.db.connection() as conn:
-            return conn.execute("SELECT id, created_at, status, golden_file, config, metrics->'overall' AS overall, "
-                                "metrics->'answered_total_ms' AS answered_latency_ms, report_path FROM eval_runs "
-                                "ORDER BY created_at DESC LIMIT %s", (limit,)).fetchall()

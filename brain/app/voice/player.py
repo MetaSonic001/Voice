@@ -33,10 +33,6 @@ class Player:
 
     # ---- state ----
     @property
-    def has_pending(self) -> bool:
-        return bool(self._buf)
-
-    @property
     def playing(self) -> bool:
         """Audio is queued or still playing on the client."""
         return bool(self._buf) or time.monotonic() < self._play_until

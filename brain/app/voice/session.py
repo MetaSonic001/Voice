@@ -7,8 +7,8 @@ Audio in  -> VAD per 32 ms frame (audio clock, deterministic) -> capture utteran
 Turn-taking rules
 - Speech must last `vad_start_ms` to count (clicks, coughs, door slams are ignored); Silero VAD scores
   steady noise (fans, traffic, tones) as non-speech.
-- End of turn: `end_silence_ms` of silence when the transcript sounds complete; up to `max_end_silence_ms` when
-  it sounds unfinished ("...and", "aur", "matlab"). Callers who pause a lot get a longer window automatically.
+- End of turn: `end_silence_ms` of silence when the transcript sounds complete (callers who pause a lot get up to
+  `max_end_silence_ms` automatically); up to `incomplete_wait_ms` when it sounds unfinished ("...and", "aur", "कि").
 - STT starts speculatively after a short pause, so the transcript is usually ready the moment the turn ends.
 - While the agent is talking, caller sound must last `bargein_min_ms` to count as a possible interruption. Before
   that, three cheap filters drop most background sound: it must score higher on the speech detector than normal
@@ -55,6 +55,7 @@ BARGE_VAD_START = 0.65  # while the agent talks, a frame must score this high to
 BARGE_QUIET_RATIO = 0.25  # ... and be at least this loud relative to the caller's own speech (-12 dB)
 BARGE_GRACE_S = 0.3  # ... and not in the first 0.3 s of agent audio
 DUCK_GAIN = 0.3  # agent volume while a possible interruption is checked
+CONTINUE_MERGE_S = 1.5  # caller speech starting this soon after the reply's first audio continues their last question
 
 
 class Brain(Protocol):
@@ -81,6 +82,7 @@ class Capture:
     stt: tuple[int, asyncio.Task] | None = None  # (version, task) of the speculative transcription
     deciding: bool = False
     merge_with: str = ""  # previous question, when this utterance corrects/extends it before the agent spoke
+    started_wall: float = field(default_factory=time.perf_counter)
 
 
 class VoiceSession:
@@ -113,6 +115,7 @@ class VoiceSession:
         self._agent_audio_started = False  # has any audio of the current reply been sent?
         self._agent_text = ""  # what the agent is saying now (for echo detection)
         self._last_question = ""  # for merging a correction made while the agent was thinking
+        self._reply_audio_wall = 0.0  # when the current reply's first audio went out (0: not yet)
         self._no_input_task: asyncio.Task | None = None
         self._reprompts = 0
         self._awaiting_code = False  # a keypad code was asked for and not yet entered
@@ -286,9 +289,9 @@ class VoiceSession:
             self._agent_task = self._spawn(self._say_phrase("unclear_twice" if self._unclear >= 2 else "unclear", self.language))
             return
         self._unclear = 0
-        if not forced and incomplete(result.text) and cap.silence_ms < self.s.max_end_silence_ms:
-            # sounds unfinished ("...and", "aur"): give the caller up to max_end_silence_ms
-            await asyncio.sleep(max(0.0, (self.s.max_end_silence_ms - cap.silence_ms) / 1000))
+        if not forced and incomplete(result.text) and cap.silence_ms < self.s.incomplete_wait_ms:
+            # sounds unfinished ("...and", "aur", "पूछनी थी कि"): give the caller up to incomplete_wait_ms
+            await asyncio.sleep(max(0.0, (self.s.incomplete_wait_ms - cap.silence_ms) / 1000))
             if self._capture is not cap or cap.version != version:
                 if self._capture is cap:
                     cap.deciding = False
@@ -309,7 +312,10 @@ class VoiceSession:
             self._capture = None
             self.player.duck(1.0)  # false alarm: back to normal volume (the agent never stopped)
             return
-        thinking_only = not self._agent_audio_started  # agent hadn't started speaking this reply yet
+        # the agent hadn't started speaking this reply, or had only just started: the caller is still on their question
+        # (pending-work A7: "Hello, I have a question." [pause] "What's my balance?" was two turns, and two codes)
+        thinking_only = not self._agent_audio_started or (
+            self._reply_audio_wall > 0 and cap.started_wall - self._reply_audio_wall < CONTINUE_MERGE_S)
         await self._interrupt()
         content = [w for w in words(result.text) if w not in {"stop", "wait", "ruko", "rukiye", "bas", "sorry", "no", "nahi"}]
         if not content:  # just "stop"/"ruko": stay quiet and listen
@@ -342,6 +348,7 @@ class VoiceSession:
 
     async def _reply(self, question: str, stt_language: str | None, user_end_wall: float, timings: dict) -> None:
         self._agent_audio_started = False
+        self._reply_audio_wall = 0.0
         self._awaiting_code = False  # set again below if this reply asks for a code
         await self.send_json({"type": "user", "text": question, "stt_language": stt_language})
         first_audio = {}
@@ -351,11 +358,14 @@ class VoiceSession:
                 first_audio["wall"] = time.perf_counter()
                 first_audio.setdefault("any", first_audio["wall"])
                 self._agent_audio_started = True
+                self._reply_audio_wall = first_audio["wall"]
 
         def mark_filler():
             first_audio.setdefault("any", time.perf_counter())
 
-        filler = self._spawn(self._filler_after(self.s.filler_after_ms / 1000, mark_filler))
+        # No filler right after "you are verified": that line already covers the wait ("...verified. Okay, one second.")
+        filler = self._spawn(asyncio.sleep(0) if timings.get("input") == "after_verification"
+                             else self._filler_after(self.s.filler_after_ms / 1000, mark_filler))
         sentences: asyncio.Queue = asyncio.Queue()
         trace_id = None
 
@@ -405,6 +415,8 @@ class VoiceSession:
         finally:
             filler.cancel()
         voice = {**timings}
+        if timings.get("input") == "after_verification":  # no caller turn to time from: it waited behind "you are verified"
+            first_audio.clear()
         if "wall" in first_audio:  # caller stopped speaking -> first audio of the answer
             voice["voice_to_voice_ms"] = round((first_audio["wall"] - user_end_wall) * 1000)
         if "any" in first_audio:  # ... -> first thing the caller hears (the filler, if one played)
@@ -542,11 +554,11 @@ class VoiceSession:
         async for pcm in self.tts.stream(speech_text(text, language), language):
             self.player.enqueue(pcm)
         self._agent_audio_started = True
-        await self.player.wait_done()
-        if question:
+        if question:  # prepared while "you are verified" plays: queued right behind it, so no gap and no filler
             self._start_reply(Transcript(question, None, 0.0, 0), time.perf_counter(), {"input": "after_verification"})
-        else:
-            self._arm_no_input()
+            return  # (this task is replaced by the reply; it must not wait for the player)
+        await self.player.wait_done()
+        self._arm_no_input()
 
     # ───────── text turn (testing without audio) ─────────
 

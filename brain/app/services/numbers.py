@@ -113,13 +113,59 @@ def clean_markup(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip(" -–—:")
 
 
+_AND = {"en": "and", "hinglish": "and", "hi": "और"}
+
+
+def spoken_punctuation(text: str, language: str) -> str:
+    """Marks a reader skips but a voice reads or stumbles on (heard in live calls, 16 Nov 2026):
+    - brackets: "mobile (ending 0105) par" -> "mobile, ending 0105, par"; the voice reads an aside as part of the
+      sentence, with no pause ("on hold card authorisation pending fuel station");
+    - a hyphen after a digit: "6-digit" was read "six dash digit" -> "6 digit";
+    - "&": "Fraud & Risk" -> "Fraud and Risk".
+    The screen and the transcript keep the written form."""
+    text = re.sub(r"(\d)-(?=[^\W\d_])", r"\1 ", text)
+    text = re.sub(r"\s*&\s*", f" {_AND.get(language, 'and')} ", text)
+    text = re.sub(r"(?<=\w)\(s\)", "s", text)  # "account(s)"
+    text = re.sub(r"\s*[()]\s*", ", ", text)  # an aside becomes a short pause on both sides (nested ones too)
+    text = re.sub(r"(?:,\s*){2,}", ", ", text)  # "(card pending (fuel station))" left ", , "
+    text = re.sub(r",\s*(?=[.?!।])", "", text)  # no pause right before the end of the sentence
+    text = re.sub(r"^\s*,\s*", "", text)
+    return text
+
+
+# Marks of written text that a caller cannot hear: an aside in brackets, a semicolon, "&", "6-digit", markdown. Replies
+# are written as they are said (PM review, 17 Nov): the templates are checked by a test, every call by the review.
+_SCREEN_MARKS = {"brackets": re.compile(r"[()]"), "semicolon": re.compile(r";"), "ampersand": re.compile(r"&"),
+                 "digit-hyphen": re.compile(r"\d-(?=[^\W\d_])|\d-\d"), "markdown": re.compile(r"\*\*|^\s*[-*•#]\s", re.M)}
+
+
+def screen_marks(text: str) -> list[str]:
+    """Which written-only marks a reply contains ([] = it reads as it is said). Citation markers [1] are ignored."""
+    text = re.sub(r"\s*\[\d+\]", "", text or "")
+    return [name for name, pattern in _SCREEN_MARKS.items() if pattern.search(text)]
+
+
+# Reference and ticket numbers ("AU261116001210", "AU-CMP-20261117-0003"): a voice reads a long run of digits as one huge
+# number. Said digit by digit in groups of four, the way a caller writes it down. Card / account endings (4 digits) and
+# amounts are not references and are left alone.
+_REFERENCE = re.compile(r"\b([A-Z]{2,}(?:-[A-Z]+)*)-?(\d[\d-]{5,}\d)\b")
+
+
+def _spell_reference(m: re.Match) -> str:
+    digits = m.group(2).replace("-", "")
+    groups = [" ".join(digits[i:i + 4]) for i in range(0, len(digits), 4)]
+    letters = " ".join(p if p == "AU" else " ".join(p) for p in m.group(1).split("-"))  # "CMP" -> "C M P"; AU via say()
+    return f"{letters}, {', '.join(groups)}"
+
+
 def speech_text(answer: str, language: str) -> str:
     """Text ready for TTS: no citation markers, currency spoken, English numbers as Indian words.
 
     Hindi/Hinglish keep digits (Indian TTS voices read them natively in Hindi).
     """
-    text = say(clean_markup(re.sub(r"\s*\[\d+\]", "", answer)), language)
+    text = say(_REFERENCE.sub(_spell_reference, clean_markup(re.sub(r"\s*\[\d+\]", "", answer))), language)
     text = re.sub(r"\s*;\s+", ". ", text)  # a semicolon joins two ideas: spoken, a full stop gives the caller a pause
+    text = spoken_punctuation(text, language)
     text = re.sub(r"\b(Rs\.?|INR)\s*", "₹", text)
     if language != "en":
         return re.sub(r"\s+", " ", text).strip()

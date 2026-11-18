@@ -12,7 +12,7 @@
 - {id: A3-action-then-question, cls: multi_request, caller: "9000000101", turns: [
     {say: "Block my credit card ending 6712 temporarily and then tell me my balance in both accounts", outcome: [confirm], has: ["6712"], kinds: [action, personal]}]}
 - {id: B1-last-five, cls: lists, caller: "9000000101", turns: [
-    {say: "Show my last 5 transactions in both accounts", outcome: [answered, clarify], has_any: ["Want the other", "which account", "Which"]}]}
+    {say: "Show my last 5 transactions in both accounts", outcome: [answered], has: ["5 transactions"], lacks: ["Want the other"]}]}  # asked for five: all five (PM, 17 Nov)
 - {id: E1-no-with-new-request, cls: pending_reply, caller: "9000000101", turns: [
     {say: "Please block my credit card ending 6712 temporarily", outcome: [confirm]},
     {say: "No, leave it. What is my balance in both accounts?", outcome: [answered], has: ["4521"]}]}

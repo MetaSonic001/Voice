@@ -773,6 +773,295 @@ v4-flash at 60; price ₹2 per 1,000 characters after the launch offer ended 12 
 - Noted, not changed: with Sarvam, the "unclear speech" filter never fires and noise is caught only by empty text or
   known Whisper phrases, because Sarvam returns no no-speech or confidence score (Whisper does). Watch in test calls.
 
+### 17 Nov: review of the four Sarvam test calls; spoken-form fixes (code; needs a brain restart)
+
+Reviewed the owner's four live calls of 16 Nov, 23:39-23:58 IST (Ravi `54aa55be`, Pooja `d48a5afe`, Sunita
+`f4d36d3a`, Imran `210b57c4`): transcripts, traces, logs, and the recordings themselves. The recordings were decoded
+and measured (caller and agent channels), and each agent reply was transcribed back with Groq Whisper as a
+pronunciation check (no listening by Claude; tone and warmth need the owner's ear).
+
+What the calls showed (issue → fixed or not):
+
+| # | Issue | Status |
+|---|---|---|
+| 1 | All 4 failed turns were Groq **429 tokens-per-minute** (8k TPM; the understanding call alone is ~3.8k tokens) | Owner: ignore for now. Proposed, not built: error reply in the call's language (it fell back to English for Hindi callers), and the error's "I can connect you to our team" made a real offer so "yes" transfers without the LLM |
+| 2 | Brackets in templates: "मोबाइल (आख़िरी अंक 0107)", "(ending 0105)", nested "on hold (card authorisation pending (fuel station))"; heard as one run-on phrase | **Fixed** in the text sent to TTS: an aside becomes commas (`spoken_punctuation` in `numbers.py`). Screen text unchanged |
+| 3 | "6-digit" in the code prompt, heard "six dash digit" | **Fixed**: a hyphen after a digit becomes a space (a range like 5-10 keeps it); "&" said "and" / "और" |
+| 4 | Dates read like a statement: "On Thursday, 5 November 2026, at 21:40"; "10 Dec 2026"; Hindi "1 नवंबर 2026, रविवार को, 9:30 बजे" | **Fixed** (`personal.day`, `_when`): full month, no year when within ~6 months, 12-hour time with part of day ("9:40 at night", "शाम 4:30 बजे", "subah 9:05 baje"). Changes the screen text too |
+| 5 | "POS purchase" (statement jargon) | **Fixed**: "card purchase" |
+| 6 | Two loans: "Your next EMI of ₹25,140... Your next EMI of ₹7,850..." | **Fixed**: "Your home loan EMI of ₹25,140 is due on 10 December." (new `emi_next_of`) |
+| 7 | A Hindi caller's "Yes." switched the reply to Hinglish | **Fixed**: a reply of 1-3 neutral words (yes, ok, haan, ji...) keeps the call's language |
+| 8 | After the code: "Thank you, you are verified." + 1.2 s gap + filler "Okay, one second." + answer | **Fixed**: the waiting question is prepared while "verified" plays and queued right behind it; no filler on that turn (voice-to-voice metrics are not recorded for it) |
+| 9 | After verification (call 4) the agent asked "is today's call about your open dispute?" though the caller had said "my card was stolen", and went on without waiting | **Not changed**: asked "ask, never assume" is tested behaviour. Question for the owner below |
+| 10 | "five transactions in the salary account" understood as "What is the balance...": balance re-read before the transactions (13 s), caller said "stop stop" | Not changed: an understanding (LLM) error; needs a routing-set check when quota allows |
+| 11 | "last EMI I paid" answered with the next EMI due (judge flagged it too) | Not changed: understanding picked `next_emi`; the `emi_paid` template exists |
+| 12 | Filler before almost every reply (understanding ~1.5 s > `FILLER_AFTER_MS` 1.2 s) | Not changed: a timing trade-off; options listed for the owner |
+| 13 | Hindi caller cut off after "...पूछनी थी कि" (1.47 s pause) | Working as designed ("कि" already waits up to `MAX_END_SILENCE_MS` 1.5 s); the pause was longer. Option: 2000 ms |
+| 14 | STT: "किश्त" heard as "किश्ती" | Not changed; understanding coped |
+
+- Measured from the recordings: caller stops → first agent sound **2.0-2.8 s** (one 3.5 s), mostly the
+  understanding call; gaps between sentences 0.2-0.5 s, except 1.2-1.3 s after "you are verified" (fixed by 8).
+- Research (Sarvam's v4-flash best-practice guide; voice-agent prompt guides from LiveKit, Vapi, Parloa and others):
+  short sentences, punctuation for pauses, send whole sentences (we already do), let the TTS read normal numbers, no
+  SSML on v4-flash, pace 1.1-1.2 for "professional IVR". Not adopted: rewriting the LLM prompt (the deterministic
+  text layer covers templates and LLM text alike, and a prompt change would need a full re-measure on Groq quota); a
+  separate "speech response" LLM pass (adds latency); Sarvam's `dict_id` (the guide's own parameter table doesn't
+  list it for v4-flash). Noted for later: Sarvam says romanised Hindi ("Aapka order...") sounds worse than Devanagari
+  with English words in Latin ("आपका order..."); our Hinglish templates are romanised.
+- /calls "every call is Nov 16": not a database error. Times are stored in UTC and correct; the first page held the
+  owner's 4 calls (23:39-23:58 IST) and ~72 smoke-test text sessions from 10:51-11:11 IST the same day, and older
+  rows showed only the date. The list now shows date and time ("Nov 16, 11:57 PM"); live via hot reload. Also noted:
+  `DEMO_TODAY` is fixed when the brain starts, so a brain left running past midnight still treats yesterday as today.
+- Tests: offline **363 pass** (349 before; +14). UI `tsc` passes (`bun run build` not run: the dev server is live).
+- Live: UI yes; brain changes need a restart. Changed phrases will be re-recorded once by Sarvam (a few paise).
+- Smoke set after the change: 18/24 (75.0%), 0 Groq requests; the two new misses were the owner's real block of
+  Ravi's card 6712 in call 1 ("already blocked"). The smoke run puts the demo cards back afterwards; the next run was
+  **19/24 (79.2%), same as 16 Nov**.
+- **Eval runs no longer fill /calls.** `evals.smoke` and `evals.benchmark` ran against the real database, so each run
+  added 24-40 text sessions to /calls. They now delete their own sessions at the end (`DELETE /v1/calls/{id}`: turns,
+  handoffs, alerts); the results stay in `evals/reports/`. Checked: a smoke run left the call count unchanged (119).
+  Offline pytest already used a throwaway database. The 99 older eval sessions (72 from 16 Nov, 24 from 17 Nov, 3 from
+  6-7 Nov; found by "not live, no recording, first question is a scripted eval turn") are still there, pending the
+  owner's OK to delete them; the owner's 11 own text chats and the 9 live calls are not in that set.
+
+### 17 Nov (2): fixes from the call review, approved by the owner (code; brain needs a restart)
+
+| Fix | How | Where |
+|---|---|---|
+| "Yes" after a system error transfers without the LLM | A failed turn's "I can connect you to our team" is now a real offer (pending `handoff`, department general), so "हाँ, team se connect karo" is read in code. Before, the yes went to the LLM and failed the same way (call f4d36d3a) | `conversation.turn` |
+| A balance nobody asked for is not re-read | When a balance request comes with another request and the caller's words have no balance word (balance, kitne paise, left, bacha, बैलेंस...), it is dropped (call 54aa55be: "five transactions" re-read the balance first) | `understanding.asked_only` |
+| "Last EMI I paid" answers the past payment | "last / previous / pichhli / पिछली ... EMI / kist" (and "EMI ... I paid / kati thi") without "next / agli / kab hai" turns `next_emi` into `emi_status` | `understanding.asked_only` |
+| Open request asked only when the caller gave no reason | After verification, "is today's call about your open dispute?" is skipped when a question was waiting (the caller already said why they called). Verification always starts from a specific request today, so in practice it is now rarely asked | `conversation.verify`; test reworded |
+| Longer wait when the words sound unfinished | New `INCOMPLETE_WAIT_MS` = 2500 (was 1500, shared with the adaptive wait). Industry: LiveKit's turn detector waits up to 2.5 s when it thinks the turn is unfinished (0.3 s when finished), Pipecat Smart Turn 3 s, OpenAI's server VAD 0.5 s for any pause. Complete sentences still end at 700 ms; `MAX_END_SILENCE_MS` (1500) now only caps the adaptive wait, so normal turns are not slower | `config.py`, `voice/session.py`, `.env.example` |
+| Bulk delete on /calls | "Select" button: rows get tick boxes, "Select all shown", "Delete" with the same "Delete for good" confirmation; deletes one by one through `DELETE /v1/calls/{id}` (a live call is refused and left). Live now (hot reload); checked in the browser without deleting | `ui/app/calls/page.tsx`, `ConfirmDelete` exported |
+
+- Model choice asked by the owner (both steps on 120b today): see the reply of 17 Nov; not changed.
+- Tests: offline **370 pass** (363 before; +7). Smoke pinned to 120b (the cached baseline): **19/24 (79.2%), the same
+  5 misses as 16 Nov, 0 Groq requests**. UI `tsc` passes.
+- Quota note: `brain/.env` was edited at 10:52 and now has `ANSWER_MODEL` / `UNDERSTAND_MODEL` commented out, so the
+  code defaults apply (understanding **20b**, answer 120b). A smoke run started after that missed the cache (the model
+  is part of the key) and made 19 real 20b requests (~65k tokens) before it was stopped; Groq then reported the 20b
+  **daily token limit (200k) used up** (the post-call judge also runs on 20b). The running brain still has the models it
+  loaded at start; a restart with the lines commented would put understanding on 20b.
+
+### 17 Nov (3): PM review of call 54aa55be (code; brain needs a restart; tests not run yet, by the owner's choice)
+
+The PM reviewed the 16 Nov call before today's changes. Already fixed earlier today: brackets and "6-digit" in speech,
+dates, the unasked balance re-read (`asked_only`), "last EMI paid" → `emi_status`, the stacked filler after verification.
+
+| PM point | Change |
+|---|---|
+| Code request is abrupt | "Sure, I can help with that." / "जी, ज़रूर।" / "Ji, zaroor." before "For your security..." (only when a question starts verification; the fraud opening keeps its own lead-in) |
+| Hold reason written for a screen: "(card authorisation pending (fuel station))" | Mock bank reasons are now spoken phrases ("a pending card payment at a fuel station", "a cheque deposit that is still clearing"); English: "Of that, ₹2,500 is on hold for a pending card payment at a fuel station, so you can use ₹79,850 right now." A real bank's hold codes would need the same mapping in the adapter |
+| "Five transactions" read three, then "Want the other 2?" | A number the caller asked for is read in full (up to five at once); with no number, still three then the offer |
+| "Salary account" assumed to be 4521 | Not an assumption: it uses the bank's salary flag, and asks "which account?" if there is none. The intro now says it back: "...on your salary account ending 4521" |
+| Two loans: "Your EMI of ₹X... was paid" twice | "Your home loan EMI of ₹25,140, due on 10 November, was paid successfully." (`emi_paid_of`) |
+| Never substitute data | "Last EMI paid" with no payment on record now says "I can't see any EMI paid yet on your home loan" (it used to fall through to the outstanding amount) |
+| Temporary block confirmation offers a permanent block | When the caller asked for a temporary block: "Just to confirm, I'll temporarily block your Zenith+ credit card ending 6712. You can unblock it any time. Shall I go ahead?" The permanent option stays when the caller didn't say which |
+| Audit said "Understood as: balance" while transactions were answered | The audit records every request the turn was split into (after code corrections), with topic and detail; "Why" lists them all and shows the detail (e.g. `next_emi` vs `emi_status`) |
+| 34 bank calls for one card block | Explained, not changed: every verified turn reads the whole customer profile (16 parallel reads over 6 systems, during understanding, so hidden from the caller); the confirm turn reads it twice (plan, then read-back to prove the card changed). Reading only what a turn needs is the fix if the real bank's APIs are slow or metered |
+
+Not done: intent taxonomy rewrite and a separate relevance checker (the topic/detail schema plus `asked_only` cover the
+failures seen); "would you like to know why it's on hold?" offers (adds a turn).
+Tests: test files updated (five-means-five, three-when-unasked); **not run** (the owner asked to batch testing).
+
+### 17 Nov (4): PM notes 2 and 3 (calls d48a5afe and f4d36d3a) (code; brain needs a restart; tests written, not run)
+
+**Root cause of "no such transaction" (Pooja, call d48a5afe): stale mock data, not the filters.** The understanding
+was right (UPI + debit + total + last 7 days; Rajesh + credit + today), and the same code on fresh data answers
+"4 payments, ₹3,940" and "₹5,000 from Rajesh Sharma". But the live mock bank seeds only once, and it had been seeded
+on **6 Nov**: Rajesh's "today" payment was dated 6 Nov and the "this week" UPI payments 3-6 Nov. On 16 Nov both
+searches truly found nothing. Fix: `corebank.seed_info` records the day the data was made for; at startup a mock bank
+seeded for another day is emptied and re-seeded for today (test-call changes such as blocked cards and mock CRM
+tickets go with it). The first restart re-seeds once (no date recorded yet).
+
+| PM point | Change |
+|---|---|
+| Yes/no questions ("did my salary come?", "did Rajesh pay me today?") | Found: the answer starts "Yes." / "जी हाँ।" / "Ji haan." Only for money-in checks and salary |
+| "No such transaction" for every miss | Says what was searched: "No, I don't see any money from Rajesh today." / "नहीं, आज Rajesh से आया कोई पैसा नहीं दिख रहा।"; "...on any of your accounts" when all were searched. A bank system that can't be reached is still a separate reply (BankError: "can't fetch right now"), never "none found" |
+| UPI spend total | "पिछले 7 दिनों में आपने UPI से कुल ₹3,940 खर्च किए, 4 पेमेंट्स में।" / "You spent ₹3,940 through UPI in the last 7 days, across 4 payments." (account named only when there are several). The sum is computed in code, never by the LLM |
+| Account digits on every turn ("अकाउंट (आख़िरी अंक 9001)") | Not said in the new total / not-found replies when the caller has one account |
+| "मेरे कितने loan बाकी हैं?" answered with the gold loan's outstanding + the next EMI again | Code rule (`asked_only`): "how many / kitne / कितने ... loan" without an EMI word is a count of all loans: "आपके नाम पर अभी एक लोन चल रहा है, आपका गोल्ड लोन।" With "baaki / left" and one loan, the EMIs left follow ("आपने 4 EMI भर दी हैं और 8 बाकी हैं।"). Code-only details `loan_count` / `loan_count_left` (kept out of the LLM schema so cached evals stay valid) |
+| Next EMI repeated after "outstanding" | "Outstanding" is answered alone; the next EMI is added only to a plain loan overview |
+| Name the loan in the next EMI | Always: "गोल्ड लोन की अगली EMI ₹5,400 की है, 15 दिसंबर को।" |
+
+Not changed: a clarifying question for "kitne loan baaki" (answering both readings costs no extra turn); the
+understanding step merging the previous question into its rewrite ("...अगली किश्ती कब है और मेरे कितने loan बाकी हैं?"):
+a prompt change, left for a routing-set run; the 6-system profile read per turn (see part 3). Answer wording changed, so
+the next smoke run will miss the cache on multi-turn items (their history text changed) and spend some Groq requests.
+Tests added: Pooja's total / Rajesh / salary yes, Sunita's loan count, stale re-seed. Not run yet.
+
+### 17 Nov (5): PM review across all recordings (code; brain needs a restart; tests written, not run)
+
+Several reviewed lines came from the 16 Nov smoke-test sessions and predate today's fixes (balance hold wording, five
+transactions read as three, account digits). Triage of the rest:
+
+| PM point | Verdict | Change |
+|---|---|---|
+| Stolen card already blocked: "kuch change karne ki zaroorat nahi" sounds dismissive | Valid | New `already_blocked`: "Your Ananta credit card ending 4410 is already permanently blocked, so it can't be used for any payment." (the fraud-team offer follows as before) |
+| Unauthorised UPI debit still processing: "may still be reversed by itself" | Valid (a guess that invites waiting) | "It's still showing as processing. Since you don't recognise it, it's best to report it now." then the complaint + transfer offer |
+| Shared OTP: "Good news: no payments in the last two days" | Valid (a shared code is used for logins and new payees too) | "I don't see any payments ... but a shared code can also be used to log in or add a payee, so your account needs to be secured now." then the transfer offer |
+| Unrecognised payment, none found: "I don't see any debits in the last week" | Valid | Adds "If you feel your account isn't safe, I can connect you to our fraud team right away." |
+| Reference numbers read as one long number | Valid | Speech only: "AU261116001210" → "A.U., 2 6 1 1, 1 6 0 0, 1 2 1 0"; ticket ids likewise ("A.U. C M P, ..."). Endings and amounts untouched |
+| Handoff "context package" | Already built | The desk note carries reason, department, verified + time, customer / segment / RM, last questions, actions done with references, alerts, call facts, language |
+| Per-turn language detection | Already built | Understanding returns the language every turn; one-word replies keep the call's language (17 Nov) |
+| Global sort for "last 5 across accounts" | Already built | Merged and sorted by date and time before the count is applied |
+| Verify state after an action; code decides success | Already built | Card actions read the bank state back (ADR 0008) |
+| Response relevance validator, response modes, interruption types | Covered | Topic/detail templates, `asked_only` code rules, "never substitute" EMI rule, `read_reply`, account choice, stop words. A separate validator layer would duplicate these |
+| Fraud taxonomy as separate workflows | Mostly built | lost card, unrecognised debit, OTP shared, other fraud are separate `risk` flows in code with their own steps. Phishing/scam and account-compromise flows are not built |
+| Shared OTP: transfer without asking; don't send another OTP; check logins, devices, payees | Not built: bank policy | Needs AU's fraud procedure (already an open question). The mock bank has no login/device/payee events |
+| Hinglish in Devanagari + English (Sarvam's advice), Hindi style guide | Not built | Large rewrite of every Hinglish template and the answer prompt; to be tested by ear first |
+| "I'm interested in credit cards": ask what kind of help first | Not changed | Adds a turn before the recommendation; product decision (question below) |
+| "5 in each account" | Not built | "both accounts" keeps the documented default (5 newest across both); per-account counts not asked for yet |
+| Metrics per language; multilingual regression set | Partly there | Smoke / routing / golden sets cover en, hi, hinglish; per-language reporting is a follow-up |
+
+### 17 Nov (6): cost workbook v2 made fully connected (Google Sheet only, no code change)
+
+Management changed the downloaded xlsx: 2-minute calls raised the cost per minute, and 200 calls at the same time
+didn't change the bill. Cause: per-call usage was typed for a 4-minute call, calls at the same time and calls a day
+were two separate inputs, and "servers we run" was typed. Fixed in the Google Sheet:
+
+- **Estimate:** calls at the same time is now worked out from calls a day × busiest-hour share × call length (the
+  old "spare calls" row is gone). Usage is per turn: turns a minute (3) × call length gives turns; characters (112.5),
+  tokens read (4,250), tokens written (383.3) and searches (0.4) are per turn. Same measured numbers as before.
+- **Servers:** app and GPU servers we run = servers needed with the spare, rounded up to whole servers.
+- **Prices:** a Yes/No check on Sarvam Growth's request limits (fails above about 165 calls at the same time).
+- **Choices 5:** microservices = monolith + 3. **Answers:** updated, two new questions on cost per minute.
+
+| Test | Bill a month | Per call | Per minute |
+|---|---|---|---|
+| Before and after, 12,500 calls a day, 4 min (100 at once) | ₹28,53,051 | ₹7.61 | ₹1.90 (unchanged) |
+| 2-minute calls | ₹15,66,121 | ₹4.18 | ₹2.09 (fixed GPU, database, network over fewer minutes) |
+| 25,000 calls a day (200 at once) | ₹54,58,185 | ₹7.28 | ₹1.82 (7 app servers; Sarvam check says No) |
+
+Skipped as not needed now: call-type mix, a separate scenarios or validation sheet, a peak-bunching factor (the
+spare server covers it), database and staff-screen sizing (fixed at this size), a fixed-plus-per-turn split (no
+measurement of the fixed part yet). Management needs a fresh xlsx download; the old local
+`docs/deployment-costs-and-options-v2.xlsx` is out of date.
+
+**Later the same day, the link was turned round (owner's call):** calls at the same time (Estimate B7) is typed again,
+and calls a day is worked out from it: B9 = B7 × 60 ÷ call length ÷ busiest-hour share (12%, now row 9, so calls a day is row 10). The three
+in-between rows (calls in the busiest hour, minutes in it, average at once) were removed. Doubling B7 still doubles
+the bill (₹54.58 lakh, 7 servers, Sarvam check No). Shorter calls now mean more callers on the same lines: 2-minute
+calls give 25,000 calls a day, bill ₹28.60 lakh, ₹1.91 a minute, ₹3.81 a call. The baseline is unchanged
+(₹28,53,051). Answers explain bunching: random calls averaging 100 reach about 130 for short moments; the 4 servers
+carry 144 (108 with one down). Not built: a second "type calls a day" mode (no forecast from AU yet) and a separate
+bunching input; a cost-per-minute split by supplier already exists on the Cost sheet.
+
+### 17 Nov (6): regression pack run, data audit, fixes (code; brain needs a restart)
+
+**Pack:** `evals/regression.yaml` (22 conversations from the PM's test plan, typed, real Groq 120b, replay-cached), run by
+`python -m evals.smoke --pack regression --keep` (`--keep` leaves the calls on /calls; the report has full transcripts;
+an item can run with the LLM down; the run stops at Groq's daily limit). First run 12:21-12:55: 61/69 turns passed the
+checks, and reading the transcripts found 9 groups of problems (report `evals/reports/regression-20261117-125511.md`).
+
+**Data audit** (live mock bank): one real gap - Sunita (107) had **no transactions** at all (4 added to the seed). The
+rest was right: Ravi's loans and EMI history, his 4512 (inactive Digital, one cash deposit; salary is on 4521), Imran's
+debit card 6634 is his own; the "already blocked" Ananta of 16 Nov was state left by earlier test calls.
+
+**State:** no new state manager. The call already keeps a structured state (`CallState`: product/account in focus,
+waiting requests, declined offers) and a typed pending question (kind: action / fraud_followup / fraud_pick / handoff /
+more ...). The bugs were places that threw that state away too early; fixed there.
+
+| Problem | Fix (code only, no LLM call) | Where |
+|---|---|---|
+| Loan questions labelled with a card detail went to credit cards ("I don't see a credit card", "which card?", card payments read out) | On a loan, `amount_due`→`outstanding`, `payment_status` / `statement`→`emi_status` | `conversation.personal_query` (`_LOAN_SAME`) |
+| "Last instalment deducted", "pichhli EMI kab kati" filed under transactions | Last-EMI words move it to loan / `emi_status`; "when is the next one due?" no longer repeats the past one | `understanding.asked_only` |
+| "How much have I paid in total (loan)?" | EMIs paid and left for that loan (`emis_count`), never a summed amount we don't hold | same |
+| "Has that 2,500 been deducted?" → "no payment to Deducted" | Amount + "deducted / cut / kata" → `hold_check`: "No. The ₹2,500 is on hold for ...; it hasn't been taken ... Until it clears, you can use ₹79,850." Status words are never names | `asked_only`, `personal` |
+| "How much can I use?" re-read the balance | `available_only`: "You can use ₹79,850 from your Value account ending 4521 right now." | same |
+| "Does that include money people sent me?" repeated the total | `total_scope`: "No. That total is only money you paid out; money people sent you isn't included." | same |
+| "Last three UPI payments" included money received | "payments / paid / spent" + UPI → money out | `asked_only` |
+| "Five in each account" gave five in all | `account = each`: per account, newest first; "only N" when fewer | `asked_only`, `personal._each_account` |
+| Bare "my balance" asked "which one?" | Every account (PM expectation) | `personal._balance` |
+| A side question dropped a waiting confirmation (stolen card transferred while still active; ₹10,000 complaint never raised) | Fraud offer: the question gets "I can't confirm that from here. The fraud team can check it with you." and the offer again (pending kept); a detail gets "I'll pass that on" once; an unrecognised-payment pick with no answer gets one more useful question (amount / UPI, card or ATM); "so my account is safe?" gets no promise plus the fraud team. A card-action confirmation is asked again after the answer | `journeys.resolve`, `conversation.turn` |
+| "Stolen, but don't block it" offered a permanent block of a debit card | `no_block`: "All right, I won't block it. ... our fraud team should look at other ways to protect you. Shall I connect you?" | `asked_only`, `journeys.fraud` |
+| "Can I unblock it tomorrow?" offered to unblock now | `ask_only`: "Yes. It stays blocked until you ask us to unblock it; just call us when you're ready ..." | `asked_only`, `journeys.action` |
+| Bare "Yes." after "which one?" became a card-statement answer | Asked again, never a new request | `conversation._understood` |
+| Groq error message in English to a Hindi caller | The call's language, or Hindi for Devanagari input | `conversation.turn` |
+| Wording | Every EMI line names the loan; Hinglish / Hindi EMI lines start "Aapke / आपके ..."; "eMI" fixed; no transactions → "I don't see any transactions" (not "matching"); a named account is said ("...on your account ending 4512") | `personal` |
+
+Re-run on Groq (13:05-13:26, kept on /calls): fixed in the real run - balance / available / hold, home-loan follow-ups,
+"how much do I still owe?", EMI paraphrases (en / Hinglish / Hindi), the ₹10,000 complaint raised with a reference
+after the side question, OTP follow-ups, "so my account is safe?". Still wrong in that run, fixed afterwards in code:
+`no_block` / `ask_only` were set on the understanding but read from the request (now on both); "not sure" reads as a "no"
+(the extra fraud question now accepts it); "does that include ...?" is the scope reply when "include" is said; "do I
+need to explain again?" → "No, I'll pass on everything we've discussed"; "is the complaint registered?" → the reference
+from this call's record. The run stopped at **Groq's daily token limit** at R11 (the runner now writes its report even
+then). Not yet re-run on Groq: R11, R13, R16, R14-hi and the items changed since.
+**EMI references (owner):** an EMI has no number of its own in the bank's records; the loan has one (LHO900101). With
+more than one loan every EMI line, bounced EMIs included, says the loan's last four digits ("The EMI on your home loan
+ending 0101 is ₹25,140, due on 10 December." / "आपके 0101 वाले होम लोन की अगली EMI ..."); the loan count lists them too.
+Offline tests **389 pass**.
+**Final runs (new Groq key, 14:00):** full pack **22/22**, 16 real requests (the rest cached); reading the transcripts
+found five more, fixed and re-run (R06, R11, R13, R26 all right): the corrections now run after the risk screen (it had
+rebuilt the fraud request and dropped `no_block`); "do I need to explain again?" while a transfer waits → "No, I've
+passed on everything ..." (no second transfer); "what is this payment for?" about the call's one hold → the hold
+explained; a bare "Yes." with nothing waiting → "anything else?" (no re-greeting); the mock bank re-seeded once so
+Sunita's new transactions exist. **Every EMI line now says the loan's last four digits, also with one loan** ("The EMI
+on your gold loan ending 0107 is ₹5,400 ..."), owner's request. Offline tests **389 pass**.
+Not changed: the eval's 25 s turn was Groq rate-limit waiting inside the eval runner, not the agent; "Grounding: high"
+means the facts came from bank records, not that the answer fits the question (that is what this pack and the call
+review check); security events (logins, devices, payees) after a shared OTP are not in the mock bank; whether to
+transfer without asking / skip the new OTP is AU policy (open question). Offline tests **389 pass**.
+
+### 17 Nov (7): spoken form everywhere, card consent, loan scope, transaction follow-ups, EMI debit dates (code; brain needs a restart)
+
+**Spoken form (permanent):** every fixed reply is written the way it is said: no brackets, semicolons, "&", "6-digit",
+digit hyphens. 118 templates rewritten (Hindi "{l4} वाले अकाउंट", hold reasons said in Hindi/Hinglish, the open-request
+topic, the card ending). Kept that way by three layers: a test that scans every template (`tests/test_spoken_form.py`,
+fails on any new written-only mark), a free review check on every call (`replies_in_spoken_form`, `numbers.screen_marks`),
+and the LLM judge rubric (written-only text = `poor_voice_response`). The answer prompt says the same for KB answers.
+**OTP prompt:** "Sure. Before I share your transactions, I need to verify it's you. I've sent an OTP to your registered
+mobile number ending 0101. Please enter it on your keypad." (topic-aware; "OTP" instead of "6-digit code"). The audio
+already said "6 digit" since 16 Nov (speech layer); now the written text does too.
+
+**Cards:** "I want to block my card" asks "temporarily ... or permanently, with a replacement card?" (a plain "block"
+that reports nothing lost is no longer taken as a lost card). "Make it permanent" replaces the waiting confirmation (a
+side question re-asked the old temporary one); "Will I get a replacement?" is answered, then the same confirmation; "Yes,
+block it and connect me" blocks, then transfers; "Unblock it tomorrow at 10 AM" says it can't be scheduled and offers now;
+"Lost my card, don't block it yet, connect me to fraud" → no block, fraud team offered. After verification the caller's
+own words are re-asked when the whole turn is still to do (a rewritten question had lost "don't block it yet").
+
+**Loans:** the loan in focus is kept ("how much have I paid so far?" after the home loan → home loan only); "across all
+my loans" → all, with a total first; "how many EMIs have I paid?" with two loans and no context → "which one?". "How much
+have I paid / kitna repay kiya" is an amount (`repaid_amount`: sanctioned − outstanding, with EMIs paid); "how many EMIs"
+stays a count. "Last EMI kab kati / when was it deducted / when did money last leave my account for my EMI" → the actual
+debit (`emi_last_paid`); a returned EMI is said as not deducted. "My EMI bounced, has it been paid now?" → "No, ... hasn't
+been paid yet. It was returned because ..." (`emi_recovery`). **EMI debit date:** the mock bank's EMI record now has
+`paid_on` (migration `011_emi_paid_on.sql`, seed, mock API, HTTP adapter, `Emi.paid_on`) - a due date is never presented
+as a debit date. Mock bank re-seeded once for it.
+
+**Transactions:** "five in each account" starts with an overview, then each account with "First, ... Finally, ...";
+"today / yesterday" for recent days; failed: "It was unsuccessful, so no money was deducted"; returned EMI: "It was
+returned, so the payment wasn't completed". Follow-ups: "only the failed ones" (`failed_only`, a status, never a
+name), "only the debits" (a direction), "why is ₹2,500 blocked?" (the hold on its account, never "which account?" or a
+complaint), "available excluding the hold" (balance, hold and usable amount said apart; an inactive account is said
+as inactive), "did the pending payment get reversed?" (`pending_check`: after a hold → that hold, "I don't see a
+reversal recorded yet"; never guessed). The call state remembers what the call was just about (`focus.about`,
+`focus.loan`) - no new state manager.
+
+**Tests:** offline **394 pass**. New targeted pack `evals/checks.yaml` (11 conversations, PM test list A/C/D/E merged),
+run on Groq 120b and kept on /calls; after the fixes every turn is right (reports `evals/reports/checks-20261117-*.md`).
+The slow turns in those reports (18-28 s) are the runner waiting for Groq's free-tier rate limit (understanding time ≈
+total time); the agent's own work was 0.1-0.2 s. Regression R03/R22 expectations updated for the new behaviour (not re-run).
+
+**Browser audio (muffled agent, own voice from the left speaker):** the app never routes the microphone to the
+speakers (code read, and the playback path probed in the browser: mono, both channels). The symptom matches the laptop's
+Realtek microphone-array playthrough / Windows communications mode while Chrome holds the mic. Owner to check: Sound
+settings → Recording → Microphone Array → Listen (off), Playback → Speakers → Levels (mute any "Microphone" slider),
+Communications → "Do nothing". No app change made.
+
+**Docs (later the same day):** PROJECT-GUIDE §25.6 (14–17 Nov history), §33 (every code file: why, what, who uses it) and §34 (how a reply is made; the LLM-writes-a-slot-template idea compared with fixed templates and rephrasing; proposals not built).
+**Cleanup (later the same day, owner-approved list):** removed `evals/benchmark.py`, `routing.yaml`, `decisions.yaml`, `context_replay.py` + `evals/fixtures/`, `stt_ab.py` (one-off or superseded tools; the rate-limit helpers moved into `evals/smoke.py`); `evals/checks.yaml` merged into `regression.yaml` (33 conversations); `docs/manual-test-scripts.md` merged into `docs/test-call-scripts.md` (Part D); unused `audio.ms_to_bytes`, `audio.strip_wav_header`, `Player.has_pending`, `ui/components/ui/separator.tsx` removed; the four template helpers now share `personal.fill()`; `_ms` defined once. Not merged (they differ): the two `_norm` (review vs evals), the two `words` (one keeps apostrophes); `_f` kept in both adapters (merging would tie the mock bank to the HTTP adapter). Offline **394 pass**; UI build passes. Docs and comments updated.
+**Reply language (late 17 Nov, live call 7fa9b902):** an English "hey" was transcribed as "हो"; any Devanagari letter (and the LLM's label) made the reply Hindi for the whole English question. Now code decides per turn from the caller's words (`conversation.reply_language`): an explicit request first; fillers and greetings ignored (a filler-only turn keeps the call's language, on the first turn the language picked at the start); mostly Devanagari → Hindi; mostly Latin → English or Hinglish, never Hindi. Guide §27.3. Offline **395 pass**; R09, R11, R03b, R14-hi, C3 rerun from the cache, all right (no Groq requests).
+**Call 264e51d7 (late 17 Nov, Edge TTS; code changed, no tests run by the owner's choice):** the judge flagged turns 3 and 4. "How much have I **paid** across all my loans?" got the outstanding balances (the LLM said `amount_due`, which the repaid rule skipped); "how much is left and how many instalments are left?" lost the count; "what about the instalments?" got only the next EMI. Now `understanding.loan_facets()` reads which loan figures the caller asked for (amount repaid, outstanding, EMIs paid/left) from their words and each one gets its own request (the LLM's own reading, e.g. next EMI, is kept first); the last EMI is said once when the debit day is the due day. "Mobile ending 0101" was right (Ravi's mobile 9000000101; his loan also ends 0101). **The 15 s gap after verification** was Edge TTS: the live call synthesises "Thank you, you're verified" before it starts the waiting answer, and Edge took about 13 s (no error logged). Left as is by the owner (Sarvam takes 1-2 s); a fix would be to play that line from the phrase cache.
+**Judge rubric (late 17 Nov):** `review.RUBRIC` now lists the failure patterns found on 16-17 Nov (wrong figure for what was asked: paid vs outstanding, last vs next EMI, debit vs due date, hold vs deducted, pending vs reversed; a part of a question unanswered; lost thread on follow-ups; card consent and scheduled requests; invented promises and duplicate transfers; reply language; unnatural phone speech; an inactive balance shown as usable), each mapped to a finding category, and says bank-data answers are templates (fix_area router or bank_templates, not answer_prompt). critical_failure also covers an action different from what was asked. Judge runs after the call: no effect on call latency; about 450 more prompt tokens per judged call. **Real bank APIs:** guide §29.5 now lists the fields the answers rely on and what happens without each.
+**18 Nov (code, no tests run by the owner's choice):** (1) two requests in one sentence: `understanding._add_missing` adds a plainly said second request the router left out ("my balance", "money got deducted" as a report, not a question); (2) "How do I block my card if I lose it?": `guard.asks_how` makes a how-to about a card action a product question (no verification, nothing done); (3) the variant question now says how many there are and names four ("We have 13 savings accounts, like …"), the matched ones first, then the knowledge base's catalogue (`retrieval.family_variants`); (4) pending-work A7, a pause splitting one question: an opener with no question ("I have a question.", "mujhe kuch poochna hai") counts as unfinished (`turntaking._OPENER`), caller speech within 1.5 s of the reply's first audio is merged with the last question (`session.CONTINUE_MERGE_S`), and a new personal question within 60 s of a valid code keeps that code (`auth.REUSE_CODE_S`, event `otp_reused`). Brain restart needed. **Evaluation report:** `docs/evaluation-report.md` (all saved numbers, per language from the 3 Nov golden run, judge averages over 23 calls; how to refresh). The older smoke and benchmark report files are no longer in `evals/reports/` (the 84% routing figure is from this tracker).
+**Open:** "And when is the next one?" after a balance answer is read as the next EMI (the only "next" in the call); the
+PM asks for a clarify only when genuinely ambiguous - left as is. Customers with zero transactions, only incoming UPI,
+only failed transactions or several holds don't exist in the mock data (not added).
+
 ### 16 Nov (5): timeline corrections (documents only)
 
 - `docs/diagrams/diagrams.md` §7: the barge-in was drawn too early. The code ducks the agent after 0.35 s of caller
@@ -780,6 +1069,95 @@ v4-flash at 60; price ₹2 per 1,000 characters after the launch offer ended 12 
   next turn ~9.6 s, new reply ~11.3 s. §8: the always-on band was the detector alone (39%); with audio handling it is
   ~50% for 9 calls (sheet: ~57% with turn bursts). Collisions cost milliseconds, not 0.1 s (bars drawn wider).
   Excalidraw versions (sequence diagrams) given in chat; Excalidraw doesn't import Gantt.
+
+### 17 Nov (8): diagrams redrawn and two added (documents only, no code change)
+
+`docs/diagrams/diagrams.md` now has 10 diagrams + an appendix. All 12 Mermaid blocks render (Mermaid 11.4.1).
+- **§7 and §8 are now the Excalidraw board's charts A and B** (owner's choice, from the pasted board JSON; same
+  bars, labels and times). Three corrections to match the code, listed under each chart: A's speech-to-text is one
+  upload after the caller pauses (not "live"); A's listening runs the whole call (it stopped at 3.5 s); B's
+  "Container CPU" gains the always-on listening bar. A first redraw earlier the same day (numbered steps) was
+  dropped. The 16 Nov versions (barge-in, bursts colliding) are in the appendix (A1, A2).
+- **New §9 sizing chain** (Servers sheet: 0.92 ms → 6.3% a call → 9 a container → 36 a server → 4 servers for 100) and
+  **new §10 monthly cost** pie (Cost sheet read 17 Nov: ₹28,53,051, ₹7.61 a call; Sarvam 69.5%, Bedrock 15.4%,
+  AWS servers and services 15.2%).
+- Small fixes in place: §2 verification is the keypad code (was "KYC: DOB + address"); §3 grouped into 5 stages
+  with colours and plainer labels; §4 328 tests (was 316) and colours; §5 server counts from the sheet.
+- The new Excalidraw link the owner shared (17 Nov) is identical to the 14 Nov board. Its sizing note (~25 calls per
+  vCPU, 3 servers for 400 calls) is not copied: §9 has the current sizing (9 per container, 13 servers for 400).
+- Found, not changed: PROJECT-GUIDE §26.6 still says ₹28,59,913 and ₹7.63 a call; the sheet now says ₹28,53,051
+  and ₹7.61.
+
+### 17 Nov (9): echo on laptop speakers, investigated; microphone settings changed (UI only)
+
+**What the owner heard.** Agent voice leaking into the mic; the agent "not played fully"; caller on the left speaker,
+agent on the right.
+- **Left/right is the call recording, by design** (`recordings.py`: caller left, agent right). Not a live-call bug.
+- **Measured in the 12 latest recordings** (decrypted locally, numbers only). The browser's echo canceller works:
+  no linear echo (correlation ≈ 0), and the mic is silent most of the time the agent talks. What is left: about 10–24
+  short fragments per call (100–350 ms, about −30 dB, ~8 dB under the caller's voice). That is laptop-speaker
+  distortion. Only 8 fragments in 12 calls were long enough (≥ 350 ms) to start a barge-in check. Those lower
+  the agent's volume to 30% for a moment, which is the likely "not played fully".
+- **A dedicated WebRTC server would not change this.** Echo is removed on the device with the speaker and mic. The
+  page already plays the agent through a WebRTC loopback, so the browser already treats it as a remote voice (ADR 0012).
+- **Tried and dropped: an echo gate in the capture worklet.** It was simulated on the 12 recordings. It removed
+  50–60% of echo fragments but also 40–55% of real caller interruptions, so barge-in would get worse.
+- **Windows:** one mic (Realtek "Microphone Array"), no Stereo Mix or loopback device. Windows audio enhancements are
+  on (the default). Not changed: that is a system setting for the owner to try.
+
+**Changed (`ui/lib/mic.ts`, used by the live call and the agent desk):** the mic settings are the same as before (echo
+cancellation, noise suppression and auto gain on, mono). New: the console shows what the browser really applied
+(device, echo-cancellation mode and the values offered, auto volume, noise suppression). The full settings and
+capabilities go to the browser console.
+
+**Tried the same day and reverted after a web check** (sources: Chromium blink-dev "Intent to Ship:
+echoCancellationMode", Chrome blog "More native echo cancellation", Zoom developer forum on Chrome-wide echo
+cancellation):
+- **Echo cancellation `"all"`** (Chrome 141+) also removes audio from other apps. It adds nothing here: the agent's
+  voice is the only thing we play, and it is already covered. Which canceller Chrome uses for it on Windows is not
+  documented, and Chrome's own early tests of the Windows system canceller were weak.
+- **Auto gain off.** No source shows it reduces echo, and it risks a too-quiet caller.
+
+How web meeting apps handle this: the same way we do. Remote voices arrive over WebRTC, Chrome's echo canceller uses
+them as its reference and removes them from the mic. Small leftovers remain on laptop speakers there too. In a meeting
+a person ignores them; our speech detector hears them, which is what the 350 ms minimum and the echo-text match on
+the server are for.
+
+TypeScript and `bun run build` pass. **Live:** the UI picks it up on reload, with no brain restart. The UI dev server on
+:3000 was found stopped and was not restarted.
+
+**Review of mic and playback (same day).**
+- One mic stream per call (`openMic()`), one playback path, and the mic stays open while the agent talks.
+- Fixed three places where the mic could stay on:
+  - call setup failing after the mic opened (`start()`/`join()` now release);
+  - leaving the console page during a live call (unmount stops it);
+  - leaving during a voice note.
+- There are no reconnects: a closed WebSocket ends the call.
+- The console now logs the requested constraints, the mic's capabilities and the applied settings.
+- Loopback checked in Chrome 156 (built-in browser, test tone, no mic): connected in 2.0 s, audio received, nothing
+  concealed, about 48 ms jitter buffer, `<audio>` playing.
+- Not verifiable without a mic: that Chrome's echo canceller uses this audio as its reference.
+- Risk noted, not changed: connecting took 2.0 s against a 3 s timeout. A slower start falls back to direct playback,
+  and the console then shows the "echo-safe playback unavailable" note.
+
+### 18 Nov (1): tests and evals trimmed (code; brain needs a restart)
+
+- **Removed the eval API and `brain eval`** (`app/api/evals.py`, the CLI command, `EvalRunner.runs()`, the `requests.http`
+  section). They had no pacing or replay cache, so one run could spend the day's Groq requests, and a deployed endpoint
+  should not spend LLM quota. The golden set runs only with `python -m evals.golden_run` (paced, cached).
+  The `EvalRunner` service stays; its test now calls it directly (`test_golden_runner_scores_and_writes_a_report`).
+- **Removed `tests/test_live_llm.py`** (2 real-Groq tests, always skipped) and the `live` marker. The smoke set covers
+  the real LLM better. The test command is now plain `uv run pytest`; `-m "not live"` still works.
+- **Old local reports deleted** in `evals/reports/` (19 files, gitignored). Kept the latest of each kind:
+  `smoke-20261117-114140`, `regression-20261117-230251`, `checks-20261117-161741`. Older report names quoted above
+  no longer exist on disk.
+- **Kept, checked:** `app/cli.py` is needed: `python app.py`, `python -m app` and the Dockerfile start the server through
+  it, and `search`, `clean-slate`, `upload`, `sarvam-check` are in use. `app.py` (3-line launcher) and `app/main.py`
+  (the FastAPI app that tests, evals, uvicorn and Docker import) stay separate.
+- Docs: smoke set size corrected to 24 (was "40"); stale routing-set and deleted-script references fixed in
+  `pending-work.md`, the briefing and PROJECT-GUIDE.
+- **Numbers:** offline **395 pass** (395 + 2 skipped live before; the eval test was converted, not lost). No Groq calls.
+  **Live:** the brain still serves `/v1/evals` until it is restarted.
 
 ## Completed (before Phase 4)
 
@@ -850,6 +1228,15 @@ An issue counts as done only when its **acceptance test passes**, not when code 
 | UI | `/calls` 1,557 px wide on a phone; `/kb` table overflows | Flex rows don't wrap | §15 | open | No horizontal scroll at 390 / 768 / 1024 px |
 
 ## Open questions (for the owner or the PM)
+
+- **Shared OTP (PM review, 17 Nov):** should the agent transfer to the fraud team straight away (no "Shall I?"), and skip
+  sending a new code to the same mobile? Today it verifies, checks two days of payments, warns, then offers a transfer.
+  Needs AU's approved fraud procedure.
+- **"I'm interested in credit cards":** ask first whether they want help choosing, benefits or eligibility (one more
+  turn), or keep going straight to "how much do you spend a month, and on what?"
+
+- **Filler on almost every turn:** understanding takes ~1.5 s and the filler starts at 1.2 s. Raise `FILLER_AFTER_MS`
+  to ~1600 (fewer fillers, a slightly longer silence on slow turns) or keep it?
 
 - **Deployment proposals (12 Nov) to confirm before writing ADRs** (Cisco details are for later, per the owner):
   - how Cisco hands calls to us (audio stream, or SIP + a media gateway);

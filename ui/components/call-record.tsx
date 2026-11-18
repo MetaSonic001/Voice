@@ -43,7 +43,7 @@ type Item =
   | { at: string; kind: "agent_line"; label: string; text: string };
 
 // A permanent delete, asked for once more before it happens.
-function ConfirmDelete({ trigger, title, text, onConfirm }: { trigger: ReactNode; title: string; text: string; onConfirm: () => void }) {
+export function ConfirmDelete({ trigger, title, text, onConfirm }: { trigger: ReactNode; title: string; text: string; onConfirm: () => void }) {
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>{trigger}</AlertDialogTrigger>

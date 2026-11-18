@@ -12,7 +12,7 @@ from app.config import Settings
 from app.services.conversation import Reply, TurnEvent
 from app.services.numbers import speech_text
 from app.voice.audio import silence, tone
-from app.voice.phrases import PhraseCache, phrase_text
+from app.voice.phrases import PhraseCache, phrase_text, variants
 from app.voice.session import VoiceSession
 from tests.fakes import FakeSTT, FakeTTS, FakeVAD
 
@@ -356,4 +356,37 @@ async def test_unclear_speech_asks_once_then_offers_another_way():
         await asyncio.sleep(0.05)
     assert any("Could you say it again" in s for s in h.tts.spoken), h.tts.spoken
     assert any("still having trouble" in s for s in h.tts.spoken) 
+    await h.close()
+
+
+class ResumeBrain(CodeBrain):
+    """After the code, the question that waited for it is answered (slowly, like a real bank read)."""
+
+    async def turn(self, question, session_id, extra_timings=None):
+        if question != "What is my balance?":
+            async for event in super().turn(question, session_id, extra_timings):
+                yield event
+            return
+        self.questions.append(question)
+        yield TurnEvent("understood", "en", "personal")
+        await asyncio.sleep(0.5)
+        yield TurnEvent("sentence", "en", "personal", "You have ten rupees.", "You have ten rupees.")
+        yield TurnEvent("done", reply=Reply("trace-2", session_id, "answered", "personal", "en", "You have ten rupees.",
+                                            "You have ten rupees."))
+
+    async def verify(self, session_id, code):
+        return {"status": "verified", "pending_question": "What is my balance?"}, "Thank you, you are verified.", "en"
+
+
+async def test_after_verification_the_answer_follows_with_no_filler():
+    # live call 16 Nov: "...you are verified." then "Okay, one second." then the answer - three lines where two do
+    h = await Harness(brain=ResumeBrain(), filler_after_ms=100).start()
+    await h.feed(quiet(200) + speech(300) + quiet(1000))
+    await h.wait_for("auth", status="otp_sent")
+    await h.session.submit_code("123456")
+    await h.wait_for("agent_text", text="You have ten rupees.", timeout=5)
+    await h.wait_for("turn_metrics", timeout=5)
+    filler = {speech_text(t, "en") for t in variants("filler", "en")}
+    assert not filler & set(h.tts.spoken)
+    assert h.tts.spoken.index("Thank you, you are verified.") < h.tts.spoken.index("You have ten rupees.")
     await h.close()

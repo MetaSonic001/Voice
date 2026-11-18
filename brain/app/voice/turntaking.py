@@ -42,10 +42,22 @@ _FILLERS = {"so", "you", "know", "well", "like", "actually", "basically", "um", 
             "yaar", "मतलब", "तो"}
 
 
+# An opener that announces a question without asking it ("Hello, mujhe kuch poochna hai."): the question follows after a
+# pause, so it is treated as unfinished (pending-work A7: such an opener was answered on its own, then the question again).
+_OPENER = re.compile(
+    r"^(?:(?:hello|hi|hey|namaste|haan|ji|okay|ok|sir|madam|ma'?am)\W+)*"
+    r"(?:i (?:want|wanted|need|would like|'d like) to (?:ask|know|check|enquire|inquire)(?: (?:you|something|a question|"
+    r"about something))?|i have (?:a|one|some) (?:question|query|doubt)s?|(?:mujhe|maine) (?:kuch|ek baat|ek cheez) "
+    r"(?:puchh?na|poochh?na|janna|jaanna|batana) (?:hai|tha|thi)|mera (?:ek )?(?:sawaal|sawal|question) (?:hai|tha)|"
+    r"मुझे (?:कुछ|एक बात) (?:पूछना|जानना|बताना) (?:है|था)|मेरा (?:एक )?सवाल (?:है|था))\W*$", re.I)
+
+
 def incomplete(text: str) -> bool:
     stripped = text.strip()
     if not stripped:
         return False
+    if _OPENER.search(stripped):
+        return True
     if stripped.endswith((",", "-", "...", "…")):
         return True
     if all(x in _FILLERS for x in words(stripped)) and words(stripped):  # "so, you know" - only filler: wait for the rest

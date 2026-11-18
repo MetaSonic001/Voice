@@ -68,7 +68,7 @@ class Settings(BaseSettings):
     stt_provider: str = "groq"  # groq (Whisper API) | sarvam
     tts_provider: str = "edge"  # edge (free, dev only) | sarvam
     stt_model: str = "whisper-large-v3-turbo"  # Groq Whisper model (STT_PROVIDER=groq, and the Sarvam fallback)
-    stt_vocabulary: str = "extended"  # base (product names) | extended (+ banking terms) | none; "extended" won the A/B test of 6 Nov (evals/stt_ab.py)
+    stt_vocabulary: str = "extended"  # base (product names) | extended (+ banking terms) | none; "extended" won the A/B test of 6 Nov (Whisper; the A/B tool was removed 17 Nov)
     sarvam_api_key: SecretStr = SecretStr("")
     sarvam_stt_model: str = "saaras:v4"  # saaras:v4 (latest; same price; takes key terms from STT_VOCABULARY) | saaras:v3
     sarvam_stt_mode: str = "codemix"  # transcribe | codemix (Hinglish keeps English words in Latin script) | translit | verbatim
@@ -88,7 +88,10 @@ class Settings(BaseSettings):
     audio_rate: int = 16000  # PCM16 mono in and out of the voice API
     vad_start_ms: int = 200  # speech must last this long to count as speech (ignores clicks/noise bursts)
     end_silence_ms: int = 700  # silence that ends a turn when the transcript looks complete
-    max_end_silence_ms: int = 1500  # wait this long when the caller paused mid-sentence ("aur...", "and...")
+    max_end_silence_ms: int = 1500  # cap of the adaptive wait for complete-sounding turns (callers who pause a lot)
+    # Wait this long when the words sound unfinished ("aur...", "and...", "पूछनी थी कि"). 1500 cut a Hindi caller off
+    # (17 Nov); LiveKit's turn detector waits up to 2.5 s on an unfinished turn, Pipecat's Smart Turn 3 s.
+    incomplete_wait_ms: int = 2500
     max_utterance_s: float = 30.0
     bargein_min_ms: int = 350  # caller speech while the agent talks must last this long to lower the agent's volume
     no_input_s: float = 8.0  # re-prompt after this much silence; end the call after the second time

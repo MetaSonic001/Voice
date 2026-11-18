@@ -16,6 +16,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 
 from app.domain import Customer
+from app.services.personal import fill
 from app.ports import Bank, BankError, BankUnconfirmed
 
 CONTROL_KEYS = ("atm", "pos", "ecom", "contactless", "international")
@@ -38,7 +39,7 @@ class CardAction:
 W = {
     "debit": {"en": "debit card", "hi": "डेबिट कार्ड", "hinglish": "debit card"},
     "credit": {"en": "{v} credit card", "hi": "{v} क्रेडिट कार्ड", "hinglish": "{v} credit card"},
-    "ending": {"en": "{card} ending {l4}", "hi": "{card} (आख़िरी अंक {l4})", "hinglish": "{card} (ending {l4})"},
+    "ending": {"en": "{card} ending {l4}", "hi": "{l4} वाला {card}", "hinglish": "{card} ending {l4}"},
     "which": {"en": "Sure, I can do that. Which card is it: {list}?", "hi": "ज़रूर। कौन सा कार्ड: {list}?",
               "hinglish": "Zaroor. Kaunsa card: {list}?"},
     "none_match": {"en": "I can't find a card ending {l4}. Your cards are: {list}.", "hi": "आख़िरी अंक {l4} वाला कोई कार्ड नहीं मिला। आपके कार्ड: {list}।",
@@ -46,8 +47,12 @@ W = {
     "no_cards": {"en": "I don't see any card in your name.", "hi": "आपके नाम पर कोई कार्ड नहीं दिख रहा।",
                  "hinglish": "Aapke naam par koi card nahi dikh raha."},
     "confirm_temp_block": {"en": "Just to confirm, I'll temporarily block your {card}. You can unblock it any time, and if you'd rather block it permanently, just say so. Shall I go ahead?",
-                           "hi": "बस कन्फ़र्म कर लूँ: मैं आपका {card} टेम्पररी ब्लॉक करूँगी। आप इसे कभी भी फिर से चालू कर सकते हैं; अगर परमानेंट ब्लॉक चाहिए तो बताइए। क्या मैं आगे बढ़ूँ?",
-                           "hinglish": "Confirm kar doon: main aapka {card} temporarily block karungi. Aap ise kabhi bhi unblock kar sakte hain; agar permanent block chahiye toh bataiye. Kya main aage badhun?"},
+                           "hi": "बस कन्फ़र्म कर लूँ: मैं आपका {card} टेम्पररी ब्लॉक करूँगी। आप इसे कभी भी फिर से चालू कर सकते हैं। अगर परमानेंट ब्लॉक चाहिए तो बताइए। क्या मैं आगे बढ़ूँ?",
+                           "hinglish": "Confirm kar doon: main aapka {card} temporarily block karungi. Aap ise kabhi bhi unblock kar sakte hain. Agar permanent block chahiye toh bataiye. Kya main aage badhun?"},
+    # The caller asked for a temporary block: confirm just that, without offering a permanent one they didn't ask about
+    "confirm_temp_block_asked": {"en": "Just to confirm, I'll temporarily block your {card}. You can unblock it any time. Shall I go ahead?",
+                                 "hi": "बस कन्फ़र्म कर लूँ: मैं आपका {card} टेम्पररी ब्लॉक करूँगी। आप इसे कभी भी फिर से चालू कर सकते हैं। क्या मैं आगे बढ़ूँ?",
+                                 "hinglish": "Confirm kar doon: main aapka {card} temporarily block karungi. Aap ise kabhi bhi unblock kar sakte hain. Kya main aage badhun?"},
     "confirm_block": {"en": "Just to confirm, I'll permanently block your {card}. This can't be undone, and we'll send you a new card. Shall I go ahead?",
                       "hi": "बस कन्फ़र्म कर लूँ: मैं आपका {card} परमानेंट ब्लॉक करूँगी। यह वापस नहीं हो सकता, और हम आपको नया कार्ड भेजेंगे। क्या मैं आगे बढ़ूँ?",
                       "hinglish": "Confirm kar doon: main aapka {card} permanently block karungi. Yeh wapas nahi ho sakta, aur hum aapko naya card bhejenge. Kya main aage badhun?"},
@@ -71,19 +76,23 @@ W = {
     "reference": {"en": "Your reference number is {ref}, and you'll get an SMS confirming it.",
                   "hi": "आपका रेफ़रेंस नंबर {ref} है, और आपको इसका SMS भी आएगा।",
                   "hinglish": "Aapka reference number {ref} hai, aur aapko iska SMS bhi aayega."},
+    # Already blocked: say what that means for the caller (it can't be used), not "nothing to change" (PM review, 17 Nov)
+    "already_blocked": {"en": "Your {card} is already {state}, so it can't be used for any payment.",
+                        "hi": "आपका {card} पहले से {state} है, इसलिए उससे कोई पेमेंट नहीं हो सकता।",
+                        "hinglish": "Aapka {card} pehle se {state} hai, isliye usse koi payment nahi ho sakta."},
     "already": {"en": "Your {card} is already {state}, so there's nothing to change.", "hi": "आपका {card} पहले से {state} है, कुछ बदलने की ज़रूरत नहीं।",
                 "hinglish": "Aapka {card} pehle se {state} hai, kuch change karne ki zaroorat nahi."},
-    "not_blocked": {"en": "Your {card} isn't blocked; it's working normally.", "hi": "आपका {card} ब्लॉक नहीं है; यह ठीक से चल रहा है।",
-                    "hinglish": "Aapka {card} block nahi hai; yeh normally chal raha hai."},
+    "not_blocked": {"en": "Your {card} isn't blocked. It's working normally.", "hi": "आपका {card} ब्लॉक नहीं है। यह ठीक से चल रहा है।",
+                    "hinglish": "Aapka {card} block nahi hai. Yeh normally chal raha hai."},
     "perm_blocked": {"en": "Your {card} was permanently blocked, so it can't be switched back on. Our cards team can arrange a replacement.",
                      "hi": "आपका {card} परमानेंट ब्लॉक है, इसलिए इसे फिर से चालू नहीं किया जा सकता। हमारी कार्ड टीम नया कार्ड भिजवा सकती है।",
                      "hinglish": "Aapka {card} permanently blocked hai, isliye ise phir se chalu nahi kiya ja sakta. Hamari cards team replacement arrange kar sakti hai."},
     "blocked_first": {"en": "Your {card} is blocked right now, so I'd need to unblock it before changing its settings. Shall I unblock it?",
                       "hi": "आपका {card} अभी ब्लॉक है, इसलिए सेटिंग बदलने से पहले इसे चालू करना होगा। क्या मैं इसे चालू करूँ?",
                       "hinglish": "Aapka {card} abhi blocked hai, isliye settings change karne se pehle ise unblock karna hoga. Kya main unblock karun?"},
-    "debit_only": {"en": "Those settings are only on debit cards; for your credit card I can switch international use on or off.",
-                   "hi": "ये सेटिंग सिर्फ़ डेबिट कार्ड पर हैं; क्रेडिट कार्ड पर मैं इंटरनेशनल इस्तेमाल चालू या बंद कर सकती हूँ।",
-                   "hinglish": "Yeh settings sirf debit card par hain; credit card par main international use on ya off kar sakti hoon."},
+    "debit_only": {"en": "Those settings are only on debit cards. For your credit card I can switch international use on or off.",
+                   "hi": "ये सेटिंग सिर्फ़ डेबिट कार्ड पर हैं। क्रेडिट कार्ड पर मैं इंटरनेशनल इस्तेमाल चालू या बंद कर सकती हूँ।",
+                   "hinglish": "Yeh settings sirf debit card par hain. Credit card par main international use on ya off kar sakti hoon."},
     "failed": {"en": "I'm sorry, I couldn't complete that just now, and nothing has been changed on your card. I can connect you to our cards team to do it for you. Shall I?",
                "hi": "माफ़ कीजिए, अभी यह पूरा नहीं हो पाया, और आपके कार्ड में कुछ नहीं बदला। मैं आपको हमारी कार्ड टीम से जोड़ सकती हूँ। जोड़ दूँ?",
                "hinglish": "Sorry, abhi yeh complete nahi ho paaya, aur aapke card mein kuch change nahi hua. Main aapko hamari cards team se connect kar sakti hoon. Kar doon?"},
@@ -104,7 +113,7 @@ STATE = {"temp_blocked": {"en": "temporarily blocked", "hi": "टेम्पर
 
 
 def w(key: str, lang: str, **values) -> str:
-    return W[key].get(lang, W[key]["en"]).format(**values)
+    return fill(W, key, lang, **values)
 
 
 def card_label(kind: str, variant: str, last4: str, lang: str) -> str:
@@ -138,10 +147,11 @@ def plan(customer: Customer, req: dict, lang: str) -> tuple[CardAction | None, s
     if action == "block":
         state = "blocked" if req.get("block") == "permanent" else "temp_blocked"
         if card.status == state or card.status == "blocked":
-            return None, w("already", lang, card=label, state=STATE[card.status].get(lang, STATE[card.status]["en"])), False
+            return None, w("already_blocked", lang, card=label, state=STATE[card.status].get(lang, STATE[card.status]["en"])), False
         a = CardAction(kind, card.id, card.last4, getattr(card, "variant", ""), "block" if state == "blocked" else "temp_block",
                        {"status": state})
-        return a, w("confirm_block" if state == "blocked" else "confirm_temp_block", lang, card=label), False
+        key = "confirm_block" if state == "blocked" else "confirm_temp_block_asked" if req.get("block") == "temporary"             else "confirm_temp_block"
+        return a, w(key, lang, card=label), False
     if card.status == "blocked":
         return None, w("perm_blocked", lang, card=label), False
     if action == "unblock":

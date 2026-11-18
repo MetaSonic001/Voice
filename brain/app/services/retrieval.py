@@ -21,6 +21,20 @@ _HIT_COLUMNS = (
 _JOIN = "FROM chunks c JOIN document_versions v ON v.id = c.version_id JOIN documents d ON d.id = v.document_id"
 
 
+def family_variants(db, family: str) -> list[str]:
+    """Every variant of a product family in the live knowledge base ("Savings Account" -> Swadesh, Value, Royale, ...),
+    the ones with the most passages first. Read when the agent has to ask "which one?" (rare), so it is never stale."""
+    from app.services.kbmeta import product_of
+    with db.connection() as conn:
+        rows = conn.execute("SELECT section_path FROM chunks WHERE active").fetchall()
+    counts: dict[str, int] = {}
+    for r in rows:
+        f, v = product_of(r["section_path"])
+        if v and f == family:
+            counts[v] = counts.get(v, 0) + 1
+    return sorted(counts, key=lambda v: -counts[v])
+
+
 def rrf_fuse(dense: list[Hit], keyword: list[Hit]) -> list[Hit]:
     """Merge two ranked lists. A chunk found by both gets both contributions."""
     merged: dict[str, Hit] = {}

@@ -25,7 +25,7 @@ _RISK = {
         r"unauthori[sz]ed|someone (took|withdrew|used)|money (was )?(taken|withdrawn) without|"
         r"pehchaan nahi|pehchan nahi|maine nahi kiya|पहचान नहीं|मैंने नहीं किया", re.I),
     "lost_card": re.compile(
-        r"card (is |was |has been )?(lost|missing|stolen|chori)|(lost|stolen|misplaced) (my )?(card|wallet|phone)|"
+        r"card (is |was |has been )?(lost|missing|stolen|chori)|(lost|stolen|misplaced) (my )?(\w+ )?(card|wallet|phone)|"
         r"\bstolen\b|chori ho|चोरी|कार्ड (खो|गुम)", re.I),
     "otp_shared": re.compile(
         r"shared (my |the )?(otp|pin|cvv)|\b(otp|pin|cvv)\b.{0,25}\b(share|bata|de|bol)\w* ?(kar )?(diya|di|diye|dia)\b|"
@@ -53,6 +53,12 @@ def doubt_llm_risk(text: str, kinds: list[str]) -> bool:
     anything happening to them. The code screens (risk_flags) are never doubted."""
     if "human" in kinds and not _REPORTING.search(text):
         return True
+    return bool(_ASKING.search(text)) and not _REPORTING.search(text)
+
+
+def asks_how(text: str) -> bool:
+    """"How do I block my card if I lose it?": a question about how something works, with nothing reported as happening
+    to the caller. Answered from the bank's documents, with no verification and no action started."""
     return bool(_ASKING.search(text)) and not _REPORTING.search(text)
 
 

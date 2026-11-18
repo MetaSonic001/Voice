@@ -1,5 +1,5 @@
 """Speech-recognition vocabulary hints (Whisper `prompt`). A hint biases recognition toward these words, so it is kept
-only if the A/B test on our own audio (evals/stt_ab.py) shows fewer errors AND no new wrong substitutions.
+only if an A/B test on our own audio (done 6 Nov; the tool was removed 17 Nov) shows fewer errors AND no new wrong substitutions.
 """
 
 BASE = ("AU Small Finance Bank. FD, RD, Zenith+, Ananta, Laksya, BSBDA, Royale, Vikaas, Kisan, Swadesh, "

@@ -18,7 +18,7 @@ Record every deviation in the tracker.
 - Restart, stop or replace the owner's running demo (`python app.py` on :8000, `bun run dev` on :3000). The UI hot-reloads;
   the brain needs a restart, and replies must say so.
 - Print, log or echo the Groq key. Modify the dummy workbook.
-- Run the full benchmark casually (Groq free tier: 1,000 requests per day per model).
+- Run the golden set or the full regression pack casually (Groq free tier: 1,000 requests per day per model).
 
 ## Missing or ambiguous requirements
 
@@ -36,7 +36,7 @@ scope or rules changed, also `reference/PROJECT-GUIDE.md`, the relevant README, 
 
 ## Before moving to the next unit
 
-1. It works end to end within its scope; its tests pass (`uv run pytest -m "not live"`).
+1. It works end to end within its scope; its tests pass (`uv run pytest`).
 2. No invariant in `architecture.md` was violated.
 3. Accuracy and latency are no worse (measured, or stated as not measured).
 4. `progress-tracker.md` reflects it. `bun run build` passes if the UI changed.

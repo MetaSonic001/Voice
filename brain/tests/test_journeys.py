@@ -57,8 +57,10 @@ def test_card_block_needs_a_clear_yes_and_is_read_back(client, container):
 
 
 def test_which_card_is_asked_then_confirmed(client):
-    sid, asked = _verified(client, RAVI, "block my card")
-    assert asked["outcome"] == "clarify" and "6712" in asked["answer"] and "2208" in asked["answer"]
+    sid, asked = _verified(client, RAVI, "block my card")  # temporary or permanent is asked first (PM review, 17 Nov)
+    assert asked["outcome"] == "clarify" and "temporarily" in asked["answer"] and "permanently" in asked["answer"]
+    which = _ask(client, sid, "temporarily")
+    assert which["outcome"] == "clarify" and "6712" in which["answer"] and "2208" in which["answer"]
     picked = _ask(client, sid, "the one ending 2208")
     assert picked["outcome"] == "confirm" and "2208" in picked["answer"]
 

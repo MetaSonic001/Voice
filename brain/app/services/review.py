@@ -17,6 +17,7 @@ from dataclasses import dataclass
 
 from app.db import Database
 from app.services.audit import AuditStore
+from app.services.numbers import screen_marks
 from app.services.privacy import redact
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,10 @@ conversation - right questions, not too long, kept context, right language, natu
   This is a PHONE call: judge every reply as heard once, not read. Easy to follow at first hearing? Answer first, then any
   explanation? One idea per sentence (several facts, conditions or numbers packed into one long sentence is hard to follow
   even if correct)? Brief for what was asked? At most one clear follow-up question?
+  Spoken form: every reply must read exactly as it would be said aloud. Written-only forms are a poor_voice_response
+  finding (fix_area bank_templates for account answers, answer_prompt otherwise): an aside in brackets ("मोबाइल (आख़िरी
+  अंक 0101)"), a semicolon, "&", "6-digit", slashes or abbreviations a person would not say, markdown or a list, or English
+  bank wording left inside a Hindi sentence where a Hindi phrase is natural.
   5 short, to the point, easy to follow by ear, never re-asked what was said, sounds like a person; 3 some padding, a long
   packed sentence, a repeated question, or a stiff or robotic reply (the same apology or filler again and again, a list
   read out, a brochure-like answer); 1 confusing, ignored the caller or answered in the wrong language.
@@ -59,6 +64,32 @@ repeat themselves, and it is never a repeated question.
 Score only the AGENT's own behaviour. A problem caused by a bank system failure, a gap in the bank's documents, an unclear
 caller or missing evidence does not lower a score when the agent handled it honestly (said what it could not check,
 offered another way); record it as a finding with that source.
+
+Known failure patterns. These happened in earlier calls; check every turn for each and make a finding when one appears:
+- Answered a different figure than asked: amount paid or repaid vs outstanding / still owed; number of EMIs vs an amount;
+  last EMI (past) vs next EMI (future); the day money was debited vs the due date; available balance vs total balance;
+  a hold (money held, not yet taken) said as deducted; pending said as reversed or paid; "paid" or "successful" said for a
+  failed or returned payment. -> wrong_intent (fix_area router) or wrong_fact.
+- A part of a several-part question left unanswered ("how much is left AND how many instalments?" got one half), or a
+  count ignored ("last five" gave three without saying why; "each account" merged). -> missing_information.
+- Lost the thread: a follow-up that refers to the last answer ("the failed ones", "that payment", "the pending payment",
+  "what about the instalments?", "the other account") answered as a new, unrelated question, or searched for as a name;
+  the loan or account already being discussed swapped for all of them; "which account?" asked when only one fits. -> lost_context.
+- Card actions and consent: a block done or offered without asking temporary or permanent when the caller didn't say;
+  "don't block it" not respected; a later or scheduled request ("unblock it tomorrow at 10") treated as "do it now"; two
+  instructions in one reply ("yes, block it and connect me", "no, but connect me") with one ignored; a side question during
+  a confirmation that dropped or changed the confirmation. -> unsafe_action or unresolved_request.
+- Promises and safety: "your account is safe", "you will get the money back", "it will be reversed automatically" without a
+  source; account data before the keypad code; a second transfer when one is already waiting; "connecting you" without
+  a transfer actually started. -> lower the compliance score; category other (a promise) or bad_handoff (a transfer).
+- Language: replied in a language the caller didn't use for their request (one filler word such as "hey" heard as "हो"
+  must not switch it); English bank wording left inside a Hindi sentence. -> wrong_language.
+- Sounds unnatural on a phone: the same date or figure said twice; a long list read with no overview or order ("first,
+  second ..."); the greeting repeated mid-call; asking about an older request when the caller already said why they called;
+  a written-only form (see Spoken form). -> poor_voice_response or too_long.
+- An inactive account's balance presented as money the caller can use. -> wrong_fact.
+Answers about the caller's own accounts, loans and cards are fixed templates filled from bank data: when such an answer
+gives the wrong kind of figure, the fix_area is router (the request was misread) or bank_templates, not answer_prompt.
 
 Rules: quote evidence VERBATIM from the numbered turns: a short phrase of 3 to 15 words that shows the specific point
 behind that score, never a whole reply. Use a different phrase for each dimension; give evidence only where there is
@@ -79,7 +110,8 @@ findings: up to 5 problems, the most important first; [] for a clean call. Each 
   answer_prompt (how knowledge answers are worded) | bank_templates (fixed wording of account answers) | workflow (the
   steps of a journey) | code | knowledge_base (the documents) | voice (speech, timing) | none.
 Set critical_failure true only for: account data given before verification, a wrong figure stated as fact, an action done without
-a clear yes, a reported fraud left unprotected, or an invented promise. Set needs_human_review true if any score is 2 or lower or
+a clear yes or different from what was asked (a card blocked after "don't block it", an unblock done now when it was asked
+for later), a reported fraud left unprotected, or an invented promise. Set needs_human_review true if any score is 2 or lower or
 you are unsure. recommended_fix: the single most important change, one sentence ("none" for a clean call)."""
 
 JUDGE_SCHEMA = {
@@ -180,6 +212,10 @@ def code_checks(call: dict, packet: dict) -> list[Check]:
     out.append(Check("caller_not_asking_for_a_person", not wants_human, "warn", "the caller asked for a person or the agent was struggling"))
     long_replies = [t["n"] for t in turns if t["long_reply"]]
     out.append(Check("replies_short_enough", not long_replies, "info", f"long replies without a check-in in turn {long_replies}" if long_replies else ""))
+    written = {t["n"]: screen_marks(raw["answer"] or "") for t, raw in zip(turns, call["turns"], strict=False)}
+    written = {n: marks for n, marks in written.items() if marks}
+    out.append(Check("replies_in_spoken_form", not written, "warn",
+                     "; ".join(f"turn {n}: {', '.join(m)}" for n, m in written.items()) if written else ""))
     degraded = [t["n"] for t in turns if t["fallback"]]
     out.append(Check("main_model_used", not degraded, "warn", f"fallback model used in turn {degraded}" if degraded else ""))
     return out

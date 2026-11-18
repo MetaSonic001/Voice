@@ -80,3 +80,20 @@ def test_au_is_said_the_chosen_way_only_in_speech():
     assert p.say("AU 0101 app", "hi") == "एयू शून्य एक शून्य एक app"
     assert p.say("This is AU Bank", "en") == "This is A.U. Bank" and p.say("This is AU Bank", "hinglish") == "This is A.U. Bank"
     assert p.say("AUDIT", "en") == "AUDIT"  # only the word AU
+
+
+def test_reply_language_follows_the_callers_words_not_one_misheard_filler():
+    from app.services.conversation import reply_language
+    # live call 7fa9b902: an English "hey" heard as "हो" turned the whole English sentence into a Hindi reply
+    assert reply_language("हो. Okay, so I want to know when was my last home loan EMI?", "hi", "en") == "en"
+    assert reply_language("हो.", None, "en") == "en"  # only a filler: the call's language
+    assert reply_language("Yes.", "en", "hi") == "hi"
+    assert reply_language("मुझे मेरा account balance बताइए।", "hi", "en") == "hi"  # mostly Devanagari
+    assert reply_language("मेरा balance", "hi", "en") == "hi"  # half and half: the LLM's label
+    assert reply_language("Mera balance kya hai?", "hi", "en") == "hinglish"  # Latin letters are never Hindi
+    assert reply_language("Pichhli EMI kab kati thi?", "hinglish", "en") == "hinglish"
+    assert reply_language("Okay, and how much is available?", "hi", "hi") == "en"
+    assert reply_language("नमस्ते", None, "en") == "en"  # a greeting alone sets nothing
+    assert reply_language("Can you speak in Hindi please?", "en", "en") == "hi"  # an explicit choice, in Latin letters
+    assert reply_language("English mein bolo", "hinglish", "hi") == "en"
+    assert reply_language("हिंदी में बात कीजिए", "hi", "en") == "hi"

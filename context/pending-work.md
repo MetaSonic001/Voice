@@ -10,7 +10,7 @@ ADRs: the owner and AU confirm them first).
   card actions with confirmation, complaints, fraud first steps, hand-over to the `/desk` page, post-call review and judge,
   call audit with encrypted recordings, test console (`/`, `/kb`, `/calls`, `/desk`, `/fixes`).
 - **Code last changed:** brain 11 Nov 2026; UI 12–13 Nov (echo loopback, ADR 0012; tunnel hostnames in `next.config.ts`).
-- **Offline tests:** 316 pass (11 Nov). The real-LLM smoke and routing sets were last run 5–6 Nov.
+- **Offline tests:** 395 pass (18 Nov). The real-LLM smoke set and regression pack were last run 17 Nov.
 - **Production target (proposed):** callers → AU's Cisco → our app on AWS Mumbai (one VPC, ALB + WAF, ECS). The app is
   one container image (a modular monolith). There is also a GPU search server, a staff screens app, Aurora PostgreSQL
   and S3. Sarvam does the speech; gpt-oss-120b on Bedrock Mumbai (Converse API) is the LLM.
@@ -20,12 +20,12 @@ ADRs: the owner and AU confirm them first).
 | # | Item | Why | Detail |
 |---|---|---|---|
 | A1 | Groq paid Dev tier, or test slowly | The free tier allows 8,000 tokens a minute: about one full turn. A product question (2 LLM calls), or a sentence split by a pause, hits the limit | Tracker, 13 Nov |
-| A2 | Re-run the smoke set, then the routing set | No real-LLM numbers since 5–6 Nov; nothing may get worse | `uv run python -m evals.smoke` (replay-cached), CLAUDE.md |
+| A2 | Re-run the smoke set, then the regression pack | No real-LLM numbers since 5–6 Nov; nothing may get worse | `uv run python -m evals.smoke` (replay-cached), CLAUDE.md |
 | A3 | Measure first-audio latency on the current code | Only one measurement exists (12 Nov, 22 turns: real answer 3.6 s typical, 5.8 s slow; "one moment" at 2.3 s) | `docs/deployment-options-and-costs.md` |
 | A4 | Run the echo self-test on the owner's laptop | The loopback fix is unmeasured on real speakers | Pass mark: at least 15 dB of the agent's voice removed. The self-test doc `docs/echo-self-test.md` no longer exists (missing since at least 14 Nov); rewrite it or test by hand |
 | A5 | Re-check the old issue table A–P on the real LLM | Fixed in code during Phase 4; most acceptance tests not re-run live | Tracker "Issue tracker" |
 | A6 | Known bug: an English turn answered in Hinglish after a Hindi turn | Seen in call e0f24b03 (11 Nov) | Tracker, 11 Nov |
-| A7 | A pause mid-sentence splits one question into two turns | Two LLM calls for one question (seen 13 Nov); costs tokens and time | `voice/turntaking.py` end-of-turn rules (needs a test before any change) |
+| A7 | A pause mid-sentence splits one question into two turns | Fixed in code 18 Nov (opener rule, merge within 1.5 s of the reply, code reused); needs a live voice test | `voice/turntaking.py`, `voice/session.py`, `services/auth.py` |
 | A8 | Share the demo: Cloudflare quick tunnel for the brain, ngrok for the UI | Done in docs and config | `ui/README.md` "Share the demo" |
 | A9 | Commit the work | Much of the work since the second commit is uncommitted (owner commits) | `git status` |
 | A10 | Tidy `docs/`: keep one cost workbook | `deployment-costs-and-options.xlsx` is current (100 calls at once); `-NEW`, `old_`, `new_` are older versions | Owner's call |

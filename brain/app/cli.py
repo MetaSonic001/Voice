@@ -5,7 +5,6 @@
   brain upload FILE... [--category X]  upload documents and wait until they're indexed
   brain ask "question" [--session ID]  ask one question and print the answer + citations + timings
   brain chat                           interactive session with follow-ups
-  brain eval [--golden v1]             run the golden set and print the summary
   brain status                         documents, jobs and recent stats
   brain say "text" [--lang hi] -o F    synthesize test audio (WAV) with the configured TTS
   brain sarvam-check [--out-dir D]     Sarvam key check: Bulbul v4-flash vs v3, pronunciation + speed (~Rs 2)
@@ -98,22 +97,6 @@ def chat(args) -> None:
             r = c.post("/v1/ask", json={"question": q, "session_id": session})
             r.raise_for_status()
             _print_reply(r.json())
-
-
-def evaluate(args) -> None:
-    with _client() as c:
-        body = {"golden": args.golden} | ({"only": args.only} if args.only else {})
-        run = c.post("/v1/evals/run", json=body).json()
-        run_id = run["run_id"]
-        print(f"eval {run_id} running...")
-        while (res := c.get(f"/v1/evals/{run_id}").json())["status"] == "running":
-            time.sleep(3)
-        if res["status"] != "done":
-            sys.exit(f"eval failed: {res.get('error')}")
-        m = res["metrics"]
-        print(json.dumps({"overall": m["overall"], "answered_latency_ms": m["answered_total_ms"],
-                          "by_language": m["by_language"], "cost_usd": m["cost_usd"]}, indent=2))
-        print(f"report: {res['report_path']}")
 
 
 def status(args) -> None:
@@ -337,10 +320,6 @@ def main() -> None:
     s.add_argument("--session")
     s.set_defaults(fn=ask)
     sub.add_parser("chat").set_defaults(fn=chat)
-    s = sub.add_parser("eval")
-    s.add_argument("--golden", default="v1")
-    s.add_argument("--only", nargs="*")
-    s.set_defaults(fn=evaluate)
     sub.add_parser("status").set_defaults(fn=status)
     s = sub.add_parser("say")
     s.add_argument("text")

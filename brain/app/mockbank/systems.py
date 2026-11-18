@@ -352,7 +352,7 @@ def _lms(bank: MockBank) -> APIRouter:
         own(number, c)
         rows = _rows(bank, "SELECT * FROM corebank.loan_emis WHERE loan_number = %s ORDER BY due_date DESC", number)
         return encode([{"due_date": e["due_date"], "amount": e["amount"], "status": e["status"].upper(),
-                        "failure_reason": e["reason"], "bounce_charge": e["charge"]} for e in rows])
+                        "failure_reason": e["reason"], "bounce_charge": e["charge"], "paid_on": e.get("paid_on")} for e in rows])
 
     @r.get("/loans/{number}/rate-changes")
     def rate_changes(number: str, c=Depends(read)):

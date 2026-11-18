@@ -104,7 +104,7 @@ def test_a_risk_is_never_answered_as_a_plain_enquiry(client, risky):
     assert _ask(client, sid, risky)["outcome"] == "auth_required"  # protected path: verify, then the fraud workflow
 
 
-def test_an_open_request_is_asked_about_after_verification_and_never_assumed(client, container):
+def test_an_open_request_is_asked_about_only_when_the_caller_gave_no_reason(client, container):
     sid = client.post("/v1/sessions", json={"caller_number": "9000000102"}).json()["id"]  # Priya
     first = _ask(client, sid, "What is my balance in all accounts?")
     code = re.search(r"(\d{6})", first["auth"]["simulated_sms"]).group(1)
@@ -118,7 +118,34 @@ def test_an_open_request_is_asked_about_after_verification_and_never_assumed(cli
     first = _ask(client, sid2, "What is my balance in all accounts?")
     code = re.search(r"(\d{6})", first["auth"]["simulated_sms"]).group(1)
     verified = client.post("/v1/auth/verify", json={"session_id": sid2, "code": code}).json()
-    assert "open complaint with us about payment failed debited. Is today's call about that?" in verified["message"]
-    assert "98765" not in verified["message"] and "UPI" not in verified["message"]  # only the kind and the topic, no details
+    # the caller already said why they called (their balance): helped with that, not asked about the old complaint
+    assert "open complaint" not in verified["message"]
+    customer = container.bank.customer(cif)  # with no question waiting, the open request is asked about, never assumed
+    note = container.conversation.journeys.open_request_note(customer, "en")
+    assert "open complaint with us about payment failed debited. Is today's call about that?" in note
+    assert "98765" not in note and "UPI" not in note  # only the kind and the topic, no details
     with container.db.connection() as conn:  # leave the shared test data as it was
         conn.execute("UPDATE tickets SET status = 'closed' WHERE cif = %s", (cif,))
+
+
+def test_after_a_system_error_yes_transfers_without_the_llm(client, container, monkeypatch):
+    # live call f4d36d3a: the error reply offers "our team"; the caller's "yes" went to the LLM and failed the same way
+    async def down(*args, **kwargs):
+        raise RuntimeError("LLM HTTP 429: rate limit")
+
+    monkeypatch.setattr(container.conversation, "understand", down)
+    sid = client.post("/v1/sessions", json={}).json()["id"]
+    failed = _ask(client, sid, "2 साल की FD पर ब्याज कितना होता है?")
+    assert failed["outcome"] == "error"
+    handed = _ask(client, sid, "हाँ मुझे किसी team के साथ दे दो।")  # the LLM is still down: read in code
+    assert handed["outcome"] == "handoff" and handed["handoff"]["department"] == "general"
+
+
+def test_a_question_while_a_fraud_offer_waits_keeps_the_offer(client):
+    # regression pack 17 Nov: "Will I get the money back?" lost the ₹10,000 payment; "yes, raise a complaint" re-listed debits
+    sid, reply = _verified(client, RAVI, "I don't recognise the UPI debit of 10000 from my account")
+    assert reply["outcome"] == "confirm" and "reverse" not in reply["answer"].lower()
+    side = _ask(client, sid, "Will I get the money back automatically?")
+    assert side["outcome"] == "confirm" and "can't confirm" in side["answer"] and "complaint" in side["answer"]
+    done = _ask(client, sid, "Yes, raise a fraud complaint.")
+    assert done["outcome"] == "handoff" and "AU-" in done["answer"]  # the complaint is raised, with its reference

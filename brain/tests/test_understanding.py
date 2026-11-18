@@ -211,3 +211,73 @@ def test_own_account_charges_in_mixed_script_is_the_callers_own_data():
     text = "मेरे account से कौन से charges कटे हैं?"
     u = own_data(_general(text), text)
     assert u.requests[0].kind == "personal" and u.requests[0].personal["topic"] == "charges"
+
+
+def _personal(topic, detail="", question="q"):
+    from app.domain import Request
+    return Request("personal", question, {"topic": topic, "detail": detail})
+
+
+def test_a_balance_the_caller_did_not_ask_for_is_dropped():
+    # live call 54aa55be: "my five transactions" came back as balance + transactions; the balance was read again
+    from app.domain import Understanding
+    from app.services.understanding import asked_only
+    u = Understanding("en", "personal", "balance?", "", requests=[_personal("balance"), _personal("transactions")])
+    u = asked_only(u, "Hmm okay and can you tell me what are my five transactions in the salary account?")
+    assert [r.personal["topic"] for r in u.requests] == ["transactions"] and u.personal["topic"] == "transactions"
+    both = Understanding("en", "personal", "", "", requests=[_personal("balance"), _personal("transactions")])
+    assert len(asked_only(both, "show my transactions and how much balance is left").requests) == 2  # asked: kept
+
+
+@pytest.mark.parametrize("said,detail", [
+    ("I want to know what was my last EMI that I had paid.", "emi_status"),
+    ("pichhli EMI kab kati thi?", "emi_last_paid"),  # "kati" = when it was deducted: the debit date
+    ("मेरी पिछली किस्त कितनी थी?", "emi_status"),
+    ("When is my next EMI due?", "next_emi"),
+    ("agli EMI kab hai?", "next_emi"),
+])
+def test_last_emi_paid_is_not_the_next_emi(said, detail):
+    from app.domain import Understanding
+    from app.services.understanding import asked_only
+    u = Understanding("en", "personal", "", "", requests=[_personal("loan", "next_emi")])
+    assert asked_only(u, said).requests[0].personal["detail"] == detail
+
+
+# Regression pack of 17 Nov: follow-ups filed under the wrong data, corrected from the caller's words (no LLM call)
+@pytest.mark.parametrize("said,personal,expect", [
+    ("So has that 2,500 already been deducted?", {"topic": "transactions", "keyword": "deducted", "direction": "debit"},
+     {"detail": "hold_check", "amount": 2500.0}),
+    ("How much can I actually use right now?", {"topic": "balance", "detail": "available_balance"}, {"detail": "available_only"}),
+    ("Does that include money people sent me?", {"topic": "transactions", "total": True}, {"detail": "total_scope"}),
+    ("No, I mean the last instalment that was deducted from my account.", {"topic": "transactions", "direction": "debit"},
+     {"topic": "loan", "detail": "emi_last_paid"}),
+    ("Pichhli EMI kab kati thi?", {"topic": "transactions", "detail": "last_emi"}, {"topic": "loan", "detail": "emi_last_paid"}),
+    ("How much have I paid in total so far?", {"topic": "loan", "detail": "payment_status", "total": True}, {"detail": "repaid_amount"}),
+    ("Show me the last three UPI payments.", {"topic": "transactions", "keyword": "UPI", "direction": "any"}, {"direction": "debit"}),
+    ("Show me my five transactions in each account.", {"topic": "transactions", "count": 5, "account": "all"}, {"account": "each"}),
+])
+def test_follow_ups_are_filed_under_what_was_asked(said, personal, expect):
+    from app.domain import Understanding
+    from app.services.understanding import asked_only
+    u = Understanding("en", "personal", "", "", requests=[_personal(personal["topic"], personal.get("detail", ""))])
+    u.requests[0].personal = dict(personal)
+    got = asked_only(u, said).requests[0].personal
+    assert {k: got.get(k) for k in expect} == expect
+
+
+def test_loan_questions_with_card_details_stay_on_the_loan():
+    from app.services.conversation import personal_query
+    assert personal_query({"topic": "loan", "detail": "amount_due"}).topic == "loan"  # "how much do I still owe?"
+    assert personal_query({"topic": "loan", "detail": "amount_due"}).detail == "outstanding"
+    assert personal_query({"topic": "loan", "detail": "payment_status"}).detail == "emi_status"  # not card payments
+
+
+def test_dont_block_and_can_i_later_are_not_orders():
+    from app.domain import Understanding
+    from app.services.understanding import asked_only
+    stolen = Understanding("en", "fraud", "", "", action={"type": "block"})
+    assert asked_only(stolen, "My card is stolen, but I don't want to block it.").action["no_block"]
+    later = Understanding("en", "action", "", "", action={"type": "unblock"})
+    assert asked_only(later, "Can I unblock it tomorrow?").action["ask_only"]
+    now = Understanding("en", "action", "", "", action={"type": "unblock"})
+    assert not asked_only(now, "Please unblock my card now").action.get("ask_only")

@@ -32,25 +32,27 @@ from app.services.audit import AuditStore, grounding, log_turn
 from app.services.auth import AuthService
 from app.services.numbers import allowed_numbers, clean_markup, speech_text, spelled_figures, unsupported_numbers
 from app.services.guard import injection, unsafe_output
-from app.services.kbmeta import mention_note, missing_products, named_products, provenance, select_sources, trim_context, variant_gate
+from app.services.kbmeta import (mention_note, missing_products, named_products, product_of, provenance, select_sources,
+                                 trim_context, variant_gate)
 from app.services.confirm import read_reply
 from app.services.dialogue import (COMPARE_MISSING, SAFETY_LIMIT, STRATEGY_LINES, TARGET_WORDS, can_offer_own, describe_facts, merge_facts, next_question, own_offer,
                                     recommend_request)
 from app.services.dialogue import strategy as pick_strategy
-from app.services.journeys import Journeys, Step, expired
+from app.services.journeys import _REPEAT_ASKED, Journeys, Step, expired
 from app.services.journeys import pending as make_pending
-from app.services.personal import DETAILS, PERIODS, TOPICS, PersonalQuery, account_choice
+from app.services.personal import CODE_DETAILS, DETAILS, PERIODS, TOPICS, PersonalQuery, account_choice, loan_in_focus
 from app.services.personal import _accounts as resolve_accounts
 from app.services.personal import answer as personal_answer
+from app.services.personal import fill
 from app.services.privacy import is_code_entry, redact
 from app.services.registry import task_for
-from app.services.retrieval import Retriever
+from app.services.retrieval import Retriever, _ms, family_variants
 from app.services.sentences import SentenceSplitter
 from app.services.smalltalk import REPLIES as SMALLTALK, is_courtesy, is_fragment, is_greeting, is_repeat, reply_for
 from app.services.state import CallState, StateStore
 from app.services.store import TraceStore
 from app.services.understanding import repair
-from app.services.understanding import MAX_REQUESTS, UNDERSTAND_SCHEMA, UNDERSTAND_SCHEMA_LENIENT, UNDERSTAND_SYSTEM, broad_charges, build_input, card_failing, correct, own_data, parse, wants_own_charges, with_risk
+from app.services.understanding import MAX_REQUESTS, UNDERSTAND_SCHEMA, UNDERSTAND_SCHEMA_LENIENT, UNDERSTAND_SYSTEM, asked_only, broad_charges, build_input, card_failing, correct, own_data, parse, wants_own_charges, with_risk
 
 logger = logging.getLogger(__name__)
 PROMPT_VERSION = "2026-11-11.1"  # everyday Hindi in answers; dialogue layer (ADR 0024) + router scope / named products
@@ -65,7 +67,7 @@ How to answer:
 - Vary how you begin; don't start with "Sure" or "Certainly" every time.
 - Use the last exchange to understand follow-ups ("and the fees?", "all right", "the first one"), and never ask for something already in "Caller details".
 - Never say a benefit, fee or feature is unavailable unless a source says so; otherwise say you don't have that detail.
-- Plain spoken text only: no markdown, bullets, asterisks, headings, numbered lists or emojis.
+- Plain spoken text only, written exactly as you would say it aloud: no markdown, bullets, asterisks, headings, numbered lists or emojis, no asides in brackets, no semicolons, no "&", no "/" between words, and "6 digit" not "6-digit".
 
 Rules:
 1. Use ONLY the numbered sources. No outside knowledge. Never guess or calculate new numbers.
@@ -136,9 +138,9 @@ TEMPLATES = {
         "hinglish": "Zaroor. Kya aap apne account se kate hue charges check karwana chahte hain, ya hamare general charges jaanna chahte hain, jaise minimum balance, debit card ya ATM charges?",
     },
     "variant_clarify": {  # decided in code: a generic question whose best passages belong to particular variants
-        "en": "That depends on which one. Do you already have one with us, or are you thinking of getting one? If you know the name, like {list}, just tell me.",
-        "hi": "यह इस पर निर्भर करता है कि कौन सा है। क्या आपके पास पहले से हमारे साथ है, या आप नया लेने की सोच रहे हैं? अगर नाम पता है, जैसे {list}, तो बता दीजिए।",
-        "hinglish": "Yeh depend karta hai ki kaunsa hai. Kya aapke paas pehle se hamare saath hai, ya aap naya lene ki soch rahe hain? Agar naam pata hai, jaise {list}, toh bata dijiye.",
+        "en": "That depends on which one. We have {n} {family}, like {list}. Do you already have one with us, or are you thinking of getting one?",
+        "hi": "यह इस पर निर्भर करता है कि कौन सा है। हमारे {n} {family} हैं, जैसे {list}। क्या आपके पास पहले से हमारे साथ है, या आप नया लेने की सोच रहे हैं?",
+        "hinglish": "Yeh depend karta hai ki kaunsa hai. Hamare {n} {family} hain, jaise {list}. Kya aapke paas pehle se hamare saath hai, ya aap naya lene ki soch rahe hain?",
     },
     "out_of_scope": {
         "en": "I can only help with AU Small Finance Bank's products and services.",
@@ -152,10 +154,28 @@ TEMPLATES.update({
         "hi": "कृपया कोड बोलने के बजाय कीपैड पर डालिए, मैं उसे सुनूँगी नहीं।",
         "hinglish": "Please code bolne ki jagah keypad par daaliye, main use sunungi nahi.",
     },
+    "context_passed": {"en": "No, I've passed on everything we discussed, so you won't need to repeat it. Please stay on the line.",
+                       "hi": "नहीं, हमारी पूरी बात मैंने उन्हें बता दी है, आपको दोबारा बताना नहीं पड़ेगा। कृपया लाइन पर बने रहिए।",
+                       "hinglish": "Nahi, hamari poori baat maine unhe bata di hai, aapko dobara batana nahi padega. Please line par bane rahiye."},
+    "ticket_status": {"en": "Yes, it's registered. Your reference number is {ref}.", "hi": "जी हाँ, यह दर्ज हो गई है। आपका रेफ़रेंस नंबर {ref} है।",
+                      "hinglish": "Ji haan, yeh register ho gayi hai. Aapka reference number {ref} hai."},
+    "bare_yes": {"en": "Sorry, which one do you mean? Please tell me in a few words.",
+                 "hi": "माफ़ कीजिए, आप किसकी बात कर रहे हैं? थोड़े शब्दों में बता दीजिए।",
+                 "hinglish": "Sorry, aap kiski baat kar rahe hain? Thode shabdon mein bata dijiye."},
+    # Said before the code when the caller asked about their own data: why verification is needed (PM review, 17 Nov).
+    "auth_ack": {"en": "Sure. Before I share your {what}, I need to verify it's you.",
+                 "hi": "जी, ज़रूर। आपकी {what} बताने से पहले मुझे आपकी पहचान वेरिफ़ाई करनी होगी।",
+                 "hinglish": "Ji, zaroor. Aapki {what} batane se pehle mujhe aapki pehchaan verify karni hogi."},
+    # "OTP", not "6-digit code": a voice read "6-digit" as "six dash digit" (Sarvam, 16 Nov).
     "otp_sent": {
-        "en": "For your security, I've sent a 6-digit code to your registered mobile ending {last4}. Please enter it on your keypad.",
-        "hi": "आपकी सुरक्षा के लिए मैंने आपके रजिस्टर्ड मोबाइल (आख़िरी अंक {last4}) पर 6 अंकों का कोड भेजा है। कृपया उसे कीपैड पर डालें।",
-        "hinglish": "Aapki security ke liye maine aapke registered mobile (ending {last4}) par 6-digit code bheja hai. Please use keypad par daaliye.",
+        "en": "For your security, I need to verify it's you. I've sent an OTP to your registered mobile number ending {last4}. Please enter it on your keypad.",
+        "hi": "आपकी सुरक्षा के लिए मुझे आपकी पहचान वेरिफ़ाई करनी होगी। मैंने आपके {last4} पर ख़त्म होने वाले रजिस्टर्ड मोबाइल नंबर पर OTP भेजा है। कृपया उसे कीपैड पर डालिए।",
+        "hinglish": "Aapki security ke liye mujhe aapki pehchaan verify karni hogi. Maine aapke {last4} par khatam hone wale registered mobile number par OTP bheja hai. Please use keypad par daaliye.",
+    },
+    "otp_code": {
+        "en": "I've sent an OTP to your registered mobile number ending {last4}. Please enter it on your keypad.",
+        "hi": "मैंने आपके {last4} पर ख़त्म होने वाले रजिस्टर्ड मोबाइल नंबर पर OTP भेजा है। कृपया उसे कीपैड पर डालिए।",
+        "hinglish": "Maine aapke {last4} par khatam hone wale registered mobile number par OTP bheja hai. Please use keypad par daaliye.",
     },
     "need_mobile": {
         "en": "For your security I need to verify you first. Please tell me your registered mobile number.",
@@ -199,9 +219,9 @@ TEMPLATES.update({
         "hinglish": "Agar aap seedha hamari fraud team se baat karna chahein, toh bas bata dijiye.",
     },
     "otp_invalid": {
-        "en": "That code didn't match. Please try again; you have {left} more {tries}.",
-        "hi": "यह कोड मेल नहीं खाया। कृपया दोबारा डालें; आपके पास {left} और मौके हैं।",
-        "hinglish": "Yeh code match nahi hua. Please dobara daaliye; aapke paas {left} aur chance hain.",
+        "en": "That code didn't match. Please try again. You have {left} more {tries}.",
+        "hi": "यह कोड मेल नहीं खाया। कृपया दोबारा डालें। आपके पास {left} और मौके हैं।",
+        "hinglish": "Yeh code match nahi hua. Please dobara daaliye. Aapke paas {left} aur chance hain.",
     },
     "unavailable": {
         "en": "Sorry, I'm having trouble getting that right now. Please try again in a moment, or I can connect you to our team.",
@@ -276,7 +296,7 @@ def describe_pending(p: dict) -> str:
     return {"handoff": "Shall I connect you to our team?", "ticket": "Shall I raise a complaint or request for this?",
             "fraud_followup": "Shall I raise a dispute and connect you to the fraud team?",
             "lead": "Would you like someone from our team to call you to help open an account?",
-            "action_target": "Which card is it?", "check_own": p.get("text", ""),
+            "action_target": "Which card is it?", "block_type": "Block the card temporarily or permanently?", "check_own": p.get("text", ""),
             "charges_which": p.get("text", "")}.get(kind, "a yes or no question")
 
 
@@ -301,9 +321,22 @@ def _note(state: CallState, task, req: Request, reply: "Reply") -> None:
     account = str((req.personal or {}).get("account") or "")
     if reply.outcome == "answered" and account and account not in ("all", "both"):
         state.focus["account"] = account
+    detail = str((req.personal or {}).get("detail") or "")
+    if reply.outcome == "answered" and (req.personal or {}).get("topic") in ("balance", "transactions"):
+        state.focus["about"] = "hold" if detail in ("hold_check", "hold_why", "available_only") else "transactions"
+    loan = str((req.personal or {}).get("item") or "")
+    if reply.outcome == "answered" and (req.personal or {}).get("topic") == "loan" and loan not in ("", "all", "both", "every"):
+        state.focus["loan"] = loan
     last4 = str((req.action or {}).get("card_last4") or "")
     if last4 and reply.outcome in ("confirm", "action_done"):
         state.focus["card"] = last4
+
+
+_FAMILY_NOUN = {"Savings Account": ("savings accounts", "सेविंग्स अकाउंट", "savings accounts"),
+                "Credit Card": ("credit cards", "क्रेडिट कार्ड", "credit cards"),
+                "Current Account": ("current accounts", "करंट अकाउंट", "current accounts"),
+                "Fixed Deposit": ("fixed deposits", "फिक्स्ड डिपॉज़िट", "fixed deposits"),
+                "Debit Card": ("debit cards", "डेबिट कार्ड", "debit cards")}
 
 
 def _or_list(items: list[str]) -> str:
@@ -311,12 +344,60 @@ def _or_list(items: list[str]) -> str:
 
 
 def template(kind: str, language: str, **values) -> str:
-    text = TEMPLATES[kind].get(language, TEMPLATES[kind]["en"])
-    return text.format(**values) if values else text
+    return fill(TEMPLATES, kind, language, **values)
 
 
 _DEVANAGARI_DIGITS = str.maketrans("०१२३४५६७८९", "0123456789")
 _DEVANAGARI = re.compile(r"[ऀ-ॿ]")
+_TICKET_STATUS = re.compile(r"\b(complaint|ticket|shikayat|request)\b.{0,30}\b(registered|raised|done|filed|logged|status|darj)\b|"
+                            r"शिकायत.{0,20}(दर्ज|हुई|हो गई)", re.I)
+# Words every Hindi or English speaker uses: on their own they say nothing about which language the caller wants.
+# "हो" / "हे" are how speech recognition often writes an English "hey" (live call 7fa9b902).
+_NEUTRAL = {"yes", "yeah", "yep", "ok", "okay", "sure", "no", "hello", "hi", "hey", "right", "fine", "please", "haan", "han",
+            "ji", "accha", "achha", "acha", "hmm", "हाँ", "हां", "जी", "ओके", "अच्छा", "हेलो", "हैलो", "हो", "हे", "हाय",
+            "namaste", "namaskar", "नमस्ते", "नमस्कार"}
+# "Can you speak in Hindi?", "English mein bolo", "हिंदी में बात कीजिए": the caller's own choice, whatever script it is in.
+_ASK_HINDI = re.compile(r"\b(speak|talk|reply|answer|continue|baat|bolo|boliye)\b.{0,25}\bhindi\b|\bhindi\b.{0,12}\b(mein|me|please|bolo|"
+                        r"boliye|baat)\b|हिंदी में|हिन्दी में", re.I)
+_ASK_ENGLISH = re.compile(r"\b(speak|talk|reply|answer|continue|baat|bolo|boliye)\b.{0,25}\benglish\b|\benglish\b.{0,12}\b(mein|me|"
+                          r"please|bolo|boliye|baat)\b|इंग्लिश में|अंग्रेज़ी में|अंग्रेजी में", re.I)
+# Common Hindi words written in Latin letters: two or more of them make a Latin-script sentence Hinglish, not English.
+_HINGLISH_WORDS = {"hai", "hain", "kya", "kab", "kitna", "kitne", "kitni", "mera", "meri", "mere", "mujhe", "aap", "aapka",
+                   "aapke", "nahi", "nahin", "kaise", "kyun", "kyon", "batao", "bataiye", "bata", "chahiye", "karna", "karo",
+                   "kiya", "tha", "thi", "mein", "aur", "abhi", "wala", "wali", "baaki", "hua", "hui", "gaya", "gayi", "dijiye"}
+
+
+def reply_language(text: str, llm_language: str | None, fallback: str) -> str:
+    """The language to reply in, decided in code from the caller's own words in this turn, not by the LLM's label.
+    - An explicit request ("can you speak in Hindi?", "English mein bolo") decides first.
+    - Filler words ("hey", "okay", "हाँ", "नमस्ते") are ignored; a turn with nothing else keeps `fallback` (the call's
+      language), so a greeting or an acknowledgement never sets or changes it.
+    - Mostly Devanagari words -> Hindi; half and half -> the LLM's label.
+    - Mostly Latin words -> English or Hinglish, never Hindi: the LLM's choice between the two stands; when it said
+      Hindi, two or more romanised Hindi words make it Hinglish, else English.
+    Live call 7fa9b902: "हो. Okay, so I want to know when was my last home loan EMI?" (an English "hey" heard as "हो")
+    was answered in Hindi because any Devanagari letter, or the LLM's label, decided it."""
+    if _ASK_HINDI.search(text) and not _ASK_ENGLISH.search(text):  # an explicit choice comes first
+        return "hi"
+    if _ASK_ENGLISH.search(text) and not _ASK_HINDI.search(text):
+        return "en"
+    words = [w for w in re.findall(r"[\wऀ-ॿ]+", text.lower()) if not w.isdigit() and w not in _NEUTRAL]
+    if not words:
+        return fallback
+    devanagari = sum(1 for w in words if _DEVANAGARI.search(w))
+    if devanagari * 2 > len(words):
+        return "hi"
+    if devanagari * 2 == len(words):  # half and half ("मेरा balance"): the LLM's reading of the whole sentence
+        return llm_language if llm_language in ("hi", "en", "hinglish") else "hi"
+    if llm_language in ("en", "hinglish"):
+        return llm_language
+    return "hinglish" if sum(w in _HINGLISH_WORDS for w in words) >= 2 else "en"
+
+
+def _carries_no_language(text: str) -> bool:
+    """A short reply made only of such words ("Yes.", "Okay sure"): the call keeps its language."""
+    w = re.findall(r"[\wऀ-ॿ]+", text.lower())
+    return 0 < len(w) <= 3 and all(x in _NEUTRAL for x in w)
 _DIGIT_NAMES = {w: str(d) for d, words in enumerate([
     "zero oh shunya शून्य", "one ek एक", "two do दो", "three teen तीन", "four char chaar चार",
     "five paanch panch पांच पाँच", "six chhe chhah छह छः", "seven saat सात", "eight aath आठ", "nine nau नौ"])
@@ -345,11 +426,24 @@ def auth_payload(result) -> dict:
     return out
 
 
-def auth_message(result, language: str) -> str:
-    """What the caller hears for an auth step (otp_sent, invalid, locked...)."""
+# What the caller is waiting to hear, for "Before I share your ..." (by personal topic).
+_ACK_WHAT = {"balance": ("balance", "बैलेंस", "balance"), "transactions": ("transactions", "ट्रांज़ैक्शन की जानकारी", "transactions ki jaankari"),
+             "loan": ("loan details", "लोन की जानकारी", "loan ki jaankari"), "fd": ("FD details", "FD की जानकारी", "FD ki jaankari"),
+             "credit_card": ("card details", "कार्ड की जानकारी", "card ki jaankari"),
+             "debit_card": ("card details", "कार्ड की जानकारी", "card ki jaankari")}
+
+
+def auth_ack(topic: str, language: str) -> str:
+    what = _ACK_WHAT.get(topic, ("account details", "अकाउंट की जानकारी", "account ki jaankari"))
+    return template("auth_ack", language, what=what[{"en": 0, "hi": 1}.get(language, 2)])
+
+
+def auth_message(result, language: str, why_said: bool = False) -> str:
+    """What the caller hears for an auth step (otp_sent, invalid, locked...). `why_said`: the reason for verifying
+    was already given (auth_ack), so only the code part follows."""
     kind = AUTH_TEMPLATE.get(result.status, "locked")
     if kind == "otp_sent":
-        return template(kind, language, last4=result.masked_mobile[-4:])
+        return template("otp_code" if why_said else kind, language, last4=result.masked_mobile[-4:])
     if kind == "otp_invalid":
         return template(kind, language, left=result.attempts_left, tries="try" if result.attempts_left == 1 else "tries")
     return template(kind, language)
@@ -415,8 +509,7 @@ class Conversation:
                 meta.update(lenient_retry=True, schema_repair="retry", invalid=note)
             logger.warning("router output repaired", extra={"data": {"how": meta["schema_repair"], "invalid": note}})
         u = parse(data, question, facts or {}, merge_facts)
-        if u.language == "hi" and not _DEVANAGARI.search(question):  # Hindi typed in Latin letters is Hinglish
-            u.language = "hinglish"
+        u.language = reply_language(question, u.language, u.language)  # the caller's words decide, not the label
         return u, meta
 
     async def ask(self, question: str, session_id: str | None = None, extra_timings: dict | None = None) -> Reply:
@@ -446,6 +539,7 @@ class Conversation:
         question = redact(raw)
         reply: Reply | None = None
         lang, intent = "en", "unknown"
+        history: list = []
         channel = "call" if timings.get("input") in ("speech", "text", "after_verification") else "chat"
         state = CallState()
         try:
@@ -517,6 +611,12 @@ class Conversation:
                         reply = event.reply
                     else:
                         yield event
+                again = (dropped or {}).get("question") if (dropped or {}).get("kind") == "action" else ""
+                if (again and reply is not None and reply.outcome in ("answered", "refused") and read_reply(raw) == "question"
+                        and not await asyncio.to_thread(self.traces.pending, session_id)):
+                    yield TurnEvent("sentence", lang, intent, again, speech_text(again, lang))
+                    reply.answer, reply.speech_text = f"{reply.answer} {again}".strip(), f"{reply.speech_text} {speech_text(again, lang)}".strip()
+                    await asyncio.to_thread(self.traces.set_pending, session_id, {**dropped, "at": make_pending("x", lang)["at"]})
             if session_id and asdict(state) != state_before:
                 await asyncio.to_thread(self.states.save, session_id, state)
         except (asyncio.CancelledError, GeneratorExit):
@@ -530,10 +630,20 @@ class Conversation:
         except Exception as e:
             logger.exception("turn failed")
             data["error"] = f"{type(e).__name__}: {e}"
+            if intent == "unknown":  # understanding never finished: the call's language, or the script the caller used
+                lang = (history[-1].get("language") if history else None) or reply_language(raw, None, lang)
             text = template("unavailable", lang)  # a system problem, said plainly - not "no information"
             yield TurnEvent("sentence", lang, intent, text, speech_text(text, lang))
             reply = Reply(tid, session_id, "error", intent, lang, text, speech_text(text, lang), route="handoff",
                           reason="internal_error")
+            # The reply offers "our team": a real question, so "yes" transfers in code with no LLM call. Before, the
+            # yes went to the LLM too and failed the same way (live call f4d36d3a, Groq rate limit).
+            if session_id and self.journeys:
+                try:
+                    offer = self.journeys.offer_transfer("general", lang, "the agent could not answer (system error)")
+                    await asyncio.to_thread(self.traces.set_pending, session_id, offer.pending)
+                except Exception:  # noqa: BLE001 - the error reply is said either way
+                    logger.warning("could not record the transfer offer", exc_info=True)
         timings["total_ms"] = _ms(started)
         reply.timings = timings
         data.update(timings=timings, outcome=reply.outcome, reason=reply.reason, route=reply.route,
@@ -557,7 +667,10 @@ class Conversation:
 
     async def _understood(self, tid, session_id, raw, question, history, facts, dropped, state: CallState, timings,
                           data) -> AsyncIterator[TurnEvent]:
-        lang0 = (history[-1]["language"] if history else None) or ("hi" if _DEVANAGARI.search(raw) else "en")
+        chosen = "en"  # the language picked when the call started, for a first turn that is only "hey" / "हाँ"
+        if not history and session_id:
+            chosen = ((await asyncio.to_thread(self.traces.session, session_id)) or {}).get("language") or "en"
+        lang0 = (history[-1]["language"] if history else None) or reply_language(raw, None, chosen)
         if is_courtesy(raw):  # "thanks", "धन्यवाद", "bye": a short reply in code, no LLM call
             data["courtesy"] = True
             u = Understanding(lang0 if lang0 in LANGUAGE_INSTRUCTIONS else "en", "smalltalk", question, "")
@@ -577,9 +690,31 @@ class Conversation:
             yield TurnEvent("done", lang0, "smalltalk", reply=Reply(tid, session_id, "answered", "smalltalk", lang0, last,
                                                                     speech_text(last, lang0)))
             return
+        if (not dropped and history and history[-1].get("outcome") == "clarify" and read_reply(raw) == "yes"
+                and len(raw.split()) <= 2):  # regression pack: "Yes." after "which account?" became a card-statement answer
+            data["bare_yes"] = True
+            yield TurnEvent("understood", lang0, "smalltalk")
+            async for event in self._say(tid, session_id, "smalltalk", lang0, template("bare_yes", lang0), "clarify"):
+                yield event
+            return
+        if session_id and self.journeys and _REPEAT_ASKED.search(raw) and len(raw.split()) <= 12:
+            handoff = await asyncio.to_thread(self.journeys.handoffs.for_session, session_id)
+            if handoff and handoff.get("status") in ("waiting", "active"):  # regression pack: it started a second transfer
+                yield TurnEvent("understood", lang0, "smalltalk")
+                async for event in self._say(tid, session_id, "smalltalk", lang0, template("context_passed", lang0), "handoff"):
+                    yield event
+                return
+        if session_id and self.audit and _TICKET_STATUS.search(raw):  # "is the complaint registered?" (regression pack)
+            ticket = await asyncio.to_thread(self._last_ticket, session_id)
+            if ticket:  # raised in this call: said from the record, never guessed
+                data["ticket_status"] = ticket
+                yield TurnEvent("understood", lang0, "smalltalk")
+                async for event in self._say(tid, session_id, "smalltalk", lang0, template("ticket_status", lang0, ref=ticket), "answered"):
+                    yield event
+                return
         if injection(raw):  # caught in code: no LLM call, and it cannot be talked out of it
             data["safety_trigger"] = {"injection": True}
-            lang = "hi" if _DEVANAGARI.search(raw) else "en"
+            lang = reply_language(raw, None, "en")
             u = Understanding(lang, "manipulation", question, "")
             yield TurnEvent("understood", lang, "manipulation")
             async for event in self._fixed(tid, session_id, u, lang):
@@ -598,13 +733,15 @@ class Conversation:
         if prefetch:
             await asyncio.gather(prefetch, return_exceptions=True)
         timings["understand_ms"] = _ms(t)
-        u = with_risk(own_data(card_failing(correct(u, raw), raw), raw), raw)
+        u = asked_only(with_risk(own_data(card_failing(correct(u, raw), raw), raw), raw), raw)  # corrections last
         if session_id and u.facts != facts:
             await asyncio.to_thread(self.traces.save_facts, session_id, u.facts)
         data["understanding"], data["understand_llm"] = asdict(u), meta
         if u.risk:
             data["safety_trigger"] = {"risk": u.risk}
         lang = u.language if u.language in LANGUAGE_INSTRUCTIONS else "en"
+        if history and lang != lang0 and _carries_no_language(raw):  # a Hindi caller's "Yes." stays Hindi (call f4d36d3a)
+            u.language = lang = lang0
         yield TurnEvent("understood", lang, u.intent)
         if broad_charges(u, raw):  # "charges on my account": taken from it, or the bank's general charges? Asked, not guessed
             text = template("charges_which", lang)
@@ -643,7 +780,10 @@ class Conversation:
         replies, summary = [], []
         for i, req in enumerate(batch):
             view = u.for_request(req)
-            view.resume_text = " ".join(r.question for r in batch[i:] + rest)  # re-asked after verification
+            # re-asked after verification. When everything the caller said is still to do, their own words are kept: a
+            # rewritten question lost "don't block it yet" / "tomorrow at 10" / "and connect me" (PM test list, 17 Nov)
+            whole = i == 0 and not rest and [r.question for r in queue] == [r.question for r in u.requests]
+            view.resume_text = question if whole else " ".join(r.question for r in batch[i:] + rest)
             task = task_for(req)
             reply = None
             async for event in self._dispatch(task, tid, session_id, question, view, lang, timings, data, journeys, state):
@@ -811,10 +951,16 @@ class Conversation:
         customer = await asyncio.to_thread(self.auth.verified_customer, session_id)
         if customer is None:
             result = await asyncio.to_thread(self.auth.start, session_id, u.resume_text or question)
-            async for event in self._auth_step(tid, session_id, result, lang, u.intent):
+            # "Sure." first: the question is acknowledged before the security step (PM review, 17 Nov)
+            ack = auth_ack(personal_query(u.personal).topic, lang) if result.status == "otp_sent" else ""
+            async for event in self._auth_step(tid, session_id, result, lang, u.intent, ack):
                 yield event
             return
         q = personal_query(u.personal)
+        if q.detail == "pending_check" and state is not None and state.focus.get("about") == "hold":
+            q = PersonalQuery(**(asdict(q) | {"item": "hold"}))  # "did the pending payment get reversed?" right after the hold
+        if q.topic == "loan":  # the loan the call is about, unless the caller names one or says "all my loans"
+            q = loan_in_focus(q, question, (state.focus.get("loan") if state else "") or "")
         # The caller is answering "which account?": keep the question they asked, take only the account.
         pending = await asyncio.to_thread(self.auth.pending_query, session_id)
         choice = account_choice(question) or q.account
@@ -929,7 +1075,7 @@ class Conversation:
                                                           speech_text(text, lang), route=step.route, handoff=step.handoff))
 
     async def _auth_step(self, tid, session_id, result, lang, intent, prefix: str = "", suffix: str = "") -> AsyncIterator[TurnEvent]:
-        text = f"{prefix} {auth_message(result, lang)} {suffix}".strip()
+        text = f"{prefix} {auth_message(result, lang, why_said=bool(prefix))} {suffix}".strip()
         payload = auth_payload(result)
         if result.status in ("locked", "too_many_codes") and self.journeys:
             await asyncio.to_thread(self.traces.set_pending, session_id, self.journeys.offer_transfer(
@@ -947,7 +1093,10 @@ class Conversation:
         result = await asyncio.to_thread(self.auth.verify, session_id, code)
         lang = await asyncio.to_thread(self.traces.last_language, session_id) or "en"
         message = auth_message(result, lang)
-        if result.status == "verified" and result.customer and self.journeys:  # an open request from the last 30 days: ask, never assume
+        # An open request from the last 30 days: asked about only when the caller hasn't said why they called. A caller who
+        # already said "my card was stolen" is helped with that, not asked "is today's call about your open dispute?"
+        # (live call 210b57c4: the question was asked and the answer then went on without waiting for a reply).
+        if result.status == "verified" and result.customer and self.journeys and not (result.pending_question or "").strip():
             note = await asyncio.to_thread(self.journeys.open_request_note, result.customer, lang)
             message = f"{message} {note}".strip()
         return auth_payload(result) | {"pending_question": result.pending_question}, message, lang
@@ -1010,8 +1159,14 @@ class Conversation:
         options = None if strategy in ("overview", "recommend", "compare", "full") else variant_gate(
             f"{question} {u.standalone_question} {u.search_query_en}", describe_facts(u.facts), context, fused)
         if options:
-            data["variant_gate"] = options
-            text = template("variant_clarify", lang, list=_or_list(options[:2]))
+            # Name the family's accounts, not only the two that matched the question (smoke G1: "like BSBDA or Aarambh",
+            # the two zero-balance accounts): the ones that matched first, then the rest of the catalogue.
+            family = next((product_of(h.section_path)[0] for h in context + fused if product_of(h.section_path)[1] in options), "")
+            catalogue = await asyncio.to_thread(family_variants, self.retriever.db, family) if family else []
+            names = list(dict.fromkeys(options + catalogue))
+            data["variant_gate"] = names
+            noun = _FAMILY_NOUN.get(family, (f"{family.lower()}s",) * 3)[{"en": 0, "hi": 1}.get(lang, 2)]
+            text = template("variant_clarify", lang, n=len(names), family=noun, list=_or_list(names[:4]))
             yield TurnEvent("sentence", lang, u.intent, text, speech_text(text, lang))
             yield finish("clarify", text, "variant_not_named")
             return
@@ -1186,6 +1341,13 @@ class Conversation:
                 event.reply.speech_text = speech_text(event.reply.answer, lang)
             yield event
 
+    def _last_ticket(self, session_id: str) -> str:
+        """The reference of the last complaint or request raised in this call ("" if none)."""
+        with self.audit.db.connection() as conn:
+            row = conn.execute("SELECT detail FROM call_events WHERE session_id = %s AND kind = 'ticket' ORDER BY created_at DESC LIMIT 1",
+                               (session_id,)).fetchone()
+        return str((row or {}).get("detail", {}).get("id") or "") if row else ""
+
     async def _say(self, tid, session_id, intent: str, lang, text: str, outcome: str) -> AsyncIterator[TurnEvent]:
         yield TurnEvent("sentence", lang, intent, text, speech_text(text, lang))
         yield TurnEvent("done", lang, intent, reply=Reply(tid, session_id, outcome, intent, lang, text, speech_text(text, lang)))
@@ -1235,6 +1397,10 @@ _DETAIL_TOPIC = {
     **dict.fromkeys(("upcoming", "inactive", "highest"), "summary"),
     "duplicate": "transactions", "available_balance": "balance",
 }
+# Regression pack, 17 Nov: "How much do I still owe?" on a gold-loan call came back as loan + `amount_due`, and the detail
+# moved the question to credit cards ("I don't see a credit card in your name"); "when was my last EMI deducted?" as loan +
+# `payment_status` read out card payments. On a loan, these details mean the loan's own fact.
+_LOAN_SAME = {"amount_due": "outstanding", "payment_status": "emi_status", "statement": "emi_status", "available_limit": "outstanding"}
 _TOPIC_KEEPS = {("transactions", "salary_account"), ("account", "available_balance"), ("credit_card", "outstanding"),
                ("transactions", "payment_status")}  # "was my UPI payment to Suresh completed?" is a transaction, not a card
 
@@ -1243,7 +1409,9 @@ def personal_query(p: dict | None) -> PersonalQuery:
     """The understanding's `personal` block as a typed query (unknown values fall back to safe defaults)."""
     p = p or {}
     topic = p.get("topic") if p.get("topic") in TOPICS else "other"
-    detail = p.get("detail") if p.get("detail") in DETAILS else ""
+    detail = p.get("detail") if p.get("detail") in DETAILS + CODE_DETAILS else ""
+    if topic == "loan" and detail in _LOAN_SAME:  # a loan question labelled with a card detail stays on the loan
+        detail = _LOAN_SAME[detail]
     if detail in _DETAIL_TOPIC and (topic, detail) not in _TOPIC_KEEPS:
         topic = _DETAIL_TOPIC[detail]
     if topic == "transactions" and detail == "salary_account":  # "was my salary credited?"
@@ -1283,6 +1451,3 @@ def _output_mode(raw: str) -> str | None:
         return "answer"
     return None
 
-
-def _ms(start: float) -> int:
-    return round((time.perf_counter() - start) * 1000)

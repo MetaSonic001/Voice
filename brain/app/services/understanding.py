@@ -10,7 +10,7 @@ from app.domain import LANGUAGES, PENDING_REPLIES, PRODUCTS, REQUEST_KINDS, RISK
 from app.services.desk import DEPARTMENTS
 import re
 
-from app.services.guard import asks_for_team, doubt_llm_risk, risk_flags
+from app.services.guard import asks_for_team, asks_how, doubt_llm_risk, risk_flags
 from app.services.personal import DETAILS, PERIODS, TOPICS
 from app.services.privacy import redact
 
@@ -253,6 +253,14 @@ def correct(u: Understanding, raw: str) -> Understanding:
     if _ASK_PERSON.search(raw) and "human" not in kinds:
         u.requests = [Request("human", redact(raw.strip()))] + [r for r in u.requests if r.kind not in ("personal", "general")]
         u.intent, u.standalone_question = "human", u.requests[0].question
+    if asks_how(raw) and "action" in kinds and not re.search(r"(?<!\d)\d{4}(?!\d)", raw):
+        # "How do I block my card if I lose it?" asks how it works: answered from the documents, nothing is done to a card
+        for r in u.requests:
+            if r.kind == "action":
+                r.kind, r.action = "general", {}
+        if u.requests and u.requests[0].kind == "general":
+            u.intent, u.action = "general", None
+        return u
     on_off = _SWITCH.search(raw)
     if on_off and re.search(r"\bcard\b|कार्ड", raw, re.I):
         state = "off" if re.search(r"\b(off|disable|deactivate|stop|band)\b", raw, re.I) else "on"
@@ -363,10 +371,205 @@ def own_data(u: Understanding, raw: str) -> Understanding:
     return u
 
 
+_BALANCE_SAID = re.compile(r"\b(balance|bal|kitne paise|kitna paisa|paisa kitna|how much (money|do i have|is left)|left|remaining|"
+                           r"bach\w*|available)\b|बैलेंस|कितने पैसे|कितना पैसा|बचा", re.I)
+_LAST_EMI = re.compile(r"\b(last|previous|pichh?l[ie]|pichhl[ae])\b.{0,30}\b(emi|instal+ments?|kist|kisht|kisti|kishti)\b|"
+                       r"\b(emi|instal+ment|kist|kisht)\b.{0,40}\b(did i pay|i paid|had paid|was paid|got paid|bhari thi|bhara tha|"
+                       r"kati thi|kata tha|deduct(ed)? (last|previous))\b|(पिछली|पिछला|आख़िरी|आखिरी).{0,20}(EMI|ईएमआई|किस्त|किश्त)", re.I)
+_NEXT_EMI = re.compile(r"\b(next|upcoming|agl[ie]|aane wal[ie]|kab (hai|hogi|kategi|katega)|due)\b|अगली|कब (है|होगी|कटेगी)", re.I)
+
+
+_LOAN_COUNT = re.compile(r"\b(how many|kitne|kitni)\b.{0,12}\b(loans?|लोन)\b|कितने.{0,12}(लोन|loan)", re.I)
+_EMI_WORD = re.compile(r"\b(emis?|instal+ments?|kist\w*|kisht\w*)\b|ईएमआई|किस्त|किश्त", re.I)
+_LEFT = re.compile(r"\b(baa?ki|bache|left|remaining|pending)\b|बाकी|बचे", re.I)
+
+
+# Regression pack of 17 Nov (PM review): follow-ups the understanding step filed under the wrong data, corrected from the
+# caller's own words. Each rule is narrow; none adds an LLM call.
+_DEDUCTED = re.compile(r"\b(deduct\w*|debited|cut|kat\w*|taken|gone|nikal\w*)\b|कट|काट|निकल", re.I)
+_WHAT_FOR = re.compile(r"\b(what('s| is) (it|this|that)( payment)? for|kis(ke|ki)? liye|kis cheez)\b|किसके लिए|किस लिए", re.I)
+_USE_NOW = re.compile(r"\b(use|usable|available|spend|kharch\w*|istemaal|istemal)\b|इस्तेमाल|उपलब्ध|खर्च", re.I)
+_INCLUDE_ASKED = re.compile(r"\b(include[sd]?|including|counted|count in)\b|शामिल", re.I)  # about a total just given
+_INCLUDES = re.compile(r"\b(include[sd]?|including|received|sent me|incoming|aaye|aaya)\b|शामिल|आए|आया", re.I)
+_PAYMENTS_OUT = re.compile(r"\b(payments?|paid|spent|sent|bheje|kharch\w*)\b|पेमेंट|भेजे|खर्च", re.I)
+_MONEY_IN = re.compile(r"\b(received|from|credit\w*|incoming|aaye|aaya|mile)\b|आए|आया|मिले", re.I)
+_EACH_ACCOUNT = re.compile(r"\b(each|every|har)\s+(of\s+my\s+)?(accounts?|khat\w*)\b|हर\s+(अकाउंट|खात)", re.I)
+_RECOVERY = re.compile(r"\b(paid|cleared|recovered|settled|gone through)\b.{0,15}\b(now|yet|since|later|after)\b|"
+                       r"\bab\b.{0,20}\b(pay|bhar|clear)\w*|अब.{0,20}(भर|पे|क्लियर)", re.I)
+_HOLD_WHY = re.compile(r"\bwhy\b.{0,40}\b(blocked|on hold|held|hold)\b|\b(kyun|kyon)\b.{0,30}\b(hold|block)|(होल्ड|ब्लॉक).{0,20}क्यों|क्यों.{0,30}(होल्ड|ब्लॉक)", re.I)
+# Loan figures a caller can ask for, read from their own words (en / Hinglish / Hindi). Several in one sentence = several answers.
+_FACETS = (
+    ("repaid_amount", re.compile(r"\b(how much|kitna|total)\b.{0,30}\b(paid|repaid|repay\w*|chuka\w*|bhar\w*|diya|diye)\b|"
+                                 r"कितना.{0,25}(चुका|भर|दिया|पे किया|रिपे)", re.I)),
+    ("outstanding", re.compile(r"\b(how much|kitna|kitne paise)\b.{0,30}\b(left|remaining|owe|outstanding|baa?ki|bakaya)\b|"
+                               r"\boutstanding\b|बकाया|कितना.{0,20}बाकी", re.I)),
+    ("emis_count", re.compile(r"\b(how many|kitni|kitne)\b.{0,25}\b(emis?|instal\w*|kist\w*|kisht\w*)\b|"
+                              r"\b(emis?|instal\w*|kist\w*)\b.{0,15}\b(left|remaining|baa?ki)\b|"
+                              r"\bwhat about (the |my )?(emis|instal\w*)\b|कितनी.{0,15}(किस्त|ईएमआई|emi)", re.I)),
+)
+_FACET_DETAILS = {"", "outstanding", "amount_due", "emis_count", "payment_status", "repaid_amount", "available_limit"}
+
+
+def loan_facets(raw: str) -> list[str]:
+    """The loan figures asked in this sentence, in the order the caller said them."""
+    found = [(m.start(), name) for name, pattern in _FACETS if (m := pattern.search(raw))]
+    return [name for _, name in sorted(found)]
+
+
+_MONEY_LEFT_EMI = re.compile(r"\b(money|amount|paisa|paise)\b.{0,30}\b(leave|left|go|went|taken|deducted|kata|kate|gaya)\b.{0,40}\b(emi|instal\w*|kist)\b", re.I)
+_HELD = re.compile(r"\b(blocked|on hold|held|hold)\b|होल्ड|ब्लॉक", re.I)
+_PENDING_ASKED = re.compile(r"\b(pending|processing|stuck)\b.{0,40}\b(revers\w*|go(ne)? through|clear\w*|complet\w*|back|wapas)\b|"
+                            r"पेंडिंग.{0,30}(रिवर्स|वापस)", re.I)
+_FAILED_ASKED = re.compile(r"\b(failed|unsuccessful|declined|didn'?t go through|fail ho\w*)\b|फेल", re.I)
+_STATUS_WORDS = {"failed", "fail", "unsuccessful", "declined", "returned", "bounced"}
+_DIRECTION_WORDS = {"debit": "debit", "debits": "debit", "outgoing": "debit", "credit": "credit", "credits": "credit",
+                    "incoming": "credit"}
+_NO_BLOCK = re.compile(r"\b(don'?t|do not|dont|not)\s+(want\s+(you\s+)?to\s+)?block\b|\bblock\s+(mat|nahi|na)\b|ब्लॉक\s+(मत|नहीं|ना)", re.I)
+_CAN_I = re.compile(r"\b(can|could|may)\s+i\b|\bwill i be able\b|\bkya\s+(main|mai|mein)\b.*\b(sakta|sakti|sakte)\b|सकता|सकती|सकते", re.I)
+_LATER = re.compile(r"\b(tomorrow|later|next week|someday|any ?time|kal|baad mein|baad me)\b|कल|बाद में", re.I)
+
+
+def _set(u: Understanding, r, personal: dict) -> None:
+    r.personal = personal
+    if r is u.requests[0]:
+        u.personal = personal
+
+
+def asked_only(u: Understanding, raw: str) -> Understanding:
+    """Corrections to bank-data requests, from the caller's own words (live calls of 16 Nov, regression pack of 17 Nov).
+    - A balance nobody asked for, riding along with another request, is dropped ("my five transactions" re-read it).
+    - "Last EMI paid / pichhli kist" is the past payment (`emi_status`), also when it was filed under transactions.
+    - "When is the next one due?" after a past-EMI answer: the past one is not repeated.
+    - "How much have I paid in total (on the loan)?": the EMIs paid so far (`emis_count`), never a sum we don't hold.
+    - "How many loans (left)?" is a count of all loans.
+    - "Has that 2,500 been deducted?": a check of the hold for that amount (`hold_check`), not a search for "deducted".
+    - "How much can I actually use?": the available amount only (`available_only`), not the whole balance again.
+    - "Does that include money people sent me?" after a total: what the total covers (`total_scope`).
+    - "Last three UPI payments": money paid out, not money received.
+    - "Five transactions in each account": per account (`account = each`).
+    - "My card is stolen but don't block it": no block offered (`no_block`); "Can I unblock it tomorrow?" is a question
+      about later, not an order to do it now (`ask_only`)."""
+    if len(u.requests) > 1 and not _BALANCE_SAID.search(raw):
+        kept = [r for r in u.requests if not (r.kind == "personal" and (r.personal or {}).get("topic") == "balance")]
+        if kept and len(kept) < len(u.requests):
+            u.requests = kept
+            first = kept[0]
+            u.intent, u.standalone_question = first.kind, first.question
+            u.personal = first.personal if first.kind == "personal" else u.personal
+    if _HOLD_WHY.search(raw) and amount_said(raw) and not u.risk:
+        # "why is 2,500 rupees blocked?" asks what the hold is, from the account record: not a complaint to raise
+        for r in u.requests:
+            if r.kind in ("issue", "general", "personal"):
+                r.kind, r.issue = "personal", "none"
+                _set(u, r, {"topic": "transactions", "detail": "hold_why", "amount": amount_said(raw), "keyword": "", "direction": "any"})
+                if r is u.requests[0]:
+                    u.intent, u.issue = "personal", "none"
+                break
+    last_emi = bool(_LAST_EMI.search(raw)) and not _NEXT_EMI.search(raw)
+    loans = [r for r in u.requests if r.kind == "personal" and (r.personal or {}).get("topic") == "loan"]
+    if any((r.personal or {}).get("detail") == "next_emi" for r in loans) and not last_emi and len(loans) > 1:
+        u.requests = [r for r in u.requests if r not in loans or (r.personal or {}).get("detail") not in ("emi_status", "payment_status")]
+        u.personal = u.requests[0].personal if u.requests and u.requests[0].kind == "personal" else u.personal
+    extra: list[tuple] = []  # (request, detail): a second loan figure asked in the same sentence
+    for r in u.requests:
+        p = dict(r.personal or {})
+        if r.kind != "personal":
+            continue
+        topic, detail = p.get("topic"), p.get("detail") or ""
+        if _RECOVERY.search(raw) and topic in ("loan", "transactions") and (_EMI_WORD.search(raw) or topic == "loan"):
+            _set(u, r, {**p, "topic": "loan", "detail": "emi_recovery", "keyword": "", "direction": "any"})  # "bounced, paid now?"
+        elif (_MONEY_LEFT_EMI.search(raw) or (last_emi and _DEDUCTED.search(raw))) and topic in ("loan", "transactions"):
+            # "when did money last leave my account for my EMI?" / "last EMI kab kati?": the debit, not the due date
+            _set(u, r, {**p, "topic": "loan", "detail": "emi_last_paid", "keyword": "", "direction": "any"})
+        elif _LOAN_COUNT.search(raw) and not _EMI_WORD.search(raw) and topic == "loan":
+            _set(u, r, {**p, "detail": "loan_count_left" if _LEFT.search(raw) else "loan_count", "item": ""})
+        elif last_emi and (topic == "loan" or (topic == "transactions" and (p.get("keyword") or "").lower() in ("", "emi", "kist"))):
+            if topic == "loan" and detail in ("bounce_charges", "emis_count"):
+                continue
+            _set(u, r, {**p, "topic": "loan", "detail": "emi_status", "keyword": "", "direction": "any"})
+        elif topic == "loan" and (facets := loan_facets(raw)):
+            # Which loan figures the caller asked for, from their words: every one is answered (call 264e51d7: "how much
+            # have I paid" got the outstanding balance; "how much is left and how many instalments are left" lost the count)
+            keep = detail and detail not in _FACET_DETAILS  # the LLM's own reading (e.g. next EMI) stays and comes first
+            first, rest = (detail, facets) if keep else (facets[0], facets[1:])
+            _set(u, r, {**p, "detail": first, "total": False})
+            extra.extend((r, f) for f in rest if f != first)
+        elif topic == "transactions" and _WHAT_FOR.search(raw) and not amount_said(raw) and \
+                (p.get("keyword") or "").lower() in ("", "payment", "hold", "this", "that", "ye", "yeh"):
+            _set(u, r, {**p, "detail": "hold_check", "amount": 0, "keyword": "", "direction": "any"})
+        elif topic in ("transactions", "balance") and _HELD.search(raw) and amount_said(raw) and not _DEDUCTED.search(raw):
+            # "why is 2,500 rupees blocked?": the hold of that amount, explained
+            _set(u, r, {**p, "topic": "transactions", "detail": "hold_why", "amount": amount_said(raw), "keyword": "", "direction": "any"})
+        elif topic == "transactions" and _PENDING_ASKED.search(raw):  # "did the pending payment get reversed?"
+            _set(u, r, {**p, "detail": "pending_check", "keyword": "", "amount": 0})
+        elif topic == "transactions" and _FAILED_ASKED.search(raw):  # "show failed transactions": a status, not a name
+            _set(u, r, {**p, "detail": "failed_only", "keyword": "" if (p.get("keyword") or "").lower() in _STATUS_WORDS else p.get("keyword", "")})
+        elif topic == "transactions" and (p.get("keyword") or "").lower() in _DIRECTION_WORDS:  # "only the debits"
+            _set(u, r, {**p, "direction": _DIRECTION_WORDS[p["keyword"].lower()], "keyword": ""})
+        elif topic == "transactions" and _DEDUCTED.search(raw) and amount_said(raw):
+            _set(u, r, {**p, "detail": "hold_check", "amount": amount_said(raw), "keyword": "", "direction": "any"})
+        elif topic == "balance" and _USE_NOW.search(raw) and not re.search(r"\btotal\b", raw, re.I):
+            _set(u, r, {**p, "detail": "available_only"})
+        elif topic == "transactions" and _INCLUDE_ASKED.search(raw) and len(raw.split()) <= 12:
+            _set(u, r, {**p, "detail": "total_scope"})
+        elif topic == "transactions" and (p.get("keyword") or "").lower() == "upi" and p.get("direction", "any") == "any" \
+                and _PAYMENTS_OUT.search(raw) and not _MONEY_IN.search(raw):
+            _set(u, r, {**p, "direction": "debit"})
+        if r.personal.get("topic") == "transactions" and _EACH_ACCOUNT.search(raw):
+            _set(u, r, {**r.personal, "account": "each"})
+    _add_missing(u, raw)
+    for r, f in reversed(extra):  # each asked figure is its own request, right after the one it came with
+        asked = {(x.personal or {}).get("detail") for x in u.requests if x.kind == "personal"}
+        if f not in asked and len(u.requests) < 3:
+            u.requests.insert(u.requests.index(r) + 1, Request("personal", r.question, {**r.personal, "detail": f}))
+    # set on the request as well: each request is run on its own (`for_request` takes the action from it)
+    flags = {"no_block": bool(_NO_BLOCK.search(raw)) and (u.intent in ("fraud", "action") or bool(u.risk)),
+             "ask_only": bool(_CAN_I.search(raw) and _LATER.search(raw)),
+             "later": bool(_LATER.search(raw)) and not _CAN_I.search(raw)}
+    for r in [u, *u.requests]:
+        kind = getattr(r, "intent", None) or getattr(r, "kind", "")
+        action = dict(r.action or {})
+        if flags["no_block"] and kind in ("fraud", "action"):
+            r.action = {**action, "no_block": True}
+        if flags["ask_only"] and kind == "action" and action.get("type") in ("block", "unblock"):
+            r.action = {**action, "ask_only": True}
+        elif flags["later"] and kind == "action" and action.get("type") in ("block", "unblock"):
+            r.action = {**action, "later": True}  # an order for later ("unblock it tomorrow at 10"): never scheduled
+    return u
+
+
+# Two requests in one sentence where the router returned only one (smoke A1 / A3, 17 Nov). Only asks that are
+# unmistakable in the caller's own words are added; anything else is left to the router.
+_MY_BALANCE = re.compile(r"\b(my|mera|mere|meri|apna|apne)\b.{0,25}\bbalance\b|\bbalance\b.{0,20}\b(in|of|on) (my|both|all|each)\b|"
+                         r"\b(kitne paise|kitna paisa)\b|मेरे?.{0,20}बैलेंस|कितने पैसे", re.I)
+_MONEY_GONE = re.compile(r"\b(money|amount|paise|paisa|rupees)\b.{0,15}\b(got |was |has been |have been )?(deducted|debited)\b|"
+                         r"\b(paise|paisa)\b.{0,10}\bkat (gaye|gaya|gye|gya)\b|पैसे कट (गए|गया)", re.I)
+
+
+def _add_missing(u: Understanding, raw: str) -> None:
+    if len(u.requests) >= 3:
+        return
+    had = bool(u.requests)
+    personal_topics = {(r.personal or {}).get("topic") for r in u.requests if r.kind == "personal"}
+    if _MY_BALANCE.search(raw) and "balance" not in personal_topics and "account" not in personal_topics:
+        u.requests.append(Request("personal", redact("What is my account balance?"), {"topic": "balance"}))
+    kinds = {r.kind for r in u.requests}
+    reported = _MONEY_GONE.search(raw) and not re.search(r"\?|^\s*(has|have|was|did|is|kya)\b", raw, re.I)  # a report, not a question
+    if reported and not kinds & {"issue", "fraud"} and not u.risk and len(u.requests) < 3:
+        u.requests.append(Request("issue", redact(raw.strip()), {}, {}, "payment_failed_debited"))
+    if not had and u.requests:  # the router returned no request at all: the added one leads
+        first = u.requests[0]
+        u.intent, u.personal, u.issue, u.standalone_question = first.kind, first.personal, first.issue, first.question
+
+
 def amount_said(raw: str) -> float:
     """The transaction amount in the caller's own words (not a card or account ending)."""
     m = _AMOUNT.search(raw)
     return float(m.group(1).replace(",", "")) if m else 0.0
+
+
+_BLOCK_WORD = re.compile(r"\bblock|ब्लॉक|band kar", re.I)
+_LOSS_WORD = re.compile(r"\b(lost|lose|losing|missing|stolen|steal|misplac\w*|chori|kho|khoya|khoyi|gum)\b|चोरी|खो|गुम", re.I)
 
 
 def with_risk(u: Understanding, raw: str) -> Understanding:
@@ -382,6 +585,22 @@ def with_risk(u: Understanding, raw: str) -> Understanding:
                 u.department = "fraud"
         return u
     llm_only = [r for r in u.risk if r not in screened]
+    if "lost_card" in llm_only and _BLOCK_WORD.search(raw) and not _LOSS_WORD.search(raw):
+        # "I want to block my card" reports nothing lost: a card action, where the caller chooses temporary or permanent
+        # (PM review, 17 Nov: it was taken as a lost card and offered a permanent block)
+        u.risk = [r for r in u.risk if r != "lost_card"]
+        llm_only.remove("lost_card")
+        if not u.risk:
+            for r in u.requests:
+                if r.kind == "fraud":
+                    r.kind = "action"
+                    r.action = {**dict.fromkeys(_ACTION_FIELDS, ""), **(r.action or {}), "type": "block"}
+                    if not r.action["card"] and (card := re.search(r"\b(debit|credit)\b", raw, re.I)):
+                        r.action["card"] = card.group(1).lower()
+            first = u.requests[0] if u.requests else None
+            if first is not None and first.kind == "action":
+                u.intent, u.action, u.department = "action", first.action, ""
+            return u
     if llm_only and doubt_llm_risk(raw, kinds):
         u.risk = [r for r in u.risk if r in screened]  # a how-to question or a request for a person is not a report
     u.risk = list(dict.fromkeys(u.risk + screened))

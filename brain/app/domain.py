@@ -283,6 +283,7 @@ class Emi:
     status: str  # paid | bounced
     reason: str | None = None
     charge: float = 0
+    paid_on: date_type | None = None  # the day it was actually debited (None: not paid)
 
 
 @dataclass

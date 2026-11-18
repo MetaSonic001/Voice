@@ -88,6 +88,12 @@ export default function Console() {
       .catch(() => newSession("", "en"));
   }, [newSession]);
 
+  // leaving the page ends a live call and a voice note in progress (both release the microphone)
+  useEffect(() => () => {
+    call.current?.stop();
+    if (recorder.current?.state === "recording") recorder.current.stop();
+  }, []);
+
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages]);
@@ -282,6 +288,9 @@ export default function Console() {
         break;
       case "interrupted":
         add({ role: "note", text: "You interrupted: the agent stopped." });
+        break;
+      case "mic":
+        add({ role: "note", text: `Microphone: ${String(e.device)} · echo cancellation ${String(e.echoCancellation)} (browser offers: ${String(e.offered)}) · auto volume ${String(e.autoGainControl)} · noise suppression ${String(e.noiseSuppression)}` });
         break;
       case "echo_warning":
         add({ role: "note", text: `This browser can't remove the agent's voice from your mic (${String(e.reason)}). Use headphones, or the agent may hear itself.` });

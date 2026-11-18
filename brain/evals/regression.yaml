@@ -1,0 +1,170 @@
+# Regression pack from the PM's review of the 16 Nov live calls (17 Nov). Whole conversations on the real LLM, typed (the
+# same brain as a voice call: understanding, bank, templates, speech text), replay-cached like the smoke set.
+#   python -m evals.smoke --pack regression --keep [--only id ...]      (--keep leaves the calls on /calls for review)
+# Keys per turn as in smoke.yaml. The checks catch the failures seen in the calls; the transcripts in the report are read
+# in full as well. Demo customers: 101 Ravi (4512 Digital, 4521 Value with a ₹2,500 hold; home + personal loan; credit
+# card 6712; ₹10,000 UPI to Suresh Patel, processing), 105 Imran (Ananta 4410, permanently blocked), 106 Pooja (salary,
+# Rajesh ₹5,000 today, 4 UPI payments this week), 107 Sunita (gold loan, Hindi).
+# Not here: voice turn-taking (conversation 12: tests/test_voice_session.py), a bank system down (tests), credit-card
+# discovery (conversation 15: a product decision is open).
+
+# ── Stage 1: financial data and intent ──
+- {id: R01-balance-hold, cls: balance, caller: "9000000101", turns: [
+    {say: "Hi, can you tell me my total balance across both my accounts?", outcome: [answered], has: ["4512", "4521", "79,850"], lacks: ["(", "authorisation"]},
+    {say: "How much can I actually use right now?", outcome: [answered], has: ["79,850"]},
+    {say: "So has that 2,500 already been deducted?", outcome: [answered, clarify], has_any: ["hold", "pending"], lacks: ["was deducted", "has been deducted"]}]}
+- {id: R02-five-across, cls: transactions, caller: "9000000101", turns: [
+    {say: "Show me my last five transactions across both my accounts.", outcome: [answered], has: ["5 transactions"], lacks: ["Want the other", "4,512", "You have ₹"]},
+    {say: "Which account was the UPI payment made from?", outcome: [answered, clarify], has: ["4521"]}]}
+- {id: R03-last-vs-next-emi, cls: emi, caller: "9000000101", turns: [
+    {say: "When was my last home loan EMI paid?", outcome: [answered], has: ["home loan", "paid"], lacks: ["is due on", "outstanding"]},
+    {say: "And when is the next one due?", outcome: [answered], has: ["due"], lacks: ["was paid"]},
+    {say: "How much have I paid in total so far?", outcome: [answered, clarify, refused]},
+    {say: "No, I mean the last instalment that was deducted from my account.", outcome: [answered], has_any: ["taken from your account", "paid"], lacks: ["is due on"]}]}
+- {id: R03b-emi-paraphrases, cls: emi, caller: "9000000101", turns: [
+    {say: "When was my last EMI deducted?", outcome: [answered, clarify], lacks: ["is due on"]},
+    {say: "Pichhli EMI kab kati thi?", outcome: [answered, clarify], lacks: ["is due on", "due hai"]},
+    {say: "पिछली किस्त कब भरी थी?", outcome: [answered, clarify], lacks: ["अगली"]},
+    {say: "Agli EMI kab hai?", outcome: [answered, clarify], lacks: ["paid successfully", "pay ho gayi"]},
+    {say: "What's my upcoming EMI?", outcome: [answered, clarify], lacks: ["paid successfully"]}]}
+- {id: R04-upi-and-rajesh, cls: transactions, caller: "9000000106", turns: [
+    {say: "How much have I spent using UPI in the last seven days?", outcome: [answered], has: ["3,940", "UPI"]},
+    {say: "Does that include money people sent me?", outcome: [answered, smalltalk, clarify]},
+    {say: "Okay. How much money did Rajesh send me today?", outcome: [answered], has: ["5,000", "Rajesh"]},
+    {say: "Did I send him any money today?", outcome: [answered], lacks: ["5,000 to"]},
+    {say: "Did Amit send me any money today?", outcome: [answered], has: ["Amit"], lacks: ["matching transaction"]},
+    {say: "Show me the last three UPI payments.", outcome: [answered]},
+    {say: "Did my salary come this month?", outcome: [answered], has: ["40,000"]}]}
+- {id: R05-loans-left, cls: loans, caller: "9000000107", turns: [
+    {say: "How many loans do I have left?", outcome: [answered], has_any: ["one active loan", "एक लोन"], lacks: ["is due on"]},
+    {say: "How much do I still owe?", outcome: [answered], has: ["60,000"]},
+    {say: "When is my next instalment?", outcome: [answered], has: ["5,400"]},
+    {say: "And how many EMIs are left?", outcome: [answered], has_any: ["8", "आठ"]}]}
+- {id: R05b-two-loans, cls: loans, caller: "9000000101", turns: [
+    {say: "How many loans do I have left?", outcome: [answered, clarify], has_any: ["2 active loans", "two"]}]}
+
+# ── Stage 2: fraud and actions ──
+- {id: R06-stolen-already-blocked, cls: fraud, caller: "9000000105", turns: [
+    {say: "I've lost my credit card. I think someone stole it. I need to block it immediately.", outcome: [confirm, answered, auth_required, handoff], lacks: ["nothing to change"]},
+    {say: "Does that mean everything is safe now?", outcome: [answered, confirm, clarify, handoff], lacks: ["everything is safe", "nothing to worry"]},
+    {say: "Yes, please connect me.", outcome: [handoff, action_done]},  # the card may be active (block confirmed) or already blocked
+    {say: "Do I need to explain everything again?", outcome: [answered, smalltalk, handoff, clarify, confirm], has_any: ["repeat"]}]}
+- {id: R07-unrecognised-generic, cls: fraud, caller: "9000000101", turns: [
+    {say: "I don't recognise a payment from my account.", outcome: [clarify, confirm], lacks: ["your account is safe"]},
+    {say: "I'm not sure. Maybe sometime last week.", outcome: [clarify, answered, confirm]},
+    {say: "So my account is safe?", outcome: [answered, clarify, confirm, refused], lacks: ["your account is safe", "yes, it is safe"]},
+    {say: "Yes, connect me.", outcome: [handoff]}]}
+- {id: R08-upi-10000, cls: fraud, caller: "9000000101", turns: [
+    {say: "I don't recognise a UPI debit of 10,000 from my account.", outcome: [confirm], has: ["10,000", "Suresh Patel"], lacks: ["reversed by itself", "reverse by itself"]},
+    {say: "Will I get the money back automatically?", outcome: [answered, confirm, clarify, refused], lacks: ["yes, you will", "will be reversed"]},
+    {say: "Yes, raise a fraud complaint.", outcome: [handoff, answered, confirm]},
+    {say: "Is the complaint registered?", outcome: [answered, handoff, smalltalk, clarify]}]}
+- {id: R09-otp-shared-hi, cls: fraud, caller: "9000000101", turns: [
+    {say: "मैंने अपना OTP किसी को बता दिया।", outcome: [confirm, auth_required, handoff], lacks: ["अच्छी बात", "Good news"]},
+    {say: "किसी ने बैंक से बोलकर फोन किया था। मैंने अभी थोड़ी देर पहले बता दिया।", outcome: [confirm, answered, handoff, clarify]},
+    {say: "क्या मेरे पैसे निकल गए हैं?", outcome: [answered, confirm, clarify, handoff], lacks: ["अच्छी बात"]},
+    {say: "ठीक है, connect कर दीजिए।", outcome: [handoff]}]}
+- {id: R10-temp-block, cls: action, caller: "9000000101", turns: [
+    {say: "I want to temporarily block my credit card ending 6712.", outcome: [confirm], has: ["temporarily", "6712"], lacks: ["permanently"]},
+    {say: "Yes.", outcome: [action_done], has: ["temporarily blocked"]},
+    {say: "Can I unblock it tomorrow?", outcome: [answered, confirm, clarify]}]}
+- {id: R10b-permanent-then-no, cls: action, caller: "9000000101", turns: [
+    {say: "Permanently block my credit card ending 6712.", outcome: [confirm], has: ["permanently", "can't be undone"]},
+    {say: "No, don't block it.", outcome: [cancelled, answered, smalltalk]}]}
+- {id: R22-which-card-then-change, cls: action, caller: "9000000101", turns: [
+    {say: "I want to block my card.", outcome: [clarify, confirm]},
+    {say: "The credit card ending 6712.", outcome: [confirm, clarify]},  # since 17 Nov: temporary or permanent is asked first
+    {say: "Actually, make that a permanent block.", outcome: [confirm], has: ["permanently"]},
+    {say: "No, don't block it.", outcome: [cancelled, answered, smalltalk]}]}
+- {id: R26-stolen-no-block, cls: fraud, caller: "9000000105", turns: [
+    {say: "My card is stolen, but I don't want to block it.", outcome: [confirm, answered, clarify, handoff, auth_required], lacks: ["is now blocked", "has been blocked"]}]}
+- {id: R27-otp-nothing-happened, cls: fraud, caller: "9000000101", turns: [
+    {say: "I shared my OTP, but nothing happened.", outcome: [confirm, handoff, auth_required, answered], lacks: ["Good news", "nothing to worry"]}]}
+
+# ── Stage 3: language and dialogue ──
+- {id: R11-language-switch, cls: language, caller: "9000000101", turns: [
+    {say: "मुझे मेरा account balance बताइए।", outcome: [answered, clarify]},
+    {say: "Okay, and how much is available?", outcome: [answered], has: ["79,850"]},
+    {say: "अच्छा, ये payment किसके लिए है?", outcome: [answered, clarify]},
+    {say: "Yes.", outcome: [smalltalk, answered, clarify]}]}
+- {id: R13-topic-switch, cls: dialogue, caller: "9000000107", turns: [
+    {say: "Tell me when my next Gold Loan EMI is due.", outcome: [answered], has: ["5,400"]},
+    {say: "And how many loans do I have?", outcome: [answered], has_any: ["one active loan", "एक लोन"], lacks: ["5,400"]},
+    {say: "Show me the last five transactions.", outcome: [answered], lacks: ["You have ₹"]},
+    {say: "Actually, only the UPI transactions.", outcome: [answered]},
+    {say: "How much did I spend on those?", outcome: [answered, clarify]}]}
+- {id: R16-each-account, cls: transactions, caller: "9000000101", turns: [
+    {say: "Show me my five transactions in each account.", outcome: [answered, clarify]},
+    {say: "Was my salary credited to account 4512?", outcome: [answered, clarify], has: ["4512"]}]}
+- {id: R29-human, cls: transfer, caller: null, turns: [
+    {say: "I want to speak to a human.", outcome: [handoff, confirm]}]}
+
+# ── Stage 4: the LLM down (Groq 429) ──
+- {id: R14-llm-down-hi, cls: reliability, caller: "9000000101", llm_down: true, turns: [
+    {say: "मुझे मेरे account का balance बताइए।", outcome: [error], lacks: ["₹"]},
+    {say: "हाँ, मुझे आपकी team से connect कर दीजिए।", outcome: [handoff]}]}
+- {id: R14-llm-down-en, cls: reliability, caller: "9000000101", llm_down: true, turns: [
+    {say: "What's my account balance?", outcome: [error], lacks: ["₹"]},
+    {say: "Yes, connect me to your team.", outcome: [handoff]}]}
+
+# ══ Targeted checks from the PM's 17 Nov test list (card consent, loans and EMIs, transactions, context), several cases
+# merged per call. Ravi (101): debit 3390 (Value 4521) and 7781 (Digital 4512, inactive), credit 6712 and 2208; home loan
+# 0101 and personal loan 0102 (last EMI returned). Pooja (106): UPI out and in. Sunita (107): one gold loan.
+
+# ── A. card blocking and consent ──
+- {id: A1-ask-type-then-change, cls: action, caller: "9000000101", turns: [
+    {say: "I want to block my card.", outcome: [clarify], has: ["temporarily", "permanently"]},
+    {say: "Temporarily. The credit card ending 6712.", outcome: [confirm], has: ["temporarily", "6712"], lacks: ["permanently block"]},
+    {say: "Actually, make it permanent.", outcome: [confirm], has: ["permanently", "6712"]},
+    {say: "Will I get a replacement card?", outcome: [answered, confirm, clarify], lacks: ["is now permanently blocked"]},
+    {say: "No.", outcome: [cancelled], lacks: ["is now"]}]}
+- {id: A2-yes-block-and-connect, cls: action, caller: "9000000101", turns: [
+    {say: "Permanently block my credit card ending 2208.", outcome: [confirm], has: ["permanently", "2208"]},
+    {say: "Yes, block it and connect me to someone.", outcome: [handoff, action_done], has: ["blocked"]}]}
+- {id: A3-no-but-connect, cls: action, caller: "9000000101", turns: [
+    {say: "Temporarily block my debit card ending 3390.", outcome: [confirm], has: ["3390"]},
+    {say: "No, don't block it, but connect me to the card team.", outcome: [handoff], lacks: ["is now", "blocked."]}]}
+- {id: A4-lost-dont-block-yet, cls: fraud, caller: "9000000101", turns: [
+    {say: "I lost my debit card ending 3390. Don't block it yet, just connect me to fraud.", outcome: [handoff, confirm, answered],
+     lacks: ["is now", "Shall I block", "I'll permanently block"]}]}
+- {id: A5-temp-then-unblock-at-10, cls: action, caller: "9000000101", turns: [
+    {say: "Block my credit card ending 6712 temporarily.", outcome: [confirm], has: ["temporarily"]},
+    {say: "Yes.", outcome: [action_done], has: ["temporarily blocked"]},
+    {say: "Unblock it tomorrow at 10 AM.", outcome: [answered, confirm, clarify], lacks: ["scheduled", "is active again"]}]}
+
+# ── C. loans and EMIs ──
+- {id: C1-home-loan-scope, cls: loans, caller: "9000000101", turns: [
+    {say: "When was my last home loan EMI?", outcome: [answered], has: ["home loan", "paid"], lacks: ["is due on"]},
+    {say: "How much have I paid so far?", outcome: [answered], has: ["home loan"], lacks: ["personal loan"]},
+    {say: "How much have I paid across all my loans?", outcome: [answered], has: ["home loan", "personal loan"]},
+    {say: "How much is left on my home loan?", outcome: [answered], has: ["outstanding"]},
+    {say: "How many instalments are left?", outcome: [answered], has_any: ["left", "remaining"]}]}
+- {id: C2-which-loan-then-bounce, cls: loans, caller: "9000000101", turns: [
+    {say: "How many EMIs have I paid?", outcome: [clarify, answered]},
+    {say: "The personal loan.", outcome: [answered], has: ["personal loan"]},
+    {say: "My EMI bounced. Has it been paid now?", outcome: [answered, clarify], has: ["personal loan"]},
+    {say: "When did money last leave my account for my EMI?", outcome: [answered, clarify]}]}
+- {id: C3-loan-hi-hinglish, cls: loans, caller: "9000000107", turns: [
+    {say: "Last EMI kab kati thi?", outcome: [answered], lacks: ["due hai", "अगली"]},
+    {say: "अगली किस्त कब है?", outcome: [answered], has: ["5,400"]},
+    {say: "Loan mein abhi kitna outstanding hai?", outcome: [answered], has: ["60,000"]},
+    {say: "Maine ab tak kitna repay kiya?", outcome: [answered, clarify], has_any: ["repay", "चुकाए"]}]}
+
+# ── D. transactions and balances ──
+- {id: D1-each-and-hold, cls: transactions, caller: "9000000101", turns: [
+    {say: "Show five transactions in each account.", outcome: [answered], has: ["4512", "4521", "First,", "Finally,"]},
+    {say: "Show only the failed ones.", outcome: [answered, clarify], has_any: ["unsuccessful", "returned"]},
+    {say: "Why is 2,500 rupees blocked?", outcome: [answered], has_any: ["hold", "pending"]},
+    {say: "What is my available balance excluding the hold?", outcome: [answered], has: ["79,850"]},
+    {say: "Did the pending payment get reversed?", outcome: [answered, clarify], lacks: ["was reversed", "has been reversed"]}]}
+- {id: D2-upi-in-and-out, cls: transactions, caller: "9000000106", turns: [
+    {say: "Show my last five transactions, only the debits.", outcome: [answered], lacks: ["from Rajesh", "salary"]},
+    {say: "How much did people send me through UPI?", outcome: [answered, clarify]},
+    {say: "And how much did I spend on UPI?", outcome: [answered], has: ["UPI"]}]}
+
+# ── E. context and several requests ──
+- {id: E1-topic-switch-next-one, cls: dialogue, caller: "9000000101", turns: [
+    {say: "Show my balance, and also tell me when my next EMI is.", outcome: [answered], has: ["79,850", "due"]},
+    {say: "When is my next home loan EMI?", outcome: [answered], has: ["home loan", "due"]},
+    {say: "What is my balance?", outcome: [answered], has: ["79,850"]},
+    {say: "And when is the next one?", outcome: [answered, clarify]}]}

@@ -23,7 +23,7 @@ English, Hindi and Hinglish. Security and compliance come before features.
 | `adr/` | Architecture decision records |
 | `context/` | Project memory: tracker, pending work, architecture, standards, rules |
 | `docs/deployment-costs-and-options.xlsx` + `docs/deployment-options-and-costs.md` | Cost estimate (13 Nov) for 100 calls at once, and the AWS proposal behind it |
-| `docs/manual-test-scripts.md`, `docs/test-call-scripts.md` | Test calls to run yourself, with what to expect |
+| `docs/test-call-scripts.md` | Test calls to run yourself, with what to expect |
 | `docs/work-tracker.xlsx` | The owner's own work log: daily log, interactions, people |
 | `docs/diagrams/diagrams.md` | All diagrams (Mermaid), each with a short explanation |
 | `reference/PROJECT-GUIDE.md` | The complete project guide (see the table above) |
@@ -45,6 +45,6 @@ bun run dev
 ```
 Open http://localhost:3000. First-time setup: [brain/README.md](brain/README.md), [ui/README.md](ui/README.md).
 
-Tests: `cd brain && uv run pytest -m "not live"` (offline, no Groq calls). Real-LLM checks are rare and replay-cached: see "Tests" in brain/README.md.
+Tests: `cd brain && uv run pytest` (offline, no Groq calls). Real-LLM checks are rare and replay-cached: see "Tests" in brain/README.md.
 
 Open questions and production research still to act on: [reference/PROJECT-GUIDE.md](reference/PROJECT-GUIDE.md) sections 29 and 30.

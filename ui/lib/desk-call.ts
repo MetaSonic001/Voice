@@ -3,6 +3,7 @@
 
 import { wsUrl } from "./api";
 import { echoSafeOutput, type EchoSafeOutput } from "./echo-safe-output";
+import { openMic } from "./mic";
 import { CAPTURE, moduleUrl, PLAYBACK } from "./worklets";
 
 const RATE = 16000;
@@ -19,9 +20,17 @@ export class DeskCall {
   constructor(private onEnd: () => void) {}
 
   async join(handoffId: string, agent: string) {
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-    });
+    try {
+      await this.open(handoffId, agent);
+    } catch (err) {
+      this.ws?.close();
+      this.release(); // setup failed after the mic opened: don't leave it on
+      throw err;
+    }
+  }
+
+  private async open(handoffId: string, agent: string) {
+    this.stream = (await openMic()).stream; // same processing as before; see mic.ts
     this.ctx = new AudioContext({ sampleRate: RATE });
     for (const source of [CAPTURE, PLAYBACK]) {
       const url = moduleUrl(source);

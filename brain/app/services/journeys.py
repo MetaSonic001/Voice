@@ -17,7 +17,7 @@ from app.services import actions as card_actions
 from app.services.audit import mask_number
 from app.services.confirm import block_preference, read_reply
 from app.services.desk import DEPARTMENTS, TAT_DAYS, add_working_days, department_name
-from app.services.personal import PersonalQuery, _duplicates, _txn_line, day, money, note_text, period_range
+from app.services.personal import PersonalQuery, _duplicates, _txn_line, day, fill, money, note_text, period_range
 from app.services.workflows import Candidate, find_candidates, recent_card_spend, recent_debits
 from app.services.personal import answer as personal_answer
 
@@ -78,18 +78,20 @@ J = {
     "fraud_recent": {"en": "These are your latest debits: {list}. Is it one of these?",
                      "hi": "ये आपके सबसे हाल के डेबिट हैं: {list}। क्या इनमें से कोई है?",
                      "hinglish": "Yeh aapke latest debits hain: {list}. Kya inmein se koi hai?"},
-    "fraud_no_recent": {"en": "I don't see any debits in the last week. Roughly when did it happen, and how much was it?",
-                        "hi": "पिछले हफ़्ते में मुझे कोई डेबिट नहीं दिख रहा। यह लगभग कब हुआ, और कितनी रकम थी?",
-                        "hinglish": "Pichhle hafte mein mujhe koi debit nahi dikh raha. Yeh lagbhag kab hua, aur kitni amount thi?"},
+    # PM review, 17 Nov: no recent debit must not sound like "all is well"; a person is offered at once
+    "fraud_no_recent": {"en": "I don't see any debits in the last seven days. Roughly when did it happen, and how much was it? If you feel your account isn't safe, I can connect you to our fraud team right away.",
+                        "hi": "पिछले सात दिनों में मुझे कोई डेबिट नहीं दिख रहा। यह लगभग कब हुआ, और कितनी रकम थी? अगर आपको लगता है कि आपका अकाउंट सुरक्षित नहीं है, तो मैं आपको अभी फ्रॉड टीम से जोड़ सकती हूँ।",
+                        "hinglish": "Pichhle saat din mein mujhe koi debit nahi dikh raha. Yeh lagbhag kab hua, aur kitni amount thi? Agar aapko lagta hai ki aapka account safe nahi hai, toh main aapko abhi fraud team se connect kar sakti hoon."},
     "otp_recent": {"en": "Here's what went out in the last two days: {list}.",
                    "hi": "पिछले दो दिनों में ये पेमेंट हुए हैं: {list}।",
                    "hinglish": "Pichhle do din mein yeh payments hue hain: {list}."},
-    "otp_none": {"en": "Good news: I don't see any payments from your account in the last two days.",
-                 "hi": "अच्छी बात यह है कि पिछले दो दिनों में आपके अकाउंट से कोई पेमेंट नहीं हुआ है।",
-                 "hinglish": "Achhi baat yeh hai ki pichhle do din mein aapke account se koi payment nahi hua hai."},
-    "otp_next": {"en": "Please don't share it with anyone again; the bank never asks for it. To be safe, I'd like to connect you to our fraud team now so they can secure your net banking, UPI and cards. Shall I?",
-                 "hi": "कृपया इसे दोबारा किसी को न बताइए; बैंक कभी यह नहीं माँगता। सुरक्षा के लिए मैं आपको अभी फ्रॉड टीम से जोड़ना चाहूँगी, ताकि वे आपकी नेट बैंकिंग, UPI और कार्ड सुरक्षित कर सकें। जोड़ दूँ?",
-                 "hinglish": "Please ise dobara kisi ko mat bataiye; bank kabhi yeh nahi maangta. Safety ke liye main aapko abhi fraud team se connect karna chahungi, taaki woh aapki net banking, UPI aur cards secure kar sakein. Kar doon?"},
+    # A shared code is used for more than payments (logins, new payees, UPI set-up): no payment is not "good news"
+    "otp_none": {"en": "I don't see any payments from your account in the last two days, but a shared code can also be used to log in or add a payee, so your account needs to be secured now.",
+                 "hi": "पिछले दो दिनों में आपके अकाउंट से कोई पेमेंट नहीं दिख रहा, लेकिन शेयर किया गया कोड लॉगिन या नया payee जोड़ने में भी इस्तेमाल हो सकता है, इसलिए आपका अकाउंट अभी सुरक्षित करना ज़रूरी है।",
+                 "hinglish": "Pichhle do din mein aapke account se koi payment nahi dikh raha, lekin share kiya gaya code login ya naya payee add karne mein bhi use ho sakta hai, isliye aapka account abhi secure karna zaroori hai."},
+    "otp_next": {"en": "Please don't share it with anyone again. The bank never asks for it. To be safe, I'd like to connect you to our fraud team now so they can secure your net banking, UPI and cards. Shall I?",
+                 "hi": "कृपया इसे दोबारा किसी को न बताइए। बैंक कभी यह नहीं माँगता। सुरक्षा के लिए मैं आपको अभी फ्रॉड टीम से जोड़ना चाहूँगी, ताकि वे आपकी नेट बैंकिंग, UPI और कार्ड सुरक्षित कर सकें। जोड़ दूँ?",
+                 "hinglish": "Please ise dobara kisi ko mat bataiye. Bank kabhi yeh nahi maangta. Safety ke liye main aapko abhi fraud team se connect karna chahungi, taaki woh aapki net banking, UPI aur cards secure kar sakein. Kar doon?"},
     "lead_offer_apply": {"en": "Would you like someone from our team to call you and help you apply?",
                          "hi": "क्या आप चाहेंगे कि हमारी टीम आपको कॉल करके आवेदन में मदद करे?",
                          "hinglish": "Kya aap chahenge ki hamari team aapko call karke apply karne mein madad kare?"},
@@ -102,18 +104,34 @@ J = {
     "fraud_followup_generic": {"en": "Shall I connect you to our fraud team now, so they can check your recent transactions with you?",
                                "hi": "क्या मैं आपको अभी फ्रॉड टीम से जोड़ दूँ, ताकि वे आपके हाल के ट्रांज़ैक्शन आपके साथ जाँच सकें?",
                                "hinglish": "Kya main aapko abhi fraud team se connect kar doon, taaki woh aapke recent transactions aapke saath check kar sakein?"},
+    "replacement_yes": {"en": "Yes. With a permanent block, a replacement card is sent to your registered address.",
+                        "hi": "जी हाँ। परमानेंट ब्लॉक के साथ नया कार्ड आपके रजिस्टर्ड पते पर भेजा जाता है।",
+                        "hinglish": "Ji haan. Permanent block ke saath naya card aapke registered address par bheja jaata hai."},
+    "replacement_temp": {"en": "No. A temporary block keeps the same card, so you can unblock it later. A new card comes only with a permanent block.",
+                         "hi": "नहीं। टेम्पररी ब्लॉक में वही कार्ड रहता है, जिसे बाद में चालू किया जा सकता है। नया कार्ड सिर्फ़ परमानेंट ब्लॉक पर आता है।",
+                         "hinglish": "Nahi. Temporary block mein wahi card rehta hai, jise baad mein unblock kar sakte hain. Naya card sirf permanent block par aata hai."},
+    # "unblock it tomorrow at 10": a later unblock cannot be booked; said plainly, nothing is scheduled or done
+    "action_scheduled_no": {"en": "I can't schedule that for later. I can unblock it right now, or you can call us tomorrow and it will be done on the call. Would you like me to unblock it now?",
+                            "hi": "मैं इसे बाद के लिए शेड्यूल नहीं कर सकती। मैं इसे अभी अनब्लॉक कर सकती हूँ, या आप कल कॉल करें तो कॉल पर ही हो जाएगा। क्या अभी अनब्लॉक कर दूँ?",
+                            "hinglish": "Main ise baad ke liye schedule nahi kar sakti. Main ise abhi unblock kar sakti hoon, ya aap kal call karein toh call par hi ho jayega. Kya abhi unblock kar doon?"},
+    "block_type_q": {"en": "Would you like to block your card temporarily, so you can unblock it later, or permanently, with a replacement card sent to you?",
+                     "hi": "आप कार्ड को टेम्पररी ब्लॉक करना चाहेंगे, जिसे बाद में फिर से चालू किया जा सके, या परमानेंट ब्लॉक करके नया कार्ड मँगवाना चाहेंगे?",
+                     "hinglish": "Aap card ko temporarily block karna chahenge, jise baad mein unblock kar sakte hain, ya permanently block karke naya card mangwana chahenge?"},
+    "block_type_again": {"en": "Sorry, should I block it temporarily or permanently?", "hi": "माफ़ कीजिए, टेम्पररी ब्लॉक करूँ या परमानेंट?",
+                         "hinglish": "Sorry, temporarily block karun ya permanently?"},
     "open_request": {"en": "By the way, I can see you have an open {kind} with us about {topic}. Is today's call about that?",
-                     "hi": "वैसे, मुझे आपका एक खुला {kind} दिख रहा है ({topic})। क्या आज की कॉल उसी के बारे में है?",
-                     "hinglish": "Waise, mujhe aapki ek open {kind} dikh rahi hai ({topic}). Kya aaj ki call usi ke baare mein hai?"},
+                     "hi": "वैसे, मुझे आपका एक खुला {kind} दिख रहा है, जो {topic} के बारे में है। क्या आज की कॉल उसी के बारे में है?",
+                     "hinglish": "Waise, mujhe aapki ek open {kind} dikh rahi hai, {topic} ke baare mein. Kya aaj ki call usi ke baare mein hai?"},
     "fraud_none": {"en": "I couldn't find a payment like that in your recent activity. Could you tell me roughly when it happened, which account or card, and who it was paid to?",
                    "hi": "आपके हाल के ट्रांज़ैक्शन में ऐसा कोई पेमेंट नहीं मिला। क्या आप बता सकते हैं कि यह लगभग कब हुआ, किस अकाउंट या कार्ड से, और किसे पेमेंट हुआ?",
                    "hinglish": "Aapke recent transactions mein aisa koi payment nahi mila. Kya aap bata sakte hain ki yeh lagbhag kab hua, kis account ya card se, aur kisko payment hua?"},
     "fraud_many": {"en": "I can see {n} payments that could be it: {list}. Which one is it?",
                    "hi": "मुझे {n} पेमेंट दिख रहे हैं जो यह हो सकते हैं: {list}। इनमें से कौन सा है?",
                    "hinglish": "Mujhe {n} payments dikh rahe hain jo yeh ho sakte hain: {list}. Inmein se kaunsa hai?"},
-    "fraud_pending": {"en": "That one is still processing, so it may still be reversed by itself.",
-                      "hi": "वह पेमेंट अभी प्रोसेस हो रहा है, इसलिए हो सकता है वह अपने आप वापस हो जाए।",
-                      "hinglish": "Woh payment abhi process ho raha hai, isliye ho sakta hai woh apne aap reverse ho jaye."},
+    # The status as the bank shows it, never a guess about how it ends ("may be reversed by itself" invited waiting)
+    "fraud_pending": {"en": "It's still showing as processing. Since you don't recognise it, it's best to report it now.",
+                      "hi": "यह अभी प्रोसेसिंग में दिख रहा है। आप इसे पहचानते नहीं हैं, इसलिए इसे अभी रिपोर्ट करना सबसे अच्छा है।",
+                      "hinglish": "Yeh abhi processing mein dikh raha hai. Aap ise pehchaante nahi hain, isliye ise abhi report karna best hai."},
     "fraud_reversed": {"en": "That payment was reversed, so the money is back in your account. If there's another one you don't recognise, tell me.",
                        "hi": "वह पेमेंट वापस हो चुका है, इसलिए पैसा आपके अकाउंट में लौट आया है। कोई और पेमेंट पहचान में न आए तो बताइए।",
                        "hinglish": "Woh payment reverse ho chuka hai, isliye paisa aapke account mein wapas aa gaya hai. Koi aur payment pehchaan mein na aaye toh bataiye."},
@@ -134,9 +152,9 @@ J = {
                      "hinglish": "Please apna OTP, PIN ya CVV kisi ko mat bataiye. Aap cyber crime helpline 1930 par bhi report kar sakte hain."},
     "already_blocked": {"en": "Your {card} is already blocked, so it can't be used.", "hi": "आपका {card} पहले से ब्लॉक है, इसलिए इस्तेमाल नहीं हो सकता।",
                         "hinglish": "Aapka {card} pehle se blocked hai, isliye use nahi ho sakta."},
-    "issue_details": {"en": "I'm sorry about that; let me look into it. Roughly how much was it, and when did it happen?",
-                      "hi": "इसके लिए खेद है; मैं देखती हूँ। लगभग कितने रुपये थे, और यह कब हुआ?",
-                      "hinglish": "Iske liye sorry; main dekhti hoon. Lagbhag kitne rupaye the, aur yeh kab hua?"},
+    "issue_details": {"en": "I'm sorry about that. Let me look into it. Roughly how much was it, and when did it happen?",
+                      "hi": "इसके लिए खेद है। मैं देखती हूँ। लगभग कितने रुपये थे, और यह कब हुआ?",
+                      "hinglish": "Iske liye sorry. Main dekhti hoon. Lagbhag kitne rupaye the, aur yeh kab hua?"},
     "offer_ticket": {"en": "Would you like me to raise a {kind} with our {dept} team? They'll get back to you by {date}.",
                      "hi": "क्या मैं हमारी {dept} टीम के पास {kind} दर्ज कर दूँ? वे {date} तक आपसे संपर्क करेंगे।",
                      "hinglish": "Kya main hamari {dept} team ke paas {kind} raise kar doon? Woh {date} tak aapse contact karenge."},
@@ -152,15 +170,47 @@ J = {
     "lead_offer": {"en": "Would you like someone from our team to call you to help you open it?",
                    "hi": "क्या आप चाहेंगे कि हमारी टीम आपको अकाउंट खुलवाने में मदद के लिए कॉल करे?",
                    "hinglish": "Kya aap chahenge ki hamari team aapko account kholne mein madad ke liye call kare?"},
-    "lead_done": {"en": "Lovely. Someone from our team will call you on this number by {date}; your reference is {ref}. You can also open a Digital account yourself in the AU 0101 app with a quick video KYC.",
-                  "hi": "बढ़िया। हमारी टीम {date} तक इसी नंबर पर आपको कॉल करेगी; आपका रेफ़रेंस {ref} है। आप AU 0101 ऐप में वीडियो KYC से खुद भी डिजिटल अकाउंट खोल सकते हैं।",
-                  "hinglish": "Badhiya. Hamari team {date} tak isi number par aapko call karegi; aapka reference {ref} hai. Aap AU 0101 app mein video KYC se khud bhi Digital account khol sakte hain."},
+    "lead_done": {"en": "Lovely. Someone from our team will call you on this number by {date}. Your reference is {ref}. You can also open a Digital account yourself in the AU 0101 app with a quick video KYC.",
+                  "hi": "बढ़िया। हमारी टीम {date} तक इसी नंबर पर आपको कॉल करेगी। आपका रेफ़रेंस {ref} है। आप AU 0101 ऐप में वीडियो KYC से खुद भी डिजिटल अकाउंट खोल सकते हैं।",
+                  "hinglish": "Badhiya. Hamari team {date} tak isi number par aapko call karegi. Aapka reference {ref} hai. Aap AU 0101 app mein video KYC se khud bhi Digital account khol sakte hain."},
     "lead_no_number": {"en": "You can open a Digital account yourself in the AU 0101 app with a quick video KYC, or visit any AU branch.",
                        "hi": "आप AU 0101 ऐप में वीडियो KYC से खुद डिजिटल अकाउंट खोल सकते हैं, या किसी भी AU ब्रांच में जा सकते हैं।",
                        "hinglish": "Aap AU 0101 app mein video KYC se khud Digital account khol sakte hain, ya kisi bhi AU branch mein ja sakte hain."},
-    "busy_callback": {"en": "I'm sorry for the wait; everyone in our {dept} team is busy right now. I've booked a callback for you, reference {ref}, and they'll call you on your registered number by {date}. Thank you for calling AU Bank.",
-                      "hi": "इंतज़ार के लिए माफ़ी; हमारी {dept} टीम अभी व्यस्त है। मैंने आपके लिए कॉलबैक बुक कर दिया है, रेफ़रेंस {ref}, और वे {date} तक आपके रजिस्टर्ड नंबर पर कॉल करेंगे। AU बैंक को कॉल करने के लिए धन्यवाद।",
-                      "hinglish": "Wait ke liye sorry; hamari {dept} team abhi busy hai. Maine aapke liye callback book kar diya hai, reference {ref}, aur woh {date} tak aapke registered number par call karenge. AU Bank ko call karne ke liye thank you."},
+    "busy_callback": {"en": "I'm sorry for the wait. Everyone in our {dept} team is busy right now. I've booked a callback for you, reference {ref}, and they'll call you on your registered number by {date}. Thank you for calling AU Bank.",
+                      "hi": "इंतज़ार के लिए माफ़ी। हमारी {dept} टीम अभी व्यस्त है। मैंने आपके लिए कॉलबैक बुक कर दिया है, रेफ़रेंस {ref}, और वे {date} तक आपके रजिस्टर्ड नंबर पर कॉल करेंगे। AU बैंक को कॉल करने के लिए धन्यवाद।",
+                      "hinglish": "Wait ke liye sorry. Hamari {dept} team abhi busy hai. Maine aapke liye callback book kar diya hai, reference {ref}, aur woh {date} tak aapke registered number par call karenge. AU Bank ko call karne ke liye thank you."},
+    # Regression pack, 17 Nov: a side question or a detail while a fraud offer waits keeps the offer (it used to be dropped,
+    # the payment forgotten, and "yes, raise a complaint" re-listed debits). Answers never promise an outcome.
+    "fraud_side_q": {"en": "I can't confirm that from here. The fraud team can check it with you.",
+                     "hi": "यह मैं यहाँ से पक्का नहीं कह सकती। फ्रॉड टीम आपके साथ इसे जाँच सकती है।",
+                     "hinglish": "Yeh main yahan se pakka nahi keh sakti. Fraud team aapke saath ise check kar sakti hai."},
+    "fraud_context": {"en": "No, I'll pass on everything we've discussed, so you won't need to repeat it.",
+                      "hi": "नहीं, हमारी पूरी बात मैं उन्हें बता दूँगी, आपको दोबारा बताना नहीं पड़ेगा।",
+                      "hinglish": "Nahi, hamari poori baat main unhe bata dungi, aapko dobara batana nahi padega."},
+    "fraud_noted": {"en": "Thank you, I'll pass that on to the fraud team.", "hi": "धन्यवाद, यह बात मैं फ्रॉड टीम को बता दूँगी।",
+                    "hinglish": "Thank you, yeh baat main fraud team ko bata dungi."},
+    "fraud_restate_ticket": {"en": "Shall I raise the complaint and connect you to them now?",
+                             "hi": "क्या मैं शिकायत दर्ज करके आपको अभी उनसे जोड़ दूँ?",
+                             "hinglish": "Kya main complaint raise karke aapko abhi unse connect kar doon?"},
+    "fraud_restate": {"en": "Shall I connect you to them now?", "hi": "क्या मैं आपको अभी उनसे जोड़ दूँ?",
+                      "hinglish": "Kya main aapko abhi unse connect kar doon?"},
+    "fraud_pick_more": {"en": "That's okay. Do you remember roughly how much it was, or whether it was by UPI, card or ATM? If you'd rather, I can connect you to our fraud team now.",
+                        "hi": "कोई बात नहीं। क्या आपको याद है कि रकम लगभग कितनी थी, या पेमेंट UPI, कार्ड या ATM से हुआ था? चाहें तो मैं आपको अभी फ्रॉड टीम से जोड़ सकती हूँ।",
+                        "hinglish": "Koi baat nahi. Kya aapko yaad hai amount lagbhag kitna tha, ya payment UPI, card ya ATM se hua tha? Chahein toh main aapko abhi fraud team se connect kar sakti hoon."},
+    "fraud_safe_q": {"en": "I can't confirm that from the transactions alone. If you think someone has used your account, I can connect you to our fraud team right away. Shall I?",
+                     "hi": "सिर्फ़ ट्रांज़ैक्शन देखकर मैं यह पक्का नहीं कह सकती। अगर आपको लगता है कि किसी ने आपका अकाउंट इस्तेमाल किया है, तो मैं आपको अभी फ्रॉड टीम से जोड़ सकती हूँ। जोड़ दूँ?",
+                     "hinglish": "Sirf transactions dekhkar main yeh pakka nahi keh sakti. Agar aapko lagta hai ki kisi ne aapka account use kiya hai, toh main aapko abhi fraud team se connect kar sakti hoon. Kar doon?"},
+    # "my card is stolen, but don't block it": no block is offered; the risk is said and the fraud team offered
+    "lost_no_block": {"en": "All right, I won't block it. While the card is out of your hands, someone could still use it, so our fraud team should look at other ways to protect you. Shall I connect you to them now?",
+                      "hi": "ठीक है, मैं इसे ब्लॉक नहीं करूँगी। कार्ड आपके पास नहीं है, इसलिए कोई इसे इस्तेमाल कर सकता है। हमारी फ्रॉड टीम आपको बचाने के दूसरे तरीके देख सकती है। क्या मैं आपको अभी उनसे जोड़ दूँ?",
+                      "hinglish": "Theek hai, main ise block nahi karungi. Card aapke paas nahi hai, isliye koi ise use kar sakta hai. Hamari fraud team aapko bachane ke doosre tareeke dekh sakti hai. Kya main aapko abhi unse connect kar doon?"},
+    # "can I unblock it tomorrow?" is a question about later, not an order to do it now
+    "action_later_unblock": {"en": "Yes. It stays blocked until you ask us to unblock it. Just call us when you're ready and it can be done on the call.",
+                             "hi": "जी हाँ। जब तक आप अनब्लॉक करने को नहीं कहते, यह ब्लॉक रहेगा। जब चाहें हमें कॉल कीजिए, कॉल पर ही हो जाएगा।",
+                             "hinglish": "Ji haan. Jab tak aap unblock karne ko nahi kehte, yeh block rahega. Jab chahein humein call kijiye, call par hi ho jayega."},
+    "action_later": {"en": "Yes, you can. Just call us when you're ready and it can be done on the call.",
+                     "hi": "जी, ज़रूर। जब चाहें हमें कॉल कीजिए, कॉल पर ही हो जाएगा।",
+                     "hinglish": "Ji, bilkul. Jab chahein humein call kijiye, call par hi ho jayega."},
     "restate_transfer": {"en": "I'd connect you to our {dept} team, who handle {what}. Shall I go ahead?",
                          "hi": "मैं आपको हमारी {dept} टीम से जोड़ूँगी, जो {what} देखती है। जोड़ दूँ?",
                          "hinglish": "Main aapko hamari {dept} team se connect karungi, jo {what} dekhti hai. Kar doon?"},
@@ -168,7 +218,18 @@ J = {
 
 
 def j(key: str, lang: str, **values) -> str:
-    return J[key].get(lang, J[key]["en"]).format(**values)
+    return fill(J, key, lang, **values)
+
+
+_REPEAT_ASKED = re.compile(r"\b(explain|repeat|again|dobara|phir se)\b|दोबारा|फिर से", re.I)
+
+
+_PERMANENT = re.compile(r"\bperman\w*|\bfor good\b|\breplace\w*|\bnew card\b|naya card|hamesha|परमानेंट|स्थायी|हमेशा|नया कार्ड", re.I)
+_TEMPORARY = re.compile(r"\btempor\w*|\btemp\b|for now|for a while|abhi ke liye|kuch (time|der|din)|टेम्पररी|अस्थायी|अभी के लिए|कुछ (समय|दिन)", re.I)
+
+
+_REPLACEMENT = re.compile(r"\b(replace\w*|new card|another card)\b|naya card|नया कार्ड", re.I)
+_CONNECT_ASKED = re.compile(r"\b(connect|transfer|put me through|speak to|talk to)\b|connect kar|बात करा|जोड़", re.I)
 
 
 def pending(kind: str, lang: str, /, **data) -> dict:
@@ -224,12 +285,32 @@ class Journeys:
                 plan, text, _ = card_actions.plan(customer, {"type": "block", "card": p["plan"]["kind"],
                                                              "card_last4": p["plan"]["last4"], "block": pref}, lang)
                 if plan:
-                    return Step([text], "confirm", pending={**p, "plan": plan.to_dict(), "at": datetime.now().astimezone().isoformat()})
+                    return Step([text], "confirm", pending={**p, "plan": plan.to_dict(), "question": text,
+                                                            "at": datetime.now().astimezone().isoformat()})
         if kind == "fraud_pick":  # the answer to "which one is it?": an ordinal or the amount, read in code
             pick = _pick_candidate(raw, [Candidate(**c) for c in p["cands"]])
             customer = self.auth.verified_customer(session_id) if pick else None
             if pick and customer:
                 return self._fraud_one(session_id, customer, pick, p["req"], lang)
+            if reply == "question" and len(raw.split()) <= 15:  # "so my account is safe?": no promise, the fraud team offered
+                return Step([j("fraud_safe_q", lang)], "confirm",
+                            pending=pending("handoff", lang, department="fraud", reason="caller unsure about an unrecognised payment"))
+            if not p.get("asked_more") and reply in ("unclear", "no") and len(raw.split()) <= 15:  # "not sure, maybe last week"
+                return Step([j("fraud_pick_more", lang)], "clarify", pending={**p, "asked_more": True})
+            return None
+        if kind == "block_type":  # the answer to "temporarily, or permanently?", read in code
+            block = "permanent" if _PERMANENT.search(raw) else "temporary" if _TEMPORARY.search(raw) else ""
+            digits = re.search(r"(?<!\d)(\d{4})(?!\d)", raw)
+            card = "credit" if _CREDIT.search(raw) else "debit" if _DEBIT.search(raw) else ""
+            req = p["req"] | ({"card_last4": digits.group(1)} if digits else {}) | ({"card": card} if card else {})
+            customer = self.auth.verified_customer(session_id) if block else None
+            if customer:
+                return self.action(session_id, customer, req | {"block": block}, lang, then=p.get("then") or None)
+            if reply == "no" and len(raw.split()) <= 5:
+                return Step([j("cancelled", lang)], "cancelled", data={"declined": kind})
+            if not p.get("asked_again") and (digits or card or reply in ("unclear", "yes")) and len(raw.split()) <= 8:
+                # "the credit card ending 6712": the card is kept, the choice is asked once more
+                return Step([j("block_type_again", lang)], "clarify", pending={**p, "req": req, "asked_again": True})
             return None
         if kind == "action_target":  # the answer to "which card?": last digits or debit / credit, read in code
             digits = re.search(r"(?<!\d)(\d{4})(?!\d)", raw)
@@ -248,6 +329,10 @@ class Journeys:
                 return None
             return Step([j("cancelled", lang)], "cancelled", data={"declined": kind})
         if reply == "question":
+            if kind == "fraud_followup" and len(raw.split()) <= 15:  # "will I get the money back?": the offer stays
+                again = "fraud_restate_ticket" if p.get("ticket") else "fraud_restate"
+                said = "fraud_context" if _REPEAT_ASKED.search(raw) else "fraud_side_q"  # "do I need to explain it all again?"
+                return Step([j(said, lang), j(again, lang)], "confirm", pending=p)
             if len(raw.split()) > 6:  # a new question, not "which card?": answer it instead
                 return None
             if kind == "handoff":
@@ -255,15 +340,28 @@ class Journeys:
                 return Step([j("restate_transfer", lang, dept=department_name(dept, lang), what=DEPARTMENTS[dept][3])],
                             "confirm", pending=p)
             if kind == "action":
-                return Step([p["question"]], "confirm", pending=p)  # restate: it names the exact card
+                said = []
+                if _REPLACEMENT.search(raw) and p["plan"]["action"] in ("block", "temp_block"):  # "will I get a new card?"
+                    said = [j("replacement_yes" if p["plan"]["action"] == "block" else "replacement_temp", lang)]
+                return Step(said + [p["question"]], "confirm", pending=p)  # restate: it names the exact card
             return None
+        if kind == "fraud_followup" and reply == "unclear" and not p.get("noted") and len(raw.split()) <= 25:
+            # a detail ("someone called saying they were from the bank"): noted for the team, the offer asked again once
+            again = "fraud_restate_ticket" if p.get("ticket") else "fraud_restate"
+            return Step([j("fraud_noted", lang), j(again, lang)], "confirm", pending={**p, "noted": True})
         if reply != "yes":
             return None
         if kind == "more":
             return Step(p["lines"], "answered")
         customer = self.auth.verified_customer(session_id) if self.auth else None
         if kind == "action":
-            return self._do_action(session_id, customer, p, lang)
+            done = self._do_action(session_id, customer, p, lang)
+            if _CONNECT_ASKED.search(raw) and done.outcome in ("action_done", "confirm") and not done.handoff:
+                dept = "credit_cards" if p["plan"].get("kind") == "credit" else "debit_cards"
+                then = self.start_handoff(session_id, customer, dept, "caller asked for a person after a card action", lang, channel)
+                return Step(done.sentences + then.sentences, then.outcome, route=then.route, data={**done.data, **then.data},
+                            handoff=then.handoff)
+            return done
         if kind == "ticket":
             return self._raise(session_id, customer, p, lang)
         if kind == "fraud_followup":
@@ -314,9 +412,23 @@ class Journeys:
     # ───────── card actions ─────────
 
     def action(self, session_id: str, customer: Customer, req: dict, lang: str, then: dict | None = None) -> Step:
+        if req.get("ask_only"):  # "can I unblock it tomorrow?": answered, nothing is offered for now
+            return Step([j("action_later_unblock" if req.get("type") == "unblock" else "action_later", lang)], "answered")
+        if req.get("no_block") and req.get("type") == "block":  # "don't block it yet, just connect me to fraud": no block
+            return Step([j("lost_no_block", lang)], "confirm",
+                        pending=pending("handoff", lang, department="fraud", reason="card out of the caller's hands; caller asked not to block it yet"))
+        if req.get("later"):  # "unblock it tomorrow at 10 AM": not something we can book; the caller decides about now
+            step = self.action(session_id, customer, {k: v for k, v in req.items() if k != "later"}, lang, then)
+            if step.outcome == "confirm" and step.pending:
+                return Step([j("action_scheduled_no", lang)], "confirm", pending=step.pending)
+            return step
         if req.get("type") in ("other", "", "none"):
             dept = req.get("department") or "general"
             return self.offer_transfer(dept, lang, "a request the agent can't do on a call", text_key="not_allowed")
+        if req.get("type") == "block" and not req.get("block"):
+            # "I want to block my card": temporary or permanent is the caller's choice, asked before anything is offered
+            # (PM review, 17 Nov). A lost or stolen card goes through the fraud journey instead, which blocks for good.
+            return Step([j("block_type_q", lang)], "clarify", pending=pending("block_type", lang, req=req, then=then or {}))
         plan, text, needs_card = card_actions.plan(customer, req, lang)
         if plan:
             if plan.action == "unblock" and req.get("type") == "controls" and not then:
@@ -374,6 +486,9 @@ class Journeys:
         risk = req.get("risk") or []
         opening = self._opening(req, lang)
         if "lost_card" in risk and not q.amount:
+            if req.get("no_block"):  # "stolen, but don't block it": nothing is blocked or offered for blocking
+                return Step(opening + [j("lost_no_block", lang)], "confirm",
+                            pending=pending("fraud_followup", lang, what="", reason="stolen card; caller declined a block", ticket=None))
             return self._lost_card(session_id, customer, req, lang)
         if "otp_shared" in risk and not (q.amount or q.keyword or q.period):
             return self._otp_shared(customer, req, lang, opening)

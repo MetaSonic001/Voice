@@ -58,5 +58,6 @@ def is_courtesy(text: str) -> bool:
 def reply_for(text: str, language: str) -> str:
     """One short line that fits what was said ("" if there is nothing to say)."""
     kind = ("thanks" if _THANKS.search(text) else "bye" if _BYE.search(text) else "waiting" if _WAITING.search(text)
-            else "ack" if (_SYMPATHY.search(text) or words(text) in (["ok"], ["okay"], ["achha"], ["acha"], ["theek", "hai"])) else "")
+            else "ack" if (_SYMPATHY.search(text) or words(text) in (["ok"], ["okay"], ["achha"], ["acha"], ["theek", "hai"], ["yes"],
+                                                                      ["haan"], ["ji"], ["हाँ"], ["जी"], ["हां"])) else "")
     return REPLIES[kind].get(language, REPLIES[kind]["en"]) if kind else ""

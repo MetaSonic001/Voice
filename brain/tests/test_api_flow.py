@@ -1,4 +1,6 @@
-"""End to end through the HTTP API with fake models: upload -> index -> search -> ask -> lifecycle -> eval."""
+"""End to end through the HTTP API with fake models: upload -> index -> search -> ask -> lifecycle, plus the golden-set runner."""
+
+from pathlib import Path
 
 import pytest
 
@@ -107,20 +109,16 @@ def test_bad_uploads_are_rejected(client):
     assert client.get("/v1/documents/not-a-uuid").status_code == 404
 
 
-def test_eval_run_produces_report(client, container, doc):
+async def test_golden_runner_scores_and_writes_a_report(container, doc):
+    """The runner behind evals/golden_run.py: scores each item and writes the Markdown report."""
     golden = container.evals.golden_dir / "mini.yaml"
     golden.write_text(
         "- id: balance\n  q: What is the minimum balance requirement for the savings account?\n  lang: en\n"
         "  expect: answer\n  facts: [['10000']]\n  sources: ['Minimum balance']\n"
         "- id: personal\n  q: What is my account balance?\n  lang: en\n  expect: verify\n", encoding="utf-8")
-    run = client.post("/v1/evals/run", json={"golden": "mini"}).json()
-    import time
-
-    for _ in range(50):
-        res = client.get(f"/v1/evals/{run['run_id']}").json()
-        if res["status"] != "running":
-            break
-        time.sleep(0.1)
-    assert res["status"] == "done", res
-    assert res["metrics"]["overall"]["pass_rate"] == 100.0
-    assert "Evaluation run" in client.get(f"/v1/evals/{run['run_id']}/report").text
+    run_id = container.evals.start("mini")
+    metrics = await container.evals.run(run_id, "mini")
+    assert metrics["overall"]["pass_rate"] == 100.0
+    run = container.evals.get(run_id)
+    assert run["status"] == "done"
+    assert "Evaluation run" in Path(run["report_path"]).read_text(encoding="utf-8")

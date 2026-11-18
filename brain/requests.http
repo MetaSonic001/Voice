@@ -159,29 +159,7 @@ POST {{base}}/v1/documents/DOCUMENT_ID/reindex
 ### Soft delete (kept for audit) - add ?purge=true to remove permanently
 DELETE {{base}}/v1/documents/DOCUMENT_ID
 
-### ───────── Evaluation ─────────
-POST {{base}}/v1/evals/run
-Content-Type: application/json
-
-{"golden": "v1"}
-
-### Only some questions
-POST {{base}}/v1/evals/run
-Content-Type: application/json
-
-{"golden": "v1", "only": ["en-zenith-fee", "hi-senior-fd-1y"]}
-
-###
-GET {{base}}/v1/evals
-
-###
-GET {{base}}/v1/evals/RUN_ID
-
-### Markdown report
-GET {{base}}/v1/evals/RUN_ID/report
-
-### Compare two runs (e.g. after changing a model or setting)
-GET {{base}}/v1/evals/compare?a=RUN_A&b=RUN_B
+### Evaluation: run from the command line (uv run python -m evals.golden_run / evals.smoke), not over the API
 
 ### ───────── Metrics (Prometheus) ─────────
 GET {{base}}/metrics

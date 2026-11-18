@@ -2,16 +2,11 @@
 
 import io
 import math
-import struct
 import wave
 
 import numpy as np
 
 BYTES_PER_SAMPLE = 2
-
-
-def ms_to_bytes(ms: float, rate: int) -> int:
-    return int(rate * ms / 1000) * BYTES_PER_SAMPLE
 
 
 def duration_ms(pcm: bytes, rate: int) -> float:
@@ -33,19 +28,6 @@ def to_wav(pcm: bytes, rate: int) -> bytes:
         w.setframerate(rate)
         w.writeframes(pcm)
     return buf.getvalue()
-
-
-def strip_wav_header(data: bytes) -> bytes:
-    """Return raw PCM if `data` is a WAV file, else `data` unchanged."""
-    if data[:4] != b"RIFF" or data[8:12] != b"WAVE":
-        return data
-    pos = 12
-    while pos + 8 <= len(data):
-        chunk_id, size = data[pos:pos + 4], struct.unpack("<I", data[pos + 4:pos + 8])[0]
-        if chunk_id == b"data":
-            return data[pos + 8:pos + 8 + size]
-        pos += 8 + size + (size & 1)
-    return b""
 
 
 def decode(data: bytes, rate: int) -> bytes:

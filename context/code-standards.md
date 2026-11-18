@@ -18,9 +18,9 @@
 
 ## Tests
 
-- Offline tests (`uv run pytest -m "not live"`) use a fake LLM and a throwaway Postgres; they make zero Groq calls.
+- Offline tests (`uv run pytest`) use a fake LLM and a throwaway Postgres; they make zero Groq calls.
 - Every bug from a real call becomes a regression test (code decides: unit test; LLM decides: smoke item).
-- Evals are tiered: unit, replay cache, small smoke set (24 items since 6 Nov, cut from 40 to fit the free tier's daily token cap), full benchmark (rarely). See `reference/PROJECT-GUIDE.md` §20.
+- Evals are tiered: unit, replay cache, small smoke set (24 items since 6 Nov, cut from 40 to fit the free tier's daily token cap), the regression pack and the golden set (rarely). See `reference/PROJECT-GUIDE.md` §20.
 
 ## UI (Next.js)
 

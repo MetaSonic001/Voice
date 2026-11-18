@@ -115,7 +115,6 @@ curl -X POST localhost:8000/v1/auth/verify -H "content-type: application/json" -
 | Conversation | `POST /v1/sessions` (`caller_number`) · `GET /v1/sessions/{id}` · `POST /v1/ask` · `POST /v1/search` |
 | Verification | `POST /v1/auth/verify` · `POST /v1/auth/resend` · `GET /v1/auth/{session_id}` · `POST /v1/auth/end` · `GET /v1/demo/callers` (dev) |
 | Traces | `GET /v1/traces[?outcome=refused]` · `GET /v1/traces/{id}` · `POST /v1/traces/{id}/feedback` (correct / wrong, from testing) |
-| Evaluation | `POST /v1/evals/run` · `GET /v1/evals` · `GET /v1/evals/{id}` · `GET /v1/evals/{id}/report` · `GET /v1/evals/compare?a=&b=` |
 | Voice | `GET /v1/voice/providers` · `POST /v1/voice/stt` · `POST /v1/voice/tts` · `POST /v1/voice/turn` · `WS /v1/voice/stream` |
 | Ops | `GET /health` · `GET /health/ready` · `GET /metrics` · `GET /v1/stats` |
 
@@ -137,14 +136,15 @@ curl -X POST localhost:8000/v1/auth/verify -H "content-type: application/json" -
 
 ### 5. Check accuracy (evaluations)
 ```bash
-uv run brain eval                    # runs evals/golden/v1.yaml (105 questions), prints the summary
-uv run brain eval --only en-zenith-fee hi-senior-fd-1y
+uv run python -m evals.golden_run        # runs evals/golden/v1.yaml (105 questions), paced and replay-cached; prints the summary
+uv run python -m evals.golden_run mine   # another set: evals/golden/mine.yaml
 ```
-- **Where results go:** the report is a Markdown file in `evals/reports/`, also served at `GET /v1/evals/{id}/report`.
+- **Where results go:** a Markdown report in `evals/reports/` (the path is printed at the end).
+- **Not over the API:** the `/v1/evals` endpoints and `brain eval` were removed on 18 Nov 2026. They had no pacing or replay cache, so one run could use up the day's Groq requests, and a live endpoint that spends LLM quota does not belong in the deployed app.
 - **What it shows:** pass rate, correct outcome, correct facts, retrieval hit@1/3/5 and MRR, answers blocked by the figure check, latency per step (p50/p95), and cost per question. These are broken down **by language** and **by expected behaviour**.
 - **Failures:** every failure is listed with its trace link.
-- **Comparing configurations:** change a model or setting in `.env`, restart, run again, then `GET /v1/evals/compare?a=OLD&b=NEW` shows the metric deltas and which questions were fixed or broken.
-- **Adding questions:** edit `evals/golden/v1.yaml`, or add a new file and run with `--golden <name>`. The format is documented at the top of `app/services/evals.py`.
+- **Comparing configurations:** change a model or setting in `.env`, run again, and compare the two reports.
+- **Adding questions:** edit `evals/golden/v1.yaml`, or add a new file and pass its name to `evals.golden_run`. The format is documented at the top of `app/services/evals.py`.
 
 ### 6. Logs, traces and metrics
 - **Logs:** the console shows one readable line per event (`LOG_CONSOLE=json` for JSON on stdout in production). `logs/app.jsonl` has the same events as JSON lines (request, turn, ingestion, job, eval), with `request_id`/`trace_id`, rotated at 10 MB × 5. Long digit runs and API keys are masked.
@@ -244,8 +244,7 @@ The same AI agent handles every call; what changes is what it may do and who it 
   overview, overview, full, compare, guided, recommend; the router's `scope` is used when code agrees with it), the "help me choose" flows (savings account, FD, credit card), the
   "shall I check yours?" offer after a general answer, and caller facts with a scope (call or task).
 - **Passages sent to the answer model** (`kbmeta.trim_context`): relevance (20% of the best, floor 0.05), product identity,
-  no duplicates. Re-tune with `uv run python -m evals.context_replay --grid` (replays saved golden runs on the running
-  brain, no LLM calls; the number of items that lose evidence must stay 0). A passage about another product that only
+  no duplicates (tuned on 6 Nov by replaying saved golden runs; that one-off tool was removed on 17 Nov). A passage about another product that only
   mentions the named one is labelled "[about X; use only what it says about Y]".
 - **Router output repair** (`understanding.repair`): when the provider rejects the router's JSON for a value outside a
   list, code repairs the returned generation (no second call); the lenient retry is only for a cut-off generation.
@@ -261,23 +260,21 @@ The same AI agent handles every call; what changes is what it may do and who it 
   knowledge base, voice). `GET /v1/reviews/summary?days=30` counts the recurring problems across calls (biggest first);
   `/calls` shows it as "Quality across calls" when no call is open. Every finding also becomes a to-do on the fix list
   (`fix_items`, `GET /v1/fixes`, `PATCH /v1/fixes/{id}`, UI `/fixes`). The judge diagnoses; a person decides the changes.
-- **Eval fixtures**: `evals/fixtures/context-*.json` (saved golden-run passages) are kept in the repo; the clean slate keeps
-  turns that belong to no call.
+- **Golden-run evidence**: the clean slate keeps turns that belong to no call.
 
 ### 10. Tests
 ```bash
-uv run pytest -m "not live"   # 230+ tests: fake models/voice + throwaway Postgres, ~75 s, no network, no Groq calls (T0)
-uv run python -m evals.smoke  # T2: 40 items on the real LLM, deterministic checks, per-class report, replay-cached
-uv run python -m evals.benchmark   # T3, rarely: routing, answer decisions (old vs new prompt), journeys (uses a lot of Groq quota)
-uv run python -m evals.stt_ab # A/B of the speech-recognition vocabulary hint (~70 small Whisper requests)
-uv run pytest -m live         # tests against the real Groq API
+uv run pytest                 # 395 tests: fake models/voice + throwaway Postgres, ~100 s, no network, no Groq calls (T0)
+uv run python -m evals.smoke  # T2: 24 items on the real LLM, deterministic checks, per-class report, replay-cached
+uv run python -m evals.smoke --pack regression --keep  # whole conversations from the PM's test plans (33), kept on /calls
+uv run python -m evals.golden_run  # T3, rarely: the 105-question golden set (paced; about an hour the first time)
 brain clean-slate [--yes]     # delete every recorded call, ticket and handoff; the KB is kept; the mock bank is re-seeded
 ```
 
 **Eval tiers (`reference/PROJECT-GUIDE.md` §20).** T0 = the offline tests (every change). T1 = a replay cache: with `LLM_REPLAY_DIR` set (the
 smoke runner does this, into `evals/cache/`), each real LLM response is stored keyed by the exact request (model, prompts,
-schema, limits), so re-running an unchanged item makes no Groq request and a changed prompt is always a miss. T2 = the 40-item
-smoke set (`evals/smoke.yaml`). T3 = the full benchmark. The post-call judge uses a different model (`JUDGE_MODEL`) so its
+schema, limits), so re-running an unchanged item makes no Groq request and a changed prompt is always a miss. T2 = the 24-item
+smoke set (`evals/smoke.yaml`) and the regression pack (`evals/regression.yaml`). T3 = the golden set. The post-call judge uses a different model (`JUDGE_MODEL`) so its
 quota is separate from the agent's.
 
 **Phase 4 behaviour covered by tests:** several requests in one sentence and a "no" that doesn't cancel the next request
@@ -330,7 +327,7 @@ POST /v1/ask ──▶ Conversation (channel-agnostic core)
 caller PCM16 16 kHz, 20 ms frames ──▶ VoiceSession
   VAD        Silero (~3 ms/frame); speech must last 200 ms to count (clicks/noise ignored)
   endpoint   speculative STT after 300 ms of silence, decision after 700 ms (adaptive: slow speakers who pause
-             mid-sentence get up to 1.5 s; "and…", "aur…", "matlab…" endings wait longer)
+             mid-sentence get up to 1.5 s; "and…", "aur…", "कि…", "matlab…" endings wait up to 2.5 s)
   STT        Groq whisper-large-v3-turbo (no_speech prob + hallucination filter) | Sarvam saaras (code-mix)
   brain      Conversation.turn(): streams the answer sentence by sentence; each sentence is figure-checked
   TTS        sentence 1 is synthesized while sentence 2 is generated; Edge (dev) | Sarvam bulbul (prod)

@@ -25,6 +25,7 @@ from app.logs import log
 from app.ports import Bank
 
 logger = logging.getLogger(__name__)
+REUSE_CODE_S = 60  # a new personal question this soon after a code was sent keeps that code (no second SMS)
 _SECRET = secrets.token_bytes(32)  # per process: codes never outlive a restart
 
 
@@ -105,6 +106,14 @@ class AuthService:
             return AuthResult("locked")
         auth["pending_question"] = pending_question
         customer = self.bank.find_by_mobile(row["caller_number"]) if row["caller_number"] else None
+        sent = auth.get("sent_at")
+        if (customer and auth.get("stage") == "otp_sent" and sent and auth.get("cif") == customer.cif
+                and _now() < datetime.fromisoformat(auth["expires"]) and (_now() - datetime.fromisoformat(sent)).total_seconds() < REUSE_CODE_S):
+            # the caller went on talking right after a code was sent (a question split by a pause): the same code
+            # stands; only the question to answer after verification is updated
+            self._save(session_id, auth, "otp_reused", customer.cif)
+            return AuthResult("otp_sent", customer, auth.get("masked_mobile") or mask_mobile(customer.mobile),
+                              self.s.otp_max_attempts - auth.get("attempts", 0), None)
         if customer is None:
             auth["stage"] = "need_mobile"
             self._save(session_id, auth, "mobile_requested", None, {"caller": _mask(row["caller_number"])})
@@ -198,7 +207,7 @@ class AuthService:
             return AuthResult("too_many_codes")
         code = f"{secrets.randbelow(1_000_000):06d}"
         auth.update(stage="otp_sent", cif=customer.cif, otp_hash=_digest(session_id, code), attempts=0, sends=sends + 1,
-                    expires=(_now() + timedelta(seconds=self.s.otp_ttl_s)).isoformat(),
+                    expires=(_now() + timedelta(seconds=self.s.otp_ttl_s)).isoformat(), sent_at=_now().isoformat(),
                     masked_mobile=mask_mobile(customer.mobile))
         self._save(session_id, auth, "otp_sent", customer.cif, {"to": mask_mobile(customer.mobile), "delivery": self.s.otp_delivery})
         sms = None

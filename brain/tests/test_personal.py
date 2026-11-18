@@ -73,10 +73,10 @@ def _customer() -> Customer:
 
 def test_account_choice_salary_account_and_indian_grouping():
     c, today = _customer(), date(2026, 12, 31)
-    ask = answer(c, PersonalQuery("balance"), "en", today)
-    assert ask.outcome == "clarify" and "Value account ending 0009" in ask.sentences[0] and ask.sentences[0].endswith("Which one would you like me to check?")
+    both = answer(c, PersonalQuery("balance"), "en", today)  # "my balance": every account, not "which one?" (PM, 17 Nov)
+    assert both.outcome == "answered" and any("0009" in x for x in both.sentences) and any("0010" in x for x in both.sentences)
     salary = answer(c, PersonalQuery("balance", account="salary"), "hinglish", today)
-    assert salary.sentences == ["Aapke Value account (ending 0009) mein ₹52,000.50 hain."]
+    assert salary.sentences == ["Aapke Value account ending 0009 mein ₹52,000.50 hain."]
     assert money(1234567) == "12,34,567"
 
 
@@ -85,17 +85,36 @@ def test_transaction_filters_search_all_accounts_and_say_what_is_not_visible():
     upi = answer(c, PersonalQuery("transactions", keyword="upi", total=True), "en", today)
     assert "₹799" in upi.sentences[0] and "₹300" in upi.sentences[1]  # both accounts, no "which account?"
     rajesh = answer(c, PersonalQuery("transactions", direction="credit", keyword="rajesh"), "en", today)
-    assert rajesh.sentences == ["I don't see a matching transaction on the account ending 0009 / 0010."]
+    assert rajesh.sentences == ["No, I don't see any money from Rajesh on any of your accounts."]  # says what was searched
     fd = FixedDeposit("70000057824", 100000, 7.0, date(2026, 1, 1), 12, date(2027, 1, 1), 107186, "cumulative", False, "active")
     renew = answer(Customer("C", "T", "1", [c.accounts[0]], fds=[fd]), PersonalQuery("fd", detail="auto_renew"), "en", today)
-    assert renew.sentences == ["No, your FD ending 7824 won't renew on its own; the money goes to your savings account on maturity."]
+    assert renew.sentences == ["No, your FD ending 7824 won't renew on its own. The money goes to your savings account on maturity."]
 
 
 def test_which_account_reply_keeps_the_question(client):
     # the reported bug: "what is my balance?" -> "which one?" -> "second one" must give the balance, not "can't see"
     sid = _session(client)
-    code = _code(client.post("/v1/ask", json={"question": "what is my balance?", "session_id": sid}).json())
+    # (a bare "my balance" now gives every account, so "which one?" is exercised with transactions)
+    code = _code(client.post("/v1/ask", json={"question": "show my recent transactions", "session_id": sid}).json())
     asked = client.post("/v1/auth/verify", json={"session_id": sid, "code": code}).json()["reply"]
     assert asked["outcome"] == "clarify" and "Which one" in asked["answer"]
     second = client.post("/v1/ask", json={"question": "second one", "session_id": sid}).json()
-    assert second["outcome"] == "answered" and "₹4,39,895" in second["answer"] and "0002" in second["answer"]
+    assert second["outcome"] == "answered" and "0002" in second["answer"]
+
+
+def test_loan_in_focus_keeps_the_loan_unless_all_are_asked():
+    from app.services.personal import loan_in_focus
+    q = PersonalQuery("loan", detail="emis_count")
+    assert loan_in_focus(q, "How much have I paid so far?", "home").item == "home"  # the loan the call is about
+    assert loan_in_focus(q, "How much have I paid across all my loans?", "home").item == "all"
+    assert loan_in_focus(q, "Maine dono loan mein kitna diya?", "").item == "all"
+    assert loan_in_focus(PersonalQuery("loan", detail="emis_count", item="0102"), "and the personal loan?", "home").item == "0102"
+    assert loan_in_focus(PersonalQuery("loan", detail="loan_count"), "how many loans?", "home").item == ""
+
+
+def test_numbered_transactions():
+    from app.services.personal import _numbered
+    assert _numbered(["On Monday, a.", "On Tuesday, b.", "On Friday, c."], "en") == \
+        ["First, on Monday, a.", "Second, on Tuesday, b.", "Finally, on Friday, c."]
+    assert _numbered(["On Monday, a.", "On Tuesday, b."], "en", last=False) == ["First, on Monday, a.", "Second, on Tuesday, b."]
+    assert _numbered(["on Monday, a."], "en") == ["On Monday, a."]

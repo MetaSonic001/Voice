@@ -242,7 +242,7 @@ class HttpBank:
             float(x["outstanding"]), float(x["emi"]), _d(x["next_due"]), x["emis_paid"], x["emis_left"], x["status"].lower(),
             x["debit_account"],
             emis=[Emi(_d(e["due_date"]), float(e["amount"]), EMI_STATUS.get(e["status"], "unknown"), e["failure_reason"],
-                      float(e["bounce_charge"])) for e in emis],
+                      float(e["bounce_charge"]), _d(e["paid_on"]) if e.get("paid_on") else None) for e in emis],
             rate_changes=[RateChange(_d(r["changed_on"]), float(r["old_rate"]), float(r["new_rate"]), float(r["old_emi"]),
                                      float(r["new_emi"])) for r in rates])
 

@@ -11,7 +11,7 @@ import sys
 
 from app.config import Settings
 from app.container import build
-from evals.benchmark import HERE, Pacer, Patient
+from evals.smoke import HERE, Pacer, Patient
 
 
 class Paced:
