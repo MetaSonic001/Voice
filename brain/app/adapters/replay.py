@@ -22,8 +22,10 @@ class ReplayLLM:
         self.hits = self.misses = 0
 
     @staticmethod
-    def key(kind: str, model: str, *request) -> str:
-        blob = json.dumps([kind, model, request], sort_keys=True, ensure_ascii=False, default=str)
+    def key(kind: str, model: str, *request, effort: str | None = None) -> str:
+        # The reasoning effort is part of the key, so a run at "none" never replays answers recorded at "low".
+        parts = [kind, model, request] + ([effort] if effort else [])
+        blob = json.dumps(parts, sort_keys=True, ensure_ascii=False, default=str)
         return hashlib.sha256(blob.encode()).hexdigest()
 
     def _load(self, key: str) -> dict | None:
@@ -40,18 +42,18 @@ class ReplayLLM:
         tmp.write_text(json.dumps(entry, ensure_ascii=False), encoding="utf-8")
         tmp.replace(self.dir / f"{key}.json")
 
-    async def json(self, model, system, user, schema, max_tokens=400):
-        key = self.key("json", model, system, user, schema, max_tokens)
+    async def json(self, model, system, user, schema, max_tokens=None, effort=None):
+        key = self.key("json", model, system, user, schema, max_tokens, effort=effort)
         if (hit := self._load(key)) is not None:
             self.hits += 1
             return hit["response"], hit["meta"] | {"cached": True}
         self.misses += 1
-        data, meta = await self.inner.json(model, system, user, schema, max_tokens)
+        data, meta = await self.inner.json(model, system, user, schema, max_tokens, effort=effort)
         self._store(key, "json", model, user, data, meta)
         return data, meta
 
-    async def stream(self, model, messages, meta, max_tokens=400) -> AsyncIterator[str]:
-        key = self.key("stream", model, messages, max_tokens)
+    async def stream(self, model, messages, meta, max_tokens=None, effort=None) -> AsyncIterator[str]:
+        key = self.key("stream", model, messages, max_tokens, effort=effort)
         if (hit := self._load(key)) is not None:
             self.hits += 1
             meta.update(hit["meta"])
@@ -62,7 +64,7 @@ class ReplayLLM:
             return
         self.misses += 1
         text = ""
-        async for delta in self.inner.stream(model, messages, meta, max_tokens):
+        async for delta in self.inner.stream(model, messages, meta, max_tokens, effort=effort):
             text += delta
             yield delta
         self._store(key, "stream", model, messages[-1]["content"], text, meta)

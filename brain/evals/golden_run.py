@@ -20,15 +20,15 @@ class Paced:
     def __init__(self, llm, pacer: Pacer):
         self.llm, self.pacer = llm, pacer
 
-    async def json(self, model, system, user, schema, max_tokens=400):
+    async def json(self, model, system, user, schema, max_tokens=400, effort=None):
         await self.pacer.wait(model, 3800)
-        data, meta = await self.llm.json(model, system, user, schema, max_tokens)
+        data, meta = await self.llm.json(model, system, user, schema, max_tokens, effort=effort)
         self.pacer.add(model, meta)
         return data, meta
 
-    async def stream(self, model, messages, meta, max_tokens=400):
+    async def stream(self, model, messages, meta, max_tokens=400, effort=None):
         await self.pacer.wait(model, 3400)
-        async for delta in self.llm.stream(model, messages, meta, max_tokens):
+        async for delta in self.llm.stream(model, messages, meta, max_tokens, effort=effort):
             yield delta
         self.pacer.add(model, meta)
 

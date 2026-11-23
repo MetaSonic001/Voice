@@ -1569,7 +1569,7 @@ Sources: `deploy/README.md`, `deploy/ecs/*.json`, PROJECT-GUIDE §17–21, §26�
 | `au-brain` (default build) | The whole app plus the two search models | ECS on **EC2 with a GPU** (g6.xlarge) | 4 vCPU, 14 GB, 1 GPU, `stopTimeout` 120 s, container health check `GET /health` |
 | `au-brain` with `--build-arg SEARCH_MODELS=0` | The app without search models (~4.5 GB smaller); still has PyTorch for Silero VAD | CPU servers | Plan: 2 vCPU, ~4 GB per container (the sizing sheet) |
 | `au-search` | Same image, command `python -m app search --host 0.0.0.0 --port 8200` | GPU g6.xlarge, 1 + a spare | 4 vCPU, 14 GB, 1 GPU |
-| `au-ui` | Static pages + nginx | **Fargate** | 0.25 vCPU, 0.5 GB |
+| `au-ui` | Static pages + nginx | **EC2** (own `t3.small` servers) | 0.25 vCPU, 0.5 GB |
 
 The difference between the two brain sizes: the **first deployment** (pilot) is one brain task with search inside it on one GPU server. The **scaled design** moves search to its own GPU servers and runs many small CPU brain containers.
 

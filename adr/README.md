@@ -49,6 +49,9 @@ ADRs 0002â€“0021 were **recorded on 6 Nov 2026 for decisions made earlier** (2â€
 | [0025](0025-selective-bank-reads.md) | Read only the bank data a request needs (build with the real AU adapter) | Accepted (design) |
 | [0026](0026-stateless-llm-calls-india-only.md) | Stateless LLM calls; the conversation stays in our database; India-only inference | Accepted |
 | [0027](0027-access-control-token-at-bank-rls-with-sso.md) | Customer data guarded at the bank's APIs; database row-level security comes with staff SSO | Accepted |
+| [0028](0028-ecs-on-ec2-for-the-brain.md) | Brain on ECS with EC2 capacity (Managed Instances), UI on Fargate, search on SageMaker | Accepted (UI part superseded by 0030) |
+| [0029](0029-onnx-runtime-for-cpu-search.md) | ONNX Runtime as an option for the search models on CPU-only laptops | Proposed |
+| [0030](0030-ui-on-ecs-ec2.md) | UI on ECS with EC2 capacity (own `t3.small` servers), not Fargate | Accepted |
 
 ## Sources on the format
 

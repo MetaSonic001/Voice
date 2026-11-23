@@ -15,6 +15,13 @@ Each section has a short explanation to use when presenting it.
 | 8 | [Timeline B: while call A waits, the container listens to B, C and D](#8-many-calls-timeline) | Why can one container take several calls? (Excalidraw chart B) |
 | 9 | [Sizing: from one call to the servers](#9-sizing) | How many servers do 100 (or 400) calls at once need? |
 | 10 | [Where the money goes each month](#10-monthly-cost) | What does it cost, and what is the biggest item? |
+| 11 | [Solution architecture](#11-solution-architecture) | What are the agent's parts (speech in, bot, speech out) and what is around them? |
+| 12 | [AWS deployment (pilot)](#12-aws-deployment) | Where does each part run on AWS for the pilot? |
+| 13 | [Data flow diagram, level 0](#13-dfd-level-0) | Who sends the system data, and what data? |
+| 14 | [Data flow diagram, level 1](#14-dfd-level-1) | Inside the system: steps, data stores, trust boundaries, where personal data goes |
+| 15 | [Deploy and update (CI/CD)](#15-deploy-and-cicd) | How does a code change reach the server? |
+| 16 | [Sequence: a verified card block](#16-card-block-sequence) | In what order are the controls checked in one action? |
+| — | [draw.io versions](#drawio) | Presentation versions (7 files in `docs/diagrams/drawio/`) |
 | A | [Appendix: 16 Nov timelines (with an interruption)](#appendix) | A more detailed version of 7 and 8: barge-in, bursts colliding |
 
 <a id="1-product-overview"></a>
@@ -753,7 +760,7 @@ flowchart LR
         alb["Load balancer<br/>ALB + WAF<br/>front door"]
 
         subgraph ecs["ECS cluster"]
-            ui["Staff screens · au-ui<br/>2 small Fargate containers<br/>nginx + static pages<br/>calls, KB, desk"]
+            ui["Staff screens · au-ui<br/>2 small EC2 servers (t3.small)<br/>nginx + static pages<br/>calls, KB, desk"]
             brain["Voice agent app · au-brain<br/>4 × c7i.2xlarge (3 + 1 spare)<br/>16 containers, up to 9 calls each<br/>voice · conversation · audit · reviews"]
             searchSrv["Search servers · au-search<br/>2 × g6.xlarge GPU (1 + 1 spare)<br/>embed + rerank models"]
         end
@@ -1187,6 +1194,381 @@ pie
     "All servers, ₹2.8 lakh (9.8%)" : 278234
     "Storage, traffic, network, security, ₹1.5 lakh (5.4%)" : 154220
 ```
+
+<a id="11-solution-architecture"></a>
+
+## 11. Solution architecture: the parts of the agent
+
+**What it is:** the agent's building blocks in one picture, in the same style as a vendor's solution slide. New 18 Nov 2026. It shows the parts, not the servers; diagram 12 shows where they run.
+
+**How to explain it:**
+- **A call comes in.** Today it comes from the test console in a browser. Later it will come from AU's Cisco contact centre; how Cisco hands over the audio is still to be agreed.
+- **The rule for the left side (changed 19 Nov 2026):** the **call orchestrator decides when**; the two speech layers only **sense** (audio → signals and text) and **produce** (text → audio).
+- **The call orchestrator** runs one live call (`voice/session.py`, `voice/turntaking.py`, `voice/player.py`, `voice/hold.py`):
+  - **end-of-turn decision:** has the caller finished? Silence length plus "does it sound unfinished?" ("…and", "aur");
+  - **barge-in decision:** is sound during our reply noise, echo, a "hmm", or a real interruption?
+  - **playback:** paces the reply audio and stops it the moment the caller interrupts;
+  - hold messages, and at most 9 calls per container.
+- **Speech-in layer (senses):**
+  - Speech activity detection (Silero) runs **inside our app**, every 32 ms. It must stay local: barge-in needs its answer within milliseconds, while our own reply is playing.
+  - Speech-to-text is a Sarvam client. Sarvam returns the text and the language.
+- **Bot application:**
+  - Guardrails mask personal data and check the request is in scope.
+  - The LLM only turns the words into a short JSON summary.
+  - **Code decides** the rest: routing, keypad verification, permissions, and which bank call or journey runs.
+  - Product answers come from the knowledge base (search, then rerank). Personal answers come from the bank systems.
+  - The response generator uses fixed templates, or LLM phrasing, and a figure check blocks any number not in the source.
+- **Speech-out layer (produces):** it writes numbers the way people say them (₹, dates, account digits), fixes the pronunciation of names and terms, and plays common phrases from a cache. Everything else goes to Sarvam for speech. The audio goes back to the orchestrator's playback.
+- **Network boundaries:**
+  - The app, the staff screens and the database sit in **private subnets of a VPC**. Nothing on the internet can reach them directly.
+  - Bedrock, SageMaker, S3, CloudWatch, Secrets Manager and ECR are AWS services **outside the VPC**, reached privately through VPC endpoints (no internet).
+  - **Sarvam is outside AWS.** Both speech clients reach it over HTTPS with an API key, out through the **NAT gateway**. This is the only call that leaves AWS.
+- **Around it:**
+  - the staff screens: console, KB, calls, desk and fixes;
+  - the database, the recordings store, logs and alerts, secrets, and the image registry.
+
+**Not used, on purpose:** no Redis and no separate microservices. One app process holds all the layers, which is simpler to run and to audit.
+
+```mermaid
+flowchart LR
+    caller["Caller<br/>any phone"]
+    cisco["AU contact centre<br/>Cisco (later)"]
+    tester["Tester<br/>browser console"]
+
+    subgraph cloud["AU's AWS account · Mumbai"]
+      subgraph vpc["VPC · private subnets · no inbound internet"]
+        nat["NAT gateway<br/>outbound only"]
+        subgraph app["Voice agent app (au-brain)"]
+            subgraph orch["Call orchestrator · decides when"]
+                eot["End-of-turn decision<br/>silence + sounds unfinished?"]
+                barge["Barge-in decision<br/>noise · echo · interruption"]
+                play["Playback<br/>pace · stop on barge-in"]
+                hold["Hold messages · 9 calls max"]
+            end
+
+            subgraph asr["Speech-in layer · senses"]
+                vad["Speech activity detection<br/>Silero, in our app"]
+                stt["Speech-to-text + language<br/>Sarvam client"]
+            end
+
+            subgraph bot["Bot application"]
+                guard["Guardrails<br/>PII masking · scope"]
+                und["Understanding<br/>words → JSON"]
+                dec["Decision code<br/>routing · verification<br/>permissions · journeys"]
+                kb["Knowledge base<br/>search + rerank (RAG)"]
+                bank["Bank integration<br/>mock bank → AU APIs"]
+                resp["Response generator<br/>templates · phrasing<br/>figure check"]
+                hand["Hand-over<br/>tickets · desk"]
+                guard --> und --> dec
+                dec --> kb --> resp
+                dec --> bank --> resp
+                dec --> hand
+            end
+
+            subgraph tts["Speech-out layer · produces"]
+                spoken["Spoken form<br/>₹ · dates · digits"]
+                pron["Pronunciation<br/>names · terms"]
+                cache["Phrase cache"]
+                synth["Text-to-speech<br/>Sarvam client"]
+                spoken --> pron --> synth
+                cache --> synth
+            end
+        end
+        ui["Staff screens (au-ui)<br/>console · KB · calls · desk · fixes"]
+        db[("Database<br/>RDS PostgreSQL + pgvector")]
+      end
+
+      subgraph aws["AWS services · outside the VPC · reached privately"]
+        llm["LLM<br/>Bedrock"]
+        search["Search models<br/>SageMaker GPU"]
+        store[("Call recordings + KB files<br/>S3, encrypted")]
+        logs["Logs · monitoring · alerts<br/>CloudWatch"]
+        reg["Container registry<br/>ECR"]
+        sec["Secrets<br/>Secrets Manager"]
+      end
+    end
+
+    sarvam["Sarvam (India) · OUTSIDE AWS<br/>speech-to-text · text-to-speech"]
+
+    caller -- "phone call" --> cisco -- "call audio" --> orch
+    tester -- "WebSocket" --> orch
+    orch -- "audio" --> vad
+    vad -- "speaking / silent" --> eot
+    eot -- "turn ended" --> stt
+    stt -- "text + language" --> bot
+    bot -- "reply text" --> tts
+    synth -- "audio" --> play
+    stt <--> nat
+    synth <--> nat
+    nat <-->|"HTTPS + API key · internet<br/>only call that leaves AWS"| sarvam
+    und <--> llm
+    resp <--> llm
+    kb <--> search
+    ui -- "/v1 API" --> app
+    app --> db
+    app --> store
+    app --> logs
+```
+
+<a id="12-aws-deployment"></a>
+
+## 12. AWS deployment (pilot)
+
+**What it is:** where each part runs for the pilot in AWS Mumbai. New 18 Nov 2026. The bigger production layout (ECS, many copies) is diagram 5. Steps are in `deploy/aws-pilot-guide.md`.
+
+**How to explain it:**
+- **Everything comes in through one HTTPS load balancer.** It sends pages to the UI container, and the API and live calls to the brain container. Both containers run with Docker on **one EC2 server**.
+- **The brain is the only part that talks to the other services.** It uses the server's IAM role, so no keys are stored.
+  - **RDS PostgreSQL:** one database, two schemas.
+  - **SageMaker:** the search models on a GPU.
+  - **Bedrock:** the LLM.
+  - **S3:** KB files and encrypted recordings.
+  - **Secrets Manager:** the database address, the Sarvam key and the recording key.
+- **AWS services are reached over private VPC endpoints.** Sarvam is the only call that leaves AWS, through the NAT gateway.
+- **Images:** two Dockerfiles make three images (`au-brain` without models, `au-ui`, and `au-search` with the models, for SageMaker).
+
+```mermaid
+flowchart LR
+    staff["Staff / testers<br/>browser"]
+    caller["Caller<br/>via AU's Cisco (later)"]
+
+    subgraph aws["AWS Mumbai ap-south-1"]
+        subgraph vpc["VPC"]
+            alb["Load balancer (ALB)<br/>HTTPS · certificate · WAF"]
+            subgraph ec2["EC2 server · Docker"]
+                ui["au-ui<br/>nginx :8080"]
+                brain["au-brain<br/>:8000"]
+            end
+            rds[("RDS PostgreSQL<br/>au_voice")]
+            vpce["VPC endpoints"]
+            nat["NAT gateway"]
+        end
+        sm["SageMaker endpoint<br/>au-search · GPU"]
+        bedrock["Bedrock<br/>LLM"]
+        s3[("S3<br/>KB files · recordings")]
+        secrets["Secrets Manager"]
+        ecr["ECR<br/>3 images"]
+        cw["CloudWatch<br/>logs · alarms"]
+    end
+
+    sarvam["Sarvam (India)"]
+
+    staff -- "HTTPS" --> alb
+    caller -.-> alb
+    alb -- "pages" --> ui
+    alb -- "/v1/* · live calls" --> brain
+    brain -- "SQL over TLS" --> rds
+    brain --> vpce
+    vpce --> sm
+    vpce --> bedrock
+    vpce --> s3
+    vpce --> secrets
+    vpce --> cw
+    brain --> nat -- "HTTPS + API key" --> sarvam
+    ecr -. "images" .-> ec2
+    ecr -. "image" .-> sm
+```
+
+<a id="13-dfd-level-0"></a>
+
+## 13. Data flow diagram, level 0 (context)
+
+**What it is:** the whole system as one box, with everyone who sends it data or gets data from it. New 18 Nov 2026. Each arrow names the data.
+
+**How to explain it:**
+- **The caller** sends their voice and keypad digits and hears replies. The keypad code is typed, never spoken.
+- **AU staff** upload KB documents and read calls, tickets and hand-overs.
+- **Sarvam** gets the caller's speech and the reply text. **Bedrock** gets **masked** text only: no names, numbers or codes.
+- **AU's bank systems** (today the mock bank) return the verified caller's own data and carry out confirmed card actions.
+- **The SMS gateway** (later) sends the one-time code to the caller's registered mobile. Today the code is shown in the test console.
+
+```mermaid
+flowchart LR
+    caller["Caller"]
+    staff["AU staff"]
+    sarvam["Sarvam<br/>speech service"]
+    bedrock["Bedrock<br/>LLM"]
+    bankapi["AU bank systems<br/>(mock bank today)"]
+    sms["SMS gateway<br/>(later)"]
+
+    sys(("AU voice agent"))
+
+    caller -- "voice · keypad code" --> sys
+    sys -- "spoken replies" --> caller
+    sys -- "caller speech · reply text" --> sarvam
+    sarvam -- "transcript · reply audio" --> sys
+    sys -- "masked text" --> bedrock
+    bedrock -- "intent JSON · wording" --> sys
+    sys -- "customer ID · request" --> bankapi
+    bankapi -- "account, card, loan data · action result" --> sys
+    sys -- "one-time code" --> sms
+    sms -- "SMS" --> caller
+    staff -- "KB documents · desk replies" --> sys
+    sys -- "calls · transcripts · tickets · hand-overs" --> staff
+```
+
+<a id="14-dfd-level-1"></a>
+
+## 14. Data flow diagram, level 1 (inside the system)
+
+**What it is:** the main steps inside the agent, where data is stored, and where it crosses a trust boundary (the dashed boxes). New 18 Nov 2026. Circles are processes, cylinders are data stores, rectangles are outside parties.
+
+**How to explain it:**
+- **Process 1** receives the call. **Process 2** turns speech into text with Sarvam.
+- **Process 3** checks the keypad code. Digits go straight from the keypad to the check: **never through speech-to-text, the LLM or the logs.**
+- **Process 4** masks personal data, asks Bedrock for the intent, then **code** decides what is allowed.
+- **Processes 5 and 6** fetch the caller's own bank data (only once verified; card actions only after a clear "yes") or search the KB.
+- **Process 7** builds the reply and speaks it with Sarvam.
+- **Process 8** writes the audit trail:
+  - masked transcripts and events go to the database;
+  - recordings are encrypted by the app before they go to S3;
+  - logs carry no personal data.
+- **Process 9** is staff adding KB documents.
+
+```mermaid
+flowchart LR
+    caller["Caller"]
+    staff["AU staff"]
+
+    subgraph aws["Trust boundary: AU's AWS account (Mumbai)"]
+        p1(("1. Receive<br/>call"))
+        p2(("2. Speech<br/>to text"))
+        p3(("3. Verify<br/>keypad code"))
+        p4(("4. Mask ·<br/>understand ·<br/>decide"))
+        p5(("5. Bank data /<br/>card action"))
+        p6(("6. Search<br/>KB"))
+        p7(("7. Reply ·<br/>speak"))
+        p8(("8. Audit"))
+        p9(("9. Manage<br/>KB"))
+        d1[("D1 Calls, events,<br/>tickets (RDS)")]
+        d2[("D2 Knowledge base<br/>(RDS + S3)")]
+        d3[("D3 Recordings<br/>(S3, encrypted)")]
+        d4[("D4 Logs<br/>(CloudWatch, masked)")]
+        bedrock["Bedrock LLM"]
+        sm["SageMaker search"]
+    end
+
+    subgraph ext["Trust boundary: outside AWS"]
+        sarvam["Sarvam (India)"]
+        bank["AU bank systems<br/>(mock bank today)"]
+    end
+
+    caller -- "voice" --> p1
+    caller -- "keypad digits" --> p3
+    p1 -- "speech" --> p2
+    p2 <-->|"audio / transcript"| sarvam
+    p2 -- "transcript" --> p4
+    p3 -- "verified yes/no" --> p4
+    p4 <-->|"masked text / intent"| bedrock
+    p4 -- "allowed request" --> p5
+    p4 -- "product question" --> p6
+    p5 <-->|"customer ID / own data"| bank
+    p6 <-->|"question / passages"| sm
+    d2 -- "passages" --> p6
+    p5 -- "facts" --> p7
+    p6 -- "facts + source" --> p7
+    p7 <-->|"reply text / audio"| sarvam
+    p7 -- "spoken reply" --> caller
+    p7 -- "turn" --> p8
+    p1 -- "call audio" --> p8
+    p8 -- "masked transcript, events" --> d1
+    p8 -- "encrypted audio" --> d3
+    p8 -- "masked logs" --> d4
+    staff -- "documents" --> p9
+    p9 -- "chunks, vectors, files" --> d2
+    d1 -- "calls, tickets" --> staff
+```
+
+<a id="15-deploy-and-cicd"></a>
+
+## 15. Deploy and update (CI/CD)
+
+**What it is:** how a code change reaches the server. New 18 Nov 2026. Details in `deploy/aws-pilot-guide.md` §4–5.
+
+**How to explain it:**
+- **Every pull request runs the offline tests and the UI build.** A failure blocks the merge.
+- **A merge to `main` builds the images.** They are tagged with the git commit and pushed to ECR.
+- **The server is updated through AWS Systems Manager** (no SSH). It pulls the new images, restarts the containers and checks `/health/ready`. If the check fails, it goes back to the previous version.
+- **Production waits for a person to approve.**
+- **Search changes are rare and done separately.** SageMaker swaps to the new version with no downtime.
+
+```mermaid
+flowchart LR
+    pr["Pull request"] --> test["1. Test<br/>pytest (offline) · UI build"]
+    test -- "merge to main" --> build["2. Build images<br/>au-brain · au-ui<br/>tag = git commit"]
+    build --> ecr["ECR"]
+    ecr --> deploy["3. Deploy pilot<br/>SSM runs deploy.sh<br/>pull · restart"]
+    deploy --> check{"/health/ready<br/>OK?"}
+    check -- "yes" --> done["Live on pilot"]
+    check -- "no" --> back["Roll back to<br/>previous tag"]
+    done -- "approval" --> prod["4. Production<br/>same steps"]
+    sch["Search code changed<br/>(rare, by hand)"] --> sbuild["Build au-search"] --> sm["SageMaker<br/>update-endpoint<br/>no downtime"]
+```
+
+<a id="16-card-block-sequence"></a>
+
+## 16. Sequence: a verified card block
+
+**What it is:** one controlled action from start to end, in the order the checks happen. New 18 Nov 2026. In draw.io: Arrange → Insert → Advanced → Mermaid, then paste this code.
+
+**How to explain it:**
+- **Before anything else:** the LLM sees masked text only and returns the intent. Code then decides that a card action needs a verified caller.
+- **Verification:** the code is typed on the keypad. It never goes through speech-to-text, the LLM or the logs.
+- **Confirmation:** the agent asks for the block type, then gets an explicit "yes" before anything changes.
+- **The block itself:** the bank call carries an idempotency key, so a retry can't block twice.
+- **Audit:** the action, the events, the masked transcript and the encrypted recording are all stored.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor C as Caller
+    participant O as Call orchestrator (au-brain)
+    participant S as Sarvam (speech)
+    participant D as Decision code
+    participant L as Bedrock LLM
+    participant B as Bank systems (mock bank)
+    participant A as Audit (RDS + S3)
+    C->>O: "Block my debit card" (voice)
+    O->>S: caller speech
+    S-->>O: transcript
+    O->>D: transcript
+    D->>L: masked text (no names, numbers, codes)
+    L-->>D: intent = block card
+    D->>D: card action needs a verified caller
+    D-->>C: "Please type the code sent to your registered mobile"
+    C->>D: keypad digits (never speech-to-text, LLM or logs)
+    D->>D: code correct, caller verified
+    D->>B: list cards (customer ID)
+    B-->>D: debit card ending 4321
+    D-->>C: "Temporary or permanent block?"
+    C->>O: "Temporary"
+    D-->>C: "Block debit card ending 4321 temporarily? Say yes to confirm"
+    C->>O: "Yes"
+    D->>B: block card (idempotency key)
+    B-->>D: blocked, reference number
+    D->>A: card action, events, masked transcript
+    O->>S: reply text
+    S-->>O: reply audio
+    O-->>C: "Done. Your card ending 4321 is blocked. Reference ..."
+    O->>A: encrypted call recording (end of call)
+```
+
+<a id="drawio"></a>
+
+## draw.io versions (for slides and reviews)
+
+The presentation versions, in the style of a vendor solution slide (coloured boxes, layer groups, database cylinders, official AWS icons), are in `docs/diagrams/drawio/`. Open them in the draw.io desktop app or the VS Code "Draw.io Integration" extension. Export to PNG or PDF from there (File → Export as). The Mermaid diagrams above stay the quick-to-update version.
+
+| File | Shows | Mermaid twin |
+|---|---|---|
+| `01-solution-architecture.drawio` | The agent's layers in a U-shape (speech in → bot → speech out). The orchestrator holds the decisions (end of turn, barge-in, playback); the speech layers only sense and produce. Network boundaries: VPC, AWS services reached privately, Sarvam outside AWS through the NAT gateway. Around them the staff console, database, logs, storage, secrets and registry | §11 |
+| `02-aws-deployment.drawio` | AWS icons: VPC, subnets, ALB + WAF, EC2 with both containers, RDS, SageMaker, Bedrock, S3, CloudWatch, SNS, KMS, ECR, SSM, CloudTrail, GuardDuty, NAT to Sarvam | §12 |
+| `03-dfd-level-0.drawio` | Data flow diagram, context | §13 |
+| `04-dfd-level-1.drawio` | Data flow diagram: 9 processes, 5 data stores, trust boundaries | §14 |
+| `05-cicd-pipeline.drawio` | Test → build → ECR → deploy → health check / rollback → approval → production; search updates; database changes | §15 |
+| `06-logging-monitoring-audit.drawio` | Every log source and where it is stored (CloudWatch Logs, S3 archive, RDS audit tables, S3 recordings), alarms to SNS, who reads what | — |
+| `07-database-layout.drawio` | RDS → database `au_voice` → schemas `public` and `corebank` with their table groups, the logins, the link to S3 | — |
+| Sequence (above, §16) | A verified card block | §16 |
 
 <a id="appendix"></a>
 

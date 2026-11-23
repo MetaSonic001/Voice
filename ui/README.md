@@ -78,6 +78,7 @@ stop both tunnels when done, and set `API_KEY` in `brain/.env` (plus `NEXT_PUBLI
 
 ## Phase 4 additions (6 Nov 2026)
 
+- `/bench`: speed and quality of the setup the brain runs with (models, reasoning effort, speech, search, prompt) against a benchmark to beat: pinned (frozen) or the last other setup with 20+ real turns. p50 / p95 per stage, smoke / golden pass rate, judge score, grounding, KB answer confidence, cache share.
 - `/fixes`: the fix list - every problem the post-call judge found, with the call and turn, why it matters, the fix and where to make it; mark done / won't fix / reopen.
 - `/calls`: a score chip on every call (average of the judge's scores, "Critical", or "Check"), an "Only calls that need review"
   filter, and a **Quality review** panel on each call: the free checks, the judge's five scores, verified evidence quotes, a

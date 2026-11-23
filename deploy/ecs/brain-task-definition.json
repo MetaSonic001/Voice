@@ -1,10 +1,16 @@
 {
   "family": "au-brain",
-  "requiresCompatibilities": ["EC2"],
+  "requiresCompatibilities": [
+    "EC2",
+    "MANAGED_INSTANCES"
+  ],
   "networkMode": "awsvpc",
-  "cpu": "4096",
-  "memory": "14336",
-  "runtimePlatform": { "operatingSystemFamily": "LINUX", "cpuArchitecture": "X86_64" },
+  "cpu": "2048",
+  "memory": "3584",
+  "runtimePlatform": {
+    "operatingSystemFamily": "LINUX",
+    "cpuArchitecture": "X86_64"
+  },
   "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/au-ecs-execution",
   "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/au-brain-task",
   "containerDefinitions": [
@@ -12,37 +18,119 @@
       "name": "brain",
       "image": "ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/au-brain:IMAGE_TAG",
       "essential": true,
-      "portMappings": [{ "containerPort": 8000, "protocol": "tcp", "name": "http" }],
-      "resourceRequirements": [{ "type": "GPU", "value": "1" }],
+      "portMappings": [
+        {
+          "containerPort": 8000,
+          "protocol": "tcp",
+          "name": "http"
+        }
+      ],
       "environment": [
-        { "name": "AWS_REGION", "value": "ap-south-1" },
-        { "name": "LLM_PROVIDER", "value": "bedrock" },
-        { "name": "UNDERSTAND_MODEL", "value": "BEDROCK_MODEL_ID" },
-        { "name": "ANSWER_MODEL", "value": "BEDROCK_MODEL_ID" },
-        { "name": "JUDGE_MODEL", "value": "BEDROCK_JUDGE_MODEL_ID" },
-        { "name": "STT_PROVIDER", "value": "sarvam" },
-        { "name": "STT_MODEL", "value": "saaras:v3" },
-        { "name": "TTS_PROVIDER", "value": "sarvam" },
-        { "name": "DEVICE", "value": "cuda" },
-        { "name": "FILE_STORE", "value": "s3" },
-        { "name": "S3_BUCKET", "value": "BUCKET_NAME" },
-        { "name": "CORS_ORIGINS", "value": "" },
-        { "name": "LOG_CONSOLE", "value": "json" }
+        {
+          "name": "AWS_REGION",
+          "value": "ap-south-1"
+        },
+        {
+          "name": "LLM_PROVIDER",
+          "value": "bedrock"
+        },
+        {
+          "name": "MOCK_BANK",
+          "value": "true"
+        },
+        {
+          "name": "UNDERSTAND_MODEL",
+          "value": "BEDROCK_MODEL_ID"
+        },
+        {
+          "name": "ANSWER_MODEL",
+          "value": "BEDROCK_MODEL_ID"
+        },
+        {
+          "name": "JUDGE_MODEL",
+          "value": "BEDROCK_JUDGE_MODEL_ID"
+        },
+        {
+          "name": "STT_PROVIDER",
+          "value": "sarvam"
+        },
+        {
+          "name": "STT_MODEL",
+          "value": "saaras:v3"
+        },
+        {
+          "name": "TTS_PROVIDER",
+          "value": "sarvam"
+        },
+        {
+          "name": "SPEECH_FALLBACK",
+          "value": "false"
+        },
+        {
+          "name": "SEARCH_PROVIDER",
+          "value": "sagemaker"
+        },
+        {
+          "name": "SAGEMAKER_ENDPOINT",
+          "value": "au-search"
+        },
+        {
+          "name": "FILE_STORE",
+          "value": "s3"
+        },
+        {
+          "name": "S3_BUCKET",
+          "value": "BUCKET_NAME"
+        },
+        {
+          "name": "S3_PREFIX",
+          "value": "brain/"
+        },
+        {
+          "name": "CORS_ORIGINS",
+          "value": ""
+        },
+        {
+          "name": "LOG_CONSOLE",
+          "value": "json"
+        }
       ],
       "secrets": [
-        { "name": "DATABASE_URL", "valueFrom": "arn:aws:secretsmanager:ap-south-1:ACCOUNT_ID:secret:au/brain:DATABASE_URL::" },
-        { "name": "SARVAM_API_KEY", "valueFrom": "arn:aws:secretsmanager:ap-south-1:ACCOUNT_ID:secret:au/brain:SARVAM_API_KEY::" },
-        { "name": "RECORDING_KEY", "valueFrom": "arn:aws:secretsmanager:ap-south-1:ACCOUNT_ID:secret:au/brain:RECORDING_KEY::" }
+        {
+          "name": "DATABASE_URL",
+          "valueFrom": "arn:aws:secretsmanager:ap-south-1:ACCOUNT_ID:secret:au/brain:DATABASE_URL::"
+        },
+        {
+          "name": "SARVAM_API_KEY",
+          "valueFrom": "arn:aws:secretsmanager:ap-south-1:ACCOUNT_ID:secret:au/brain:SARVAM_API_KEY::"
+        },
+        {
+          "name": "RECORDING_KEY",
+          "valueFrom": "arn:aws:secretsmanager:ap-south-1:ACCOUNT_ID:secret:au/brain:RECORDING_KEY::"
+        }
       ],
       "healthCheck": {
-        "command": ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"],
+        "command": [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"
+        ],
         "interval": 30,
         "timeout": 5,
         "retries": 3,
-        "startPeriod": 300
+        "startPeriod": 120
       },
-      "linuxParameters": { "initProcessEnabled": true },
-      "ulimits": [{ "name": "nofile", "softLimit": 65536, "hardLimit": 65536 }],
+      "linuxParameters": {
+        "initProcessEnabled": true
+      },
+      "ulimits": [
+        {
+          "name": "nofile",
+          "softLimit": 65536,
+          "hardLimit": 65536
+        }
+      ],
       "stopTimeout": 120,
       "logConfiguration": {
         "logDriver": "awslogs",

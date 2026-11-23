@@ -76,12 +76,15 @@ def test_a_request_waiting_behind_a_question_is_kept_and_not_cancelled_by_a_no(c
     asked = _ask(client, sid, "block my credit card ending 6712 temporarily and then what is my balance in both accounts")
     assert asked["outcome"] == "confirm" and "Shall I go ahead?" in asked["answer"]
     held = container.conversation.states.load(sid)
-    assert [r["kind"] for r in held.open_requests] == ["personal"]  # not dropped: it waits behind the question
+    assert [(i["req"]["kind"], i["status"]) for i in held.agenda[-2:]] == [("action", "waiting"), ("personal", "pending")]
 
-    reply = _ask(client, sid, "no")
-    assert "I won't" in reply["answer"] and "4521" in reply["answer"]  # declined the block AND answered the balance
+    reply = _ask(client, sid, "no")  # declines the block only; the balance is offered, not forgotten (call agenda, 19 Nov)
+    assert "I won't" in reply["answer"] and "Shall I go on to your balance?" in reply["answer"]
     state = container.conversation.states.load(sid)
-    assert state.open_requests == [] and "action" in state.declined
+    assert "action" in state.declined and state.agenda[-2]["status"] == "declined"
+
+    balance = _ask(client, sid, "yes")
+    assert "4521" in balance["answer"] and container.conversation.states.load(sid).agenda[-1]["status"] == "done"
 
 
 def test_a_no_with_a_new_request_marks_the_question_declined(client, container):
@@ -107,10 +110,11 @@ def test_injection_is_stopped_before_the_llm(client, container):
 
 
 def test_call_state_roundtrip():
-    s = CallState()
-    s.queue([Request("personal", "balance"), Request("general", "fd rate")])
-    again = CallState.from_dict({"open_requests": s.open_requests, "declined": ["x"]})
-    assert [r.kind for r in again.take_open()] == ["personal", "general"] and again.open_requests == []
+    # a record saved before the agenda existed: its waiting requests become agenda items, nothing is lost
+    old = {"open_requests": [Request("personal", "balance").to_dict(), Request("general", "fd rate").to_dict()], "declined": ["x"]}
+    again = CallState.from_dict(old)
+    assert [(i["req"]["kind"], i["status"]) for i in again.agenda] == [("personal", "pending"), ("general", "pending")]
+    assert again.open_requests == [] and again.declined == ["x"]
     pytest.approx(0)
 
 
@@ -123,7 +127,7 @@ async def test_a_value_the_provider_rejects_is_retried_with_a_lenient_schema(con
     conv, real, seen = container.conversation, container.conversation.llm, []
 
     class Strict:
-        async def json(self, model, system, user, schema, max_tokens=400):
+        async def json(self, model, system, user, schema, max_tokens=400, effort=None):
             seen.append("enum" in str(schema))
             if seen[-1]:
                 raise LLMError("LLM HTTP 400: Generated JSON does not match the expected schema ... value must be one of 'none'")

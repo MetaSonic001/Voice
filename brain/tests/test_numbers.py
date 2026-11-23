@@ -1,6 +1,5 @@
 from app.services.numbers import (
     allowed_numbers,
-    indian_words,
     speech_text,
     unsupported_numbers,
 )
@@ -35,15 +34,9 @@ def test_k_shorthand():
     assert unsupported_numbers("Balance of Rs 5,000 [1].", allowed_numbers("AMB Rs 5K–Rs 10K")) == []
 
 
-def test_indian_number_words():
-    assert indian_words(124500) == "one lakh twenty four thousand five hundred"
-    assert indian_words(25000000) == "two crore fifty lakh"
-    assert indian_words(0) == "zero"
-
-
 def test_speech_text_english_and_hindi():
-    assert speech_text("Minimum balance is Rs 10,000 [1].", "en") == "Minimum balance is ten thousand rupees."
-    assert speech_text("Rate is 7.1% p.a. [2]", "en") == "Rate is 7.1 percent per annum"
+    assert speech_text("Minimum balance is Rs 10,000 [1].", "en") == "Minimum balance is ₹10,000."  # Sarvam reads digits
+    assert speech_text("Rate is 7.1% p.a. [2]", "en") == "Rate is 7.1% per annum"
     assert speech_text("दर 7.1% है [1]।", "hi") == "दर 7.1% है।"
 
 

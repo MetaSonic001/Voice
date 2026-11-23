@@ -430,8 +430,10 @@ class _Seeder:
         self.txn("10020094521", self.at(today.replace(day=1), 10, 5), "Salary Credit", "Credit", 78500, "NEFT", "Infosys Ltd")
         self.txn("10020094521", self.at(today.replace(day=5), 6, 0), "EMI auto-debit returned", "Debit", 7850, "NACH",
                  "AU Personal Loan", status="failed", note=json.dumps({"key": "emi_insufficient", "time": "6:00 am", "balance": 4120, "credit_time": "10:05 am"}))
+        # Cash not dispensed: the account WAS debited and the money comes back by the due date (RBI TAT). Before 23 Nov this
+        # was "failed", so the agent said "no money was deducted" and then "the ₹10,000 will come back" (call 3eab4732).
         self.txn("10020094521", self.at(d(2), 19, 30), "ATM Withdrawal", "Debit", 10000, "ATM", "AU ATM, MI Road Jaipur",
-                 status="failed", note=json.dumps({"key": "atm_not_dispensed", "due": str(_working_days(d(2), 5))}))
+                 status="success", note=json.dumps({"key": "atm_not_dispensed", "due": str(_working_days(d(2), 5))}))
         self.txn("10020094521", self.at(d(1), 13, 10), "POS Purchase", "Debit", 1980, "POS", "Reliance Smart")
         self.txn("10020094521", self.at(d(1), 21, 40), "POS Purchase", "Debit", 1250, "POS", "Barbeque Nation")
         self.txn("10020094521", self.at(today, 9, 15), "UPI Transfer", "Debit", 10000, "UPI", "Suresh Patel",

@@ -2,7 +2,7 @@
 
 // Test console: talk to the agent by typing, a voice note, or a live call, as one of the test customers.
 // Every conversation is saved and can be reviewed (with recording, reasons and checks) under Call audit.
-import { Mic, Phone, PhoneOff, Plus, Send, ShieldCheck, Square, Trash2 } from "lucide-react";
+import { Mic, MicOff, Phone, PhoneOff, Plus, Send, ShieldCheck, Square, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -52,6 +52,7 @@ export default function Console() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [live, setLive] = useState(false);
   const [focus, setFocus] = useState(true);
+  const [muted, setMuted] = useState(false);
   const [docs, setDocs] = useState<Doc[]>([]);
   const [transfer, setTransfer] = useState<Transfer | null>(null);
   const recorder = useRef<MediaRecorder | null>(null);
@@ -309,6 +310,11 @@ export default function Console() {
     }
   }, [add, onAuth]);
 
+  function toggleMute() {
+    call.current?.setMuted(!muted);
+    setMuted(!muted);
+  }
+
   async function toggleLive() {
     if (live) {
       call.current?.stop();
@@ -316,6 +322,7 @@ export default function Console() {
       return;
     }
     try {
+      setMuted(false); // every call starts unmuted
       call.current = new LiveCall(onCallEvent);
       await call.current.start(sessionId, language === "en" ? "en" : "hi", focus);
       setLive(true);
@@ -432,6 +439,12 @@ export default function Console() {
                       disabled={busy || live || !sessionId || !!draft} aria-pressed={recording}>
                 {recording ? <><Square /> Stop</> : <><Mic /> Record</>}
               </Button>
+              {live && (
+                <Button type="button" variant={muted ? "secondary" : "outline"} onClick={toggleMute} aria-pressed={muted}
+                        title={muted ? "Unmute your microphone" : "Mute your microphone: no sound goes to the agent"}>
+                  {muted ? <><MicOff /> Unmute</> : <><Mic /> Mute</>}
+                </Button>
+              )}
               <Button type="button" variant={live ? "destructive" : "outline"} onClick={() => void toggleLive()} disabled={!sessionId}>
                 {live ? <><PhoneOff /> End call</> : <><Phone /> Live call</>}
               </Button>

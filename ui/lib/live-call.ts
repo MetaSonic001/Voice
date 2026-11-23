@@ -88,6 +88,12 @@ export class LiveCall {
     this.capture?.port.postMessage({ focus: on });
   }
 
+  /** Mute: the mic track is disabled, so the browser feeds pure silence. Frames still flow (the server's
+   *  turn-taking keeps working), but no sound from the room reaches the brain. */
+  setMuted(on: boolean) {
+    this.stream?.getAudioTracks().forEach((t) => (t.enabled = !on));
+  }
+
   stop() {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: "stop" }));
     this.ws?.close();

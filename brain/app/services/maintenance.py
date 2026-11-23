@@ -34,7 +34,8 @@ def preview(db: Database) -> dict:
     return out
 
 
-def clean_slate(db: Database, recording_files: FileStore, *, confirm: bool = False) -> dict:
+def clean_slate(db: Database, recording_files: FileStore, *, confirm: bool = False,
+                record_files: FileStore | None = None) -> dict:
     if not confirm:
         raise ValueError("clean_slate deletes every recorded call and cannot be undone: pass confirm=True")
     removed = preview(db)
@@ -54,11 +55,13 @@ def clean_slate(db: Database, recording_files: FileStore, *, confirm: bool = Fal
         if bank:
             conn.execute(f"TRUNCATE {', '.join(f'{BANK_SCHEMA}.{t}' for t in bank)} RESTART IDENTITY CASCADE")
     recording_files.delete_prefix("")  # every encrypted recording file (local folder or the bucket's recordings/ prefix)
+    if record_files is not None:  # every call record file (on AWS, Object Lock refuses this, as it should)
+        record_files.delete_prefix("")
     log(logger, "clean slate done", **removed)
     return removed
 
 
-def delete_call(db: Database, recording_files: FileStore, session_id: str) -> dict | None:
+def delete_call(db: Database, recording_files: FileStore, session_id: str, record_files: FileStore | None = None) -> dict | None:
     """Delete one call for good: its turns, timeline, verification events, alerts, review, fix-list items, handoffs and
     their messages, recordings (rows and encrypted files) and the call itself. Tickets raised in the mock bank's CRM stay
     (they are the bank's records); their link to the call is cleared. Returns what was deleted, or None if no such call."""
@@ -67,6 +70,8 @@ def delete_call(db: Database, recording_files: FileStore, session_id: str) -> di
             return None
         files = [r["path"] for r in conn.execute("SELECT path FROM recordings WHERE session_id = %s AND path IS NOT NULL",
                                                  (session_id,)).fetchall()]
+        record_key = (conn.execute("SELECT record_key FROM sessions WHERE id = %s", (session_id,)).fetchone()
+                      or {}).get("record_key")
         removed = {}
         if _exists(conn, "public", "handoff_messages"):
             removed["handoff_messages"] = conn.execute(
@@ -79,6 +84,9 @@ def delete_call(db: Database, recording_files: FileStore, session_id: str) -> di
     for name in files:
         recording_files.delete_prefix(name)
     removed["recording_files"] = len(files)
+    if record_files is not None and record_key:  # the call record file (on AWS, Object Lock refuses this)
+        record_files.delete_prefix(record_key)
+        removed["call_record_files"] = 1
     log(logger, "call deleted", call=session_id, **removed)
     return removed
 

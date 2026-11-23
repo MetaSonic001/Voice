@@ -30,11 +30,14 @@ class Reranker(Protocol):
 
 
 class LLM(Protocol):
-    async def json(self, model: str, system: str, user: str, schema: dict, max_tokens: int = 400) -> tuple[dict, dict]:
-        """Returns (parsed JSON, meta: tokens, latency, retries)."""
+    async def json(self, model: str, system: str, user: str, schema: dict, max_tokens: int | None = None,
+                   effort: str | None = None) -> tuple[dict, dict]:
+        """Returns (parsed JSON, meta: tokens, latency, retries). `effort`: how long a reasoning model thinks first
+        (none | low | medium | high; None = the adapter's default); an adapter maps it to what its model accepts."""
         ...
 
-    def stream(self, model: str, messages: list[dict], meta: dict, max_tokens: int = 400) -> AsyncIterator[str]:
+    def stream(self, model: str, messages: list[dict], meta: dict, max_tokens: int | None = None,
+               effort: str | None = None) -> AsyncIterator[str]:
         """Yields text deltas and fills `meta` with ttft, latency and token counts."""
         ...
 

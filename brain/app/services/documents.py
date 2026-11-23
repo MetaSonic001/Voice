@@ -53,8 +53,9 @@ def detect_type(filename: str, data: bytes) -> str:
 
 
 class DocumentService:
-    def __init__(self, db: Database, store: FileStore, parser: ParserRouter, embedder: Embedder, settings):
+    def __init__(self, db: Database, store: FileStore, parser: ParserRouter, embedder: Embedder, settings, vectors=None):
         self.db, self.store, self.parser, self.embedder, self.settings = db, store, parser, embedder, settings
+        self.vectors = vectors  # NumpyVectors or ChromaVectors (VECTOR_STORE=numpy|chroma); None = pgvector inside Postgres
 
     # ---------- upload ----------
 
@@ -156,14 +157,24 @@ class DocumentService:
 
         with self.db.connection() as conn, conn.transaction():
             conn.execute("DELETE FROM chunks WHERE version_id = %s", (version_id,))  # re-index replaces old chunks
+            chunk_ids = []
             for i, (draft, vec) in enumerate(zip(drafts, vectors)):
                 chunk_id = str(uuid.uuid4())
+                chunk_ids.append(chunk_id)
                 conn.execute(
                     "INSERT INTO chunks (id, version_id, ordinal, kind, section_path, text, content_hash, word_count) "
                     "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
                     (chunk_id, version_id, i, draft.kind, draft.section_path, draft.text, content_hash(draft), draft.word_count))
-                conn.execute("INSERT INTO chunk_embeddings (chunk_id, model, embedding) VALUES (%s, %s, %s::vector)",
-                             (chunk_id, self.embedder.name, str(vec)))
+                if self.vectors is None:
+                    conn.execute("INSERT INTO chunk_embeddings (chunk_id, model, embedding) VALUES (%s, %s, %s::vector)",
+                                 (chunk_id, self.embedder.name, str(vec)))
+                else:
+                    conn.execute("INSERT INTO chunk_embeddings (chunk_id, model, embedding) VALUES (%s, %s, %s::real[])",
+                                 (chunk_id, self.embedder.name, [float(x) for x in vec]))
+            if self.vectors is not None:  # inside the transaction: if Chroma fails, Postgres rolls back too
+                self.vectors.delete_version(version_id)
+                self.vectors.add(chunk_ids, [list(map(float, vec)) for vec in vectors], [version_id] * len(chunk_ids),
+                                 [str(v["document_id"])] * len(chunk_ids))
             doc = conn.execute("SELECT current_version_id FROM documents WHERE id = %s FOR UPDATE",
                                (v["document_id"],)).fetchone()
             if doc["current_version_id"] and str(doc["current_version_id"]) != version_id:
@@ -271,6 +282,8 @@ class DocumentService:
                 if not row:
                     raise DocumentError("document not found", 404)
                 conn.execute("DELETE FROM documents WHERE id = %s", (doc_id,))
+            if self.vectors is not None:
+                self.vectors.delete_document(doc_id)
             self.store.delete_prefix(doc_id)
             log(logger, "document purged", document_id=doc_id)
             return {"id": doc_id, "purged": True}

@@ -25,23 +25,40 @@ class Settings(BaseSettings):
     llm_replay_dir: Path | None = None  # evals only: cache every real LLM response on disk, keyed by the exact request
     llm_fallback: str = ""  # JSON map {"primary model": "fallback model"}; only models that passed the smoke set (PHASE-4-PLAN §7.3)
     aws_region: str = "ap-south-1"  # Bedrock and S3; credentials come from the standard AWS chain
+    aws_bearer_token_bedrock: SecretStr = SecretStr("")  # Bedrock API key (laptop / POC); empty = the AWS chain (IAM role on AWS). Never printed
+    # How long the model thinks before it answers, per step: none | low | medium | high (GPT-5.6 Luna on Bedrock also
+    # xhigh, max; its own default is medium; Groq's gpt-oss takes low / medium / high, "none" is sent as low). "low" is
+    # what every eval so far ran with. "" = send nothing (the model's default). Compare levels on the /bench page.
+    understand_reasoning_effort: str = "low"  # routing JSON: kinds, risk flags, several requests in one messy sentence
+    answer_reasoning_effort: str = "low"  # the spoken KB answer (figure-checked); "none" is the first thing to try for speed
 
     # ── Local models ──
     embed_model: str = "BAAI/bge-m3"
     embed_dim: int = 1024
     rerank_model: str = "BAAI/bge-reranker-v2-m3"
     device: str = "auto"  # auto = GPU (fp16) when available, else CPU; or force "cpu" / "cuda"
-    # Where the two models run: "local" = inside this process (default) | "http" = a search server
-    # (`python -m app search`, on a GPU machine). Same models, same scores; see app/search_server.py.
+    search_runtime: str = "torch"  # local search models: torch (PyTorch; GPU or CPU) | onnx (ONNX Runtime, CPU only; ADR 0029)
+    # Where the two models run: "local" = inside this process (default) | "http" = our search server
+    # (`python -m app search`, on a GPU machine) | "sagemaker" = the same server image as a SageMaker endpoint
+    # (deploy/README.md). Same model code in all three, so the same scores and no re-indexing when switching.
     search_provider: str = "local"
     search_url: str = ""  # http mode: e.g. http://au-search.internal:8200
     search_token: SecretStr = SecretStr("")  # shared by brain and search server; never printed
+    sagemaker_endpoint: str = ""  # sagemaker mode: the endpoint's name (in AWS_REGION); the caller needs sagemaker:InvokeEndpoint
     search_timeout_s: float = 3.0  # per question-time request (embed one query / rerank one list)
     search_ingest_timeout_s: float = 60.0  # per batch of chunks while a document is indexed
 
     # ── Storage ──
     data_dir: Path = ROOT / "data"
     database_url: str = ""  # empty = private Postgres (pgserver) under data_dir/pg
+    # Vector search: "pgvector" (default; HNSW index inside Postgres, also on AWS RDS) | "numpy" (exact search in
+    # memory, no extra library) | "chroma" (in-process Chroma under data_dir/chroma). numpy and chroma are for a
+    # Postgres without the pgvector extension. In all three, Postgres keeps every vector.
+    vector_store: str = "pgvector"
+    # Trust the operating system's certificate store for HTTPS (truststore) instead of Python's own list (certifi).
+    # Needed behind an office proxy that inspects HTTPS with the company's root certificate (Sarvam, Bedrock, Groq
+    # then fail with CERTIFICATE_VERIFY_FAILED). Off by default, so AWS behaves as before.
+    use_system_certs: bool = False
     file_store: str = "local"  # local | s3 (AWS S3 or any S3-compatible store such as MinIO)
     s3_bucket: str = ""
     s3_prefix: str = "brain/"
@@ -51,10 +68,18 @@ class Settings(BaseSettings):
     dense_query: str = "english"  # embed the English rewrite ("english") or the caller's own words ("original")
     dense_k: int = 30
     keyword_k: int = 30
+    # false = no reranker (23 Nov 2026, while the company laptop has no GPU: reranking 16 passages on its CPU takes ~20 s).
+    # The passages keep the hybrid-search order (RRF); the reranker model is not loaded. Turn it back on with a GPU.
+    rerank: bool = True
     rerank_candidates: int = 16
     rerank_max_tokens: int = 384
     context_chunks: int = 5
     min_rerank_score: float = 0.03  # below this, the top chunk is not trusted (refuse)
+    # RERANK=false only: the refusal gate. The best embedding similarity (bge-m3 cosine) between the search query and the
+    # passages; below this the KB has nothing on the question (refuse). NOT calibrated: 0.35 refuses only clearly
+    # unrelated questions; a related but unanswerable one ("HDFC's FD rate") reaches the answer model, which says
+    # NO_ANSWER when the sources don't answer it. Tune it from real turns: /calls shows "closest passage by meaning".
+    min_dense_score: float = 0.35
     history_turns: int = 6  # recent turns the understanding step sees; caller facts (senior citizen...) last the whole call
 
     # ── Ingestion ──
@@ -84,7 +109,7 @@ class Settings(BaseSettings):
     tts_voice_en: str = "en-IN-NeerjaNeural"
     tts_voice_hi: str = "hi-IN-SwaraNeural"
     tts_voice_hinglish: str = "en-IN-NeerjaNeural"
-    tts_speed_pct: int = 10  # speak this much faster than the voice's default (Edge rate / Sarvam pace)
+    tts_speed_pct: int = 10  # Edge voices only: speak this much faster than normal (Sarvam's speed is sarvam_pace)
     audio_rate: int = 16000  # PCM16 mono in and out of the voice API
     vad_start_ms: int = 200  # speech must last this long to count as speech (ignores clicks/noise bursts)
     end_silence_ms: int = 700  # silence that ends a turn when the transcript looks complete
@@ -96,7 +121,6 @@ class Settings(BaseSettings):
     bargein_min_ms: int = 350  # caller speech while the agent talks must last this long to lower the agent's volume
     no_input_s: float = 8.0  # re-prompt after this much silence; end the call after the second time
     code_wait_s: float = 30.0  # while a keypad code is awaited (finding the SMS takes time): remind after this, end after twice
-    filler_after_ms: int = 1200  # say "one moment" if the first sentence isn't ready by then
     playback_lead_ms: int = 200  # how far ahead of real time agent audio is sent (smaller = faster barge-in)
     max_live_calls: int = 9  # live voice calls this process takes at once; the next is refused as "busy" (WebSocket close 1013). 0 = no limit. 9 = the cost sheet's calls per container (one process = one core; PROJECT-GUIDE §26.11)
 
@@ -105,13 +129,19 @@ class Settings(BaseSettings):
     recording_key: SecretStr = SecretStr("")  # base64 of 32 bytes (AES-256); empty = a local key file (dev only)
     judge_mode: str = "all"  # post-call review: all (every call, development) | selective (risk-weighted + 10% sample) | off
     recording_retention_days: int = 0  # delete recordings older than this; 0 = keep (set by the bank's policy)
+    # ── Call audit: the call record (services/callrecords.py) ──
+    export_calls: bool = True  # after each call, write its full record (JSON) to data_dir/call_records, or S3 with file_store=s3
+    call_idle_min: int = 30  # a call with no new turn for this long (a dropped call, an idle chat) is exported too
+    call_rows_days: float = 0  # remove a call's turn and event rows from Postgres this many days after export (the record and the
+    #                          sessions row stay); 0 = keep them (laptop). Production: e.g. 7, so Postgres does not grow with calls
 
     # ── Personal questions (MVP 2): mock core banking + caller verification ──
     policy_pack: bool = True  # add seed/service-policies.md (synthetic, labelled) to the knowledge base at startup
     desk_hours: str = "00:00-23:59"  # when the agent desk is staffed (fraud is always 24x7); e.g. "08:00-20:00"
     handoff_wait_s: int = 180  # on hold this long with nobody picking up -> a callback is booked instead
-    bank_provider: str = "http"  # http (the bank's systems over HTTP: the mock bank) | mock (in-process, no HTTP) | off
-    bank_base_url: str = ""  # empty = start the mock bank systems inside this process; else AU's (or a separate mock) gateway
+    mock_bank: bool = False  # true = start the embedded mock bank (seeded demo customers); false = no mock bank
+    bank_provider: str = "http"  # http (the bank's systems over HTTP) | mock (in-process mock, no HTTP; tests) | off
+    bank_base_url: str = ""  # http with MOCK_BANK=false: AU's (or a separately started mock) gateway; empty = no bank
     bank_service_token: SecretStr = SecretStr("")  # brain -> bank systems; empty = random for this process (embedded mock bank)
     bank_token_secret: SecretStr = SecretStr("")  # signs customer-scoped tokens; empty = random for this process
     bank_token_ttl_s: int = 900  # customer token lifetime (about the length of a call)

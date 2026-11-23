@@ -14,7 +14,9 @@ from datetime import datetime, timedelta
 
 from app.domain import Customer
 from app.services import actions as card_actions
+from app.services import agenda
 from app.services.audit import mask_number
+from app.services.state import CallState
 from app.services.confirm import block_preference, read_reply
 from app.services.desk import DEPARTMENTS, TAT_DAYS, add_working_days, department_name
 from app.services.personal import PersonalQuery, _duplicates, _txn_line, day, fill, money, note_text, period_range
@@ -684,7 +686,7 @@ class Journeys:
     def handoff_note(self, session_id: str, customer: Customer | None, department: str, reason: str, lang: str) -> dict:
         """The brief the person sees before picking up: built from the record, not written by the AI."""
         with self.audit.db.connection() as conn:
-            s = conn.execute("SELECT caller_number, verified_at, facts FROM sessions WHERE id = %s", (session_id,)).fetchone() or {}
+            s = conn.execute("SELECT caller_number, verified_at, facts, state FROM sessions WHERE id = %s", (session_id,)).fetchone() or {}
             turns = conn.execute("SELECT question, answer, intent, outcome FROM traces WHERE session_id = %s "
                                  "ORDER BY created_at DESC LIMIT 4", (session_id,)).fetchall()
             done = conn.execute("SELECT kind, detail FROM call_events WHERE session_id = %s AND kind IN ('card_action', 'ticket') "
@@ -697,16 +699,19 @@ class Journeys:
                            f"{'done, ref ' + str(d.get('reference')) if d.get('done') else 'failed'}" if e["kind"] == "card_action"
                            else f"ticket {d.get('id')} ({d.get('category', d.get('kind'))}), due {d.get('due_by', '')}")
         asked = [t["question"] for t in reversed(turns)]
+        left = agenda.unresolved(CallState.from_dict(s.get("state")))  # asked on this call and not answered yet
         who = f"{customer.name} ({customer.segment})" if customer else "Caller (not verified)"
         summary = (f"{who} needs the {DEPARTMENTS[department][0]} team: {reason}. "
                    + (f"Last asked: \"{asked[-1]}\". " if asked else "")
-                   + (f"Already done: {'; '.join(actions)}. " if actions else "Nothing has been changed on the account. "))
+                   + (f"Already done: {'; '.join(actions)}. " if actions else "Nothing has been changed on the account. ")
+                   + (f"Still to answer: {'; '.join(left)}. " if left else ""))
         headline = f"{reason[:1].upper()}{reason[1:]}" + (f"; done: {actions[-1]}" if actions else "; nothing changed on the account yet")
         return {"headline": headline, "summary": summary, "reason": reason, "department": DEPARTMENTS[department][0], "language": lang,
                 "verified": bool(customer), "verified_at": s.get("verified_at"), "customer": customer.name if customer else None,
                 "cif": customer.cif if customer else None, "segment": customer.segment if customer else None,
                 "rm": customer.rm_name if customer else None, "caller": mask_number(s.get("caller_number")),
-                "asked": asked[-3:], "done": actions, "facts": s.get("facts") or {}, "alerts": [a["message"] for a in alerts]}
+                "asked": asked[-3:], "done": actions, "still_to_answer": left, "facts": s.get("facts") or {},
+                "alerts": [a["message"] for a in alerts]}
 
     def handoff_timeout(self, session_id: str, handoff_id: str, lang: str) -> str:
         """Nobody picked up in time: book a callback instead, and say so."""

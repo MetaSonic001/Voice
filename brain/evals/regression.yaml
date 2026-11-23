@@ -168,3 +168,25 @@
     {say: "When is my next home loan EMI?", outcome: [answered], has: ["home loan", "due"]},
     {say: "What is my balance?", outcome: [answered], has: ["79,850"]},
     {say: "And when is the next one?", outcome: [answered, clarify]}]}
+
+# ── F. several questions in one sentence: the call agenda (19 Nov). Ravi (101): accounts 4521 / 4512, credit card 6712.
+- {id: F1-five-questions-one-by-one, cls: agenda, caller: "9000000101", turns: [
+    {say: "What is my balance in both accounts, show my last three transactions, when is my next EMI, what is my credit card outstanding, and what is the FD rate for one year?",
+     outcome: [answered, clarify], has: ["five things", "79,850"]},
+    {say: "Yes, go on.", outcome: [answered, clarify]},
+    {say: "No, that's all.", outcome: [answered], has: ["leave those"]}]}
+- {id: F2-verification-in-the-middle, cls: agenda, caller: "9000000101", turns: [
+    {say: "Block my credit card ending 6712 temporarily and then tell me my balance in both accounts", outcome: [confirm], has: ["6712"], kinds: [action, personal]},
+    {say: "No, don't block it.", outcome: [cancelled, answered], has: ["balance"]},
+    {say: "Yes please.", outcome: [answered], has: ["79,850"]}]}
+- {id: F3-skip-and-choose-hinglish, cls: agenda, caller: "9000000101", turns: [
+    {say: "Mera balance batao, last teen transactions dikhao, agli EMI kab hai aur credit card ka outstanding kitna hai?", outcome: [answered, clarify]},
+    {say: "Woh chhodo, agla batao.", outcome: [answered, clarify]},
+    {say: "Credit card wala batao.", outcome: [answered, clarify], has: ["6712"]}]}
+- {id: F4-question-in-the-middle-then-back, cls: agenda, caller: "9000000101", turns: [
+    {say: "What is my balance in both accounts, when is my next EMI, and show my last three transactions?", outcome: [answered, clarify], has: ["three things"]},
+    {say: "Wait, what is the minimum balance for a Value savings account?", outcome: [answered, clarify], has: ["go back"]}]}
+- {id: F5-hindi-goodbye-reminder, cls: agenda, caller: "9000000101", turns: [
+    {say: "मेरा बैलेंस बताइए, मेरी अगली EMI कब है और मेरे क्रेडिट कार्ड का बकाया कितना है?", outcome: [answered, clarify], has: ["तीन"]},
+    {say: "धन्यवाद, बस इतना ही।", outcome: [answered], has_any: ["धन्यवाद", "पहले"]}]}
+

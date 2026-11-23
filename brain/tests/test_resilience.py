@@ -11,13 +11,13 @@ class Flaky:
     def __init__(self, bad=()):
         self.bad, self.calls = set(bad), []
 
-    async def json(self, model, system, user, schema, max_tokens=400):
+    async def json(self, model, system, user, schema, max_tokens=400, effort=None):
         self.calls.append(model)
         if model in self.bad:
             raise LLMError("LLM HTTP 429: rate limit")
         return {"ok": model}, {"model": model}
 
-    async def stream(self, model, messages, meta, max_tokens=400):
+    async def stream(self, model, messages, meta, max_tokens=400, effort=None):
         self.calls.append(model)
         if model in self.bad:
             raise LLMError("LLM HTTP 429: rate limit")

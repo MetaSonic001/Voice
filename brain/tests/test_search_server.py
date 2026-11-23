@@ -116,3 +116,74 @@ def test_ask_through_the_search_server(client, container, server_url):
     finally:
         retriever.embedder, retriever.reranker = saved
     assert client.get("/health/ready").json()["checks"]["search"] == "local"
+
+
+# ── SEARCH_PROVIDER=sagemaker: the same server in SageMaker mode, called through a fake sagemaker-runtime client ──
+
+class _FakeRuntime:
+    """Stands in for boto3's sagemaker-runtime client: InvokeEndpoint -> the app's POST /invocations."""
+
+    def __init__(self, app, fail: Exception | None = None):
+        from fastapi.testclient import TestClient
+
+        self.http, self.fail, self.calls = TestClient(app), fail, []
+
+    def invoke_endpoint(self, EndpointName, ContentType, Accept, Body):  # noqa: N803 (boto3's argument names)
+        import io
+
+        self.calls.append(EndpointName)
+        if self.fail:
+            raise self.fail
+        r = self.http.post("/invocations", content=Body, headers={"Content-Type": ContentType})
+        if r.status_code != 200:
+            from botocore.exceptions import ClientError
+
+            raise ClientError({"Error": {"Code": "ModelError", "Message": r.text}}, "InvokeEndpoint")
+        return {"Body": io.BytesIO(r.content)}
+
+
+def _sm(runtime, **expected):
+    from app.adapters.search_http import SageMakerSearchClient
+
+    e = FakeEmbedder()
+    kw = {"embed_model": e.name, "dim": e.dim, "rerank_model": FakeReranker.name} | expected
+    return SageMakerSearchClient("au-search", "ap-south-1", runtime=runtime, **kw)
+
+
+def test_sagemaker_mode_has_ping_and_invocations_only_when_asked():
+    from fastapi.testclient import TestClient
+
+    sm = TestClient(create_app(FakeEmbedder(), FakeReranker(), "", sagemaker=True))
+    assert sm.get("/ping").status_code == 200
+    assert sm.post("/invocations", json={"op": "rerank", "query": "q", "passages": ["a", "b"]}).json()["scores"] == \
+        FakeReranker().score("q", ["a", "b"])
+    assert sm.post("/invocations", json={"op": "nope"}).status_code == 400
+    plain = TestClient(create_app(FakeEmbedder(), FakeReranker(), TOKEN))
+    assert plain.post("/invocations", json={"op": "info"}).status_code == 404  # never open on the token-protected server
+    assert plain.get("/ping").status_code == 404
+
+
+def test_sagemaker_client_gives_the_same_vectors_and_scores():
+    runtime = _FakeRuntime(create_app(FakeEmbedder(), FakeReranker(), "", sagemaker=True))
+    client = _sm(runtime)
+    embedder, reranker = HttpEmbedder(client), HttpReranker(client)
+    texts = [f"passage {i}" for i in range(INGEST_BATCH + 3)]  # two batches while indexing
+    assert embedder.embed(texts) == FakeEmbedder().embed(texts)
+    assert reranker.score("minimum balance", texts[:5]) == FakeReranker().score("minimum balance", texts[:5])
+    assert client.device.startswith("remote:") and client.ping() == "ok"
+    assert set(runtime.calls) == {"au-search"}
+
+
+def test_sagemaker_client_errors_become_search_errors():
+    from botocore.exceptions import ClientError, NoCredentialsError
+
+    runtime = _FakeRuntime(create_app(FakeEmbedder(), FakeReranker(), "", sagemaker=True))
+    with pytest.raises(SearchError, match="different models"):
+        _sm(runtime, dim=1024).verify()
+    gone = _FakeRuntime(None, fail=ClientError({"Error": {"Code": "ValidationError", "Message": "Endpoint not found"}},
+                                               "InvokeEndpoint"))
+    with pytest.raises(SearchError, match="ValidationError"):
+        HttpReranker(_sm(gone)).score("q", ["a"])
+    assert _sm(gone).try_verify() is False  # unreachable at startup: the brain still starts
+    with pytest.raises(SearchError, match="no AWS credentials"):
+        _sm(_FakeRuntime(None, fail=NoCredentialsError())).verify()

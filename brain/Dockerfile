@@ -3,14 +3,18 @@
 # The brain: one container with the text agent, the voice engine, call audit, the desk API and the embedded mock bank
 # (the modular monolith). The UI is a separate image (ui/Dockerfile).
 #
-# Build from the repository root (the dummy-data workbook lives outside brain/):
-#   docker build --platform linux/amd64 -f brain/Dockerfile -t au-brain .
+# Build from the repository root (the dummy-data workbook lives outside brain/).
 #
-# One Dockerfile, two images (deploy/README.md):
-#   au-brain, search inside (today):   default build; needs an NVIDIA GPU (on CPU a rerank takes 20-37 s)
-#   au-search, the GPU search server:  same default build, run with the command
-#                                      python -m app search --host 0.0.0.0 --port 8200   (needs SEARCH_TOKEN)
-#   au-brain without models (CPU):     --build-arg SEARCH_MODELS=0, run with SEARCH_PROVIDER=http SEARCH_URL=...
+# One Dockerfile, two images (deploy/README.md, deploy/aws-pilot-guide.md):
+#   au-brain (on AWS: ECS on EC2 / Managed Instances, no GPU; ADR 0028):
+#       docker build --platform linux/amd64 --build-arg SEARCH_MODELS=0 -f brain/Dockerfile -t au-brain .
+#       run with SEARCH_PROVIDER=sagemaker (or http, for a dedicated GPU search server)
+#   au-search (the search models, on a GPU):
+#       docker build --platform linux/amd64 -f brain/Dockerfile -t au-search .        (default build, models inside)
+#       on SageMaker: SageMaker runs `serve` (port 8080)
+#       on a GPU server: python -m app search --host 0.0.0.0 --port 8200            (needs SEARCH_TOKEN)
+#   A brain with the models inside (SEARCH_PROVIDER=local) is the default build too; that is for a single GPU machine
+#   only (on CPU a rerank takes 20-37 s), not for AWS.
 # Settings are environment variables (brain/.env.example); nothing secret is baked in. See deploy/README.md.
 
 ARG PYTHON_IMAGE=python:3.12-slim-bookworm
@@ -63,8 +67,12 @@ ENV PATH="/app/.venv/bin:${PATH}" \
     LOG_CONSOLE=json \
     FORWARDED_ALLOW_IPS=*
 
+# SageMaker starts an endpoint's container as `docker run <image> serve`: this command runs the search server in its
+# SageMaker mode (/ping, /invocations on port 8080). Written here, so no Windows line endings can break it.
+RUN printf '#!/bin/sh\nexec python -m app search --sagemaker "$@"\n' > /usr/local/bin/serve && chmod 755 /usr/local/bin/serve
+
 USER app
-EXPOSE 8000 8200
+EXPOSE 8000 8200 8080
 # ECS/ALB checks: GET /health (process up) and GET /health/ready (database reachable). Models load before the port
 # opens (~1-2 min), so give the container a start period of 300 s.
 CMD ["python", "-m", "app", "serve", "--host", "0.0.0.0", "--port", "8000"]

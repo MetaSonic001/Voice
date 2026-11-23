@@ -23,9 +23,9 @@ ADRs: the owner and AU confirm them first).
 | A2 | Re-run the smoke set, then the regression pack | No real-LLM numbers since 5–6 Nov; nothing may get worse | `uv run python -m evals.smoke` (replay-cached), CLAUDE.md |
 | A3 | Measure first-audio latency on the current code | Only one measurement exists (12 Nov, 22 turns: real answer 3.6 s typical, 5.8 s slow; "one moment" at 2.3 s) | `docs/deployment-options-and-costs.md` |
 | A4 | Run the echo self-test on the owner's laptop | The loopback fix is unmeasured on real speakers | Pass mark: at least 15 dB of the agent's voice removed. The self-test doc `docs/echo-self-test.md` no longer exists (missing since at least 14 Nov); rewrite it or test by hand |
-| A5 | Re-check the old issue table A–P on the real LLM | Fixed in code during Phase 4; most acceptance tests not re-run live | Tracker "Issue tracker" |
-| A6 | Known bug: an English turn answered in Hinglish after a Hindi turn | Seen in call e0f24b03 (11 Nov) | Tracker, 11 Nov |
-| A7 | A pause mid-sentence splits one question into two turns | Fixed in code 18 Nov (opener rule, merge within 1.5 s of the reply, code reused); needs a live voice test | `voice/turntaking.py`, `voice/session.py`, `services/auth.py` |
+| A5 | Re-check the old issue table A–P on the real LLM | Fixed in code during Phase 4; most acceptance tests not re-run live | `progress-archive.md`, "Issue tracker" |
+| A6 | Known bug: an English turn answered in Hinglish after a Hindi turn | Seen in call e0f24b03 (11 Nov) | `progress-archive.md`, 11 Nov |
+| A7 | A pause mid-sentence splits one question into two turns | Fixed in code 18 Nov (opener rule, merge within 1.5 s of the reply, code reused); 20 Nov: a stop word first ("ruko, ...") while the agent speaks is a new turn, not merged; needs a live voice test | `voice/turntaking.py`, `voice/session.py`, `services/auth.py` |
 | A8 | Share the demo: Cloudflare quick tunnel for the brain, ngrok for the UI | Done in docs and config | `ui/README.md` "Share the demo" |
 | A9 | Commit the work | Much of the work since the second commit is uncommitted (owner commits) | `git status` |
 | A10 | Tidy `docs/`: keep one cost workbook | `deployment-costs-and-options.xlsx` is current (100 calls at once); `-NEW`, `old_`, `new_` are older versions | Owner's call |

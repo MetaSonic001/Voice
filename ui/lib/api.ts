@@ -291,3 +291,47 @@ export const desk = {
 export const wsUrl = (path: string) =>
   (API || window.location.origin).replace(/^http/, "ws") + path + (KEY ? `?key=${encodeURIComponent(KEY)}` : "");
 export const traceUrl = (id: string) => `${API}/v1/traces/${id}`;
+
+// ───────── speed and quality per setup (/bench; brain services/benchmark.py) ─────────
+
+export type BenchLatency = { n: number; p50: number; p95: number };
+export type BenchSummary = {
+  setup_id: string;
+  setup: Record<string, string>;
+  label: string;
+  turns: number;
+  first_at: string;
+  last_at: string;
+  enough: boolean;
+  judged_calls: number;
+  latency: Record<string, BenchLatency>;
+  quality: Record<string, number | null>;
+  pinned_at?: string;
+};
+export type BenchRow = {
+  group: "latency" | "quality";
+  key: string;
+  label: string;
+  lower_is_better: boolean | null;
+  current: BenchLatency | number | null;
+  baseline: BenchLatency | number | null;
+  delta: number | null;
+  delta_pct: number | null;
+  better: boolean | null;
+};
+export type Bench = {
+  current_setup_id: string;
+  current: BenchSummary | null;
+  baseline: BenchSummary | null;
+  baseline_from: "pinned" | "auto";
+  baseline_is_current: boolean;
+  min_turns: number;
+  rows: BenchRow[];
+  others: { id: string; n: number; last_at: string }[];
+};
+
+export const bench = {
+  get: () => call<Bench>("/v1/bench", { headers: headers(false) }),
+  pin: (setupId?: string, label = "") => post<{ setup_id: string; label: string }>("/v1/bench/baseline", { setup_id: setupId ?? null, label }),
+  unpin: () => call<{ baseline_from: string }>("/v1/bench/baseline", { method: "DELETE", headers: headers(false) }),
+};

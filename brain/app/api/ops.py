@@ -1,10 +1,12 @@
-"""Health, readiness, metrics and a quick stats view."""
+"""Health, readiness, metrics, a quick stats view and the speed / quality benchmark (/bench)."""
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
+from pydantic import BaseModel, Field
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from app.api.deps import container
 from app.container import Container
+from app.services.benchmark import Benchmarks
 
 router = APIRouter(tags=["ops"])
 
@@ -50,3 +52,31 @@ def metrics():
 @router.get("/v1/stats")
 def stats(hours: int = 24, c: Container = Depends(container)):
     return c.traces.stats(hours)
+
+
+class PinBody(BaseModel):
+    setup_id: str | None = Field(None, max_length=20)  # default: the setup this brain runs with now
+    label: str = Field("", max_length=80)
+
+
+@router.get("/v1/bench")
+def bench(c: Container = Depends(container)):
+    """The running setup's speed and quality against the benchmark to beat (pinned, or the last other setup with
+    enough real turns). Only real turns count: eval replay-cache hits are left out."""
+    return Benchmarks(c.db).compare(c.conversation.setup_id)
+
+
+@router.post("/v1/bench/baseline")
+def pin_baseline(body: PinBody, c: Container = Depends(container)):
+    """Keep a setup as the benchmark: its numbers are frozen now and stay until replaced."""
+    pinned = Benchmarks(c.db).pin(body.setup_id or c.conversation.setup_id, body.label)
+    if pinned is None:
+        raise HTTPException(404, "no real turns recorded for that setup yet")
+    return pinned
+
+
+@router.delete("/v1/bench/baseline")
+def unpin_baseline(c: Container = Depends(container)):
+    """Back to the automatic benchmark (the last other setup with enough turns)."""
+    Benchmarks(c.db).unpin()
+    return {"baseline_from": "auto"}

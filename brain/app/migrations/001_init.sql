@@ -1,4 +1,5 @@
-CREATE EXTENSION IF NOT EXISTS vector;
+-- The pgvector extension is created by app/db.py only when VECTOR_STORE=pgvector (the default), so this schema also
+-- works on a Postgres without it (VECTOR_STORE=chroma).
 
 -- A document is the logical item ("CASA + TD KB"); each upload of it is a version.
 CREATE TABLE documents (
@@ -51,11 +52,12 @@ CREATE INDEX chunks_version ON chunks (version_id);
 CREATE INDEX chunks_active ON chunks (id) WHERE active;
 
 -- Embeddings are stored per model, so a new model can be built alongside the old one.
--- The HNSW index is created at startup for the configured model and dimension.
+-- Created as a plain real[]; with pgvector, startup (db.ensure_vector_index) turns it into `vector` and adds the
+-- HNSW index for the configured model and dimension. With Chroma it stays real[] (db.ensure_plain_embeddings).
 CREATE TABLE chunk_embeddings (
     chunk_id  uuid NOT NULL REFERENCES chunks (id) ON DELETE CASCADE,
     model     text NOT NULL,
-    embedding vector NOT NULL,
+    embedding real[] NOT NULL,
     PRIMARY KEY (chunk_id, model)
 );
 

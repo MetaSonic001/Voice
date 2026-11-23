@@ -73,11 +73,11 @@ class Patient:
             except Exception as e:  # noqa: PERF203
                 await self._wait(e, attempt)
 
-    async def stream(self, model, messages, meta, max_tokens=400):
+    async def stream(self, model, messages, meta, max_tokens=400, effort=None):
         for attempt in range(10):
             started = False
             try:
-                async for delta in self.llm.stream(model, messages, meta, max_tokens=max_tokens):
+                async for delta in self.llm.stream(model, messages, meta, max_tokens=max_tokens, effort=effort):
                     started = True
                     yield delta
                 return
@@ -222,6 +222,14 @@ async def run(only: list[str] | None, pack: str = "smoke", keep: bool = False) -
            "llm_requests_made": replay.misses, "cache_hits": replay.hits, "minutes": round((time.perf_counter() - started) / 60, 1),
            "turn_ms_p50": _p([x["total_ms"] for x in steps], 0.5), "turn_ms_p95": _p([x["total_ms"] for x in steps], 0.95),
            "understand_ms_p50": _p([x["understand_ms"] for x in steps], 0.5), "understand_ms_p95": _p([x["understand_ms"] for x in steps], 0.95)}
+    if not only:  # a whole run (not --only a few items) is the setup's accuracy on the /bench page
+        import uuid
+
+        with c.db.connection() as conn:
+            conn.execute("INSERT INTO eval_runs (id, golden_file, config, status, metrics) VALUES (%s, %s, %s, 'done', %s)",
+                         (str(uuid.uuid4()), pack, json.dumps({"setup_id": c.conversation.setup_id, "setup": c.conversation.setup}),
+                          json.dumps({"pass_rate": out["pass_rate"], "by_class": out["by_class"], "items": len(rows),
+                                      "stopped": bool(stopped), "llm_requests_made": replay.misses, "cache_hits": replay.hits})))
     try:
         await c.close()
     except RuntimeError:  # "Event loop is closed": the test client's loop already closed Groq's connection; the report still counts

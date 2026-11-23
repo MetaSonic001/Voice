@@ -29,7 +29,7 @@ def create_app(container: Container | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         app.state.container = container or build(settings)
         warm = None
-        if app.state.container.voice:  # synthesise greeting/fillers in the background so they play instantly
+        if app.state.container.voice:  # synthesise the greeting and fixed lines in the background so they play instantly
             warm = asyncio.create_task(app.state.container.voice.phrases.warm())
         yield
         if warm and not warm.done():

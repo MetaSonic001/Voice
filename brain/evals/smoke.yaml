@@ -8,7 +8,8 @@
 # 105 Imran (credit card 4410, ₹8,499).
 
 - {id: A1-balance-and-deduction, cls: multi_request, caller: "9000000101", turns: [
-    {say: "Money got deducted, check my account balance", outcome: [answered, clarify, confirm], has: ["4521"], lacks: ["raise a complaint", "raise a dispute"], kinds: [personal, issue]}]}
+    {say: "Money got deducted, check my account balance", outcome: [answered, clarify, confirm], has: ["4521"], lacks: ["raise a complaint", "raise a dispute"], kinds: [personal]},
+    {say: "Both of them", outcome: [answered], has: ["recognise"]}]}  # balance first, then "a payment you don't recognise?" (owner, 19 Nov)
 - {id: A3-action-then-question, cls: multi_request, caller: "9000000101", turns: [
     {say: "Block my credit card ending 6712 temporarily and then tell me my balance in both accounts", outcome: [confirm], has: ["6712"], kinds: [action, personal]}]}
 - {id: B1-last-five, cls: lists, caller: "9000000101", turns: [

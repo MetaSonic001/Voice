@@ -21,7 +21,8 @@ Turn-taking rules
   words are appended to the previous question.
 - Silence after the agent finishes: re-prompt after `no_input_s`, then say goodbye and end the call. While a keypad
   code is awaited, the wait is `code_wait_s` and the reminder is about the code (finding an SMS takes time).
-- A filler ("one moment") plays if the first sentence isn't ready after `filler_after_ms`.
+- No timed filler: for a product question the brain's first sentence is a short opener written by the understanding
+  call ("Sure, let me check the FD rates."), said while the answer is looked up (services/conversation.opener_for).
 - Transfer to a person (after the caller said yes): the agent stops listening, hold music plays with a "thank
   you for waiting" every 30 s, and when someone accepts at the desk their audio is bridged to the caller (and
   recorded). Nobody within `handoff_wait_s` -> a callback is booked and the call ends politely.
@@ -55,6 +56,7 @@ BARGE_VAD_START = 0.65  # while the agent talks, a frame must score this high to
 BARGE_QUIET_RATIO = 0.25  # ... and be at least this loud relative to the caller's own speech (-12 dB)
 BARGE_GRACE_S = 0.3  # ... and not in the first 0.3 s of agent audio
 DUCK_GAIN = 0.3  # agent volume while a possible interruption is checked
+_STOP_WORDS = {"stop", "wait", "ruko", "rukiye", "bas", "sorry", "no", "nahi"}  # said to interrupt the agent
 CONTINUE_MERGE_S = 1.5  # caller speech starting this soon after the reply's first audio continues their last question
 
 
@@ -314,10 +316,14 @@ class VoiceSession:
             return
         # the agent hadn't started speaking this reply, or had only just started: the caller is still on their question
         # (pending-work A7: "Hello, I have a question." [pause] "What's my balance?" was two turns, and two codes)
-        thinking_only = not self._agent_audio_started or (
+        speaking = self._agent_audio_started  # read before the interrupt cancels the reply
+        thinking_only = not speaking or (
             self._reply_audio_wall > 0 and cap.started_wall - self._reply_audio_wall < CONTINUE_MERGE_S)
         await self._interrupt()
-        content = [w for w in words(result.text) if w not in {"stop", "wait", "ruko", "rukiye", "bas", "sorry", "no", "nahi"}]
+        said = words(result.text)
+        content = [w for w in said if w not in _STOP_WORDS]
+        if speaking and said and said[0] in _STOP_WORDS:
+            thinking_only = False  # "ruko, what about ..." once the agent is speaking: a new turn, not the rest of the last one
         if not content:  # just "stop"/"ruko": stay quiet and listen
             self._capture = None
             self._arm_no_input()
@@ -360,12 +366,6 @@ class VoiceSession:
                 self._agent_audio_started = True
                 self._reply_audio_wall = first_audio["wall"]
 
-        def mark_filler():
-            first_audio.setdefault("any", time.perf_counter())
-
-        # No filler right after "you are verified": that line already covers the wait ("...verified. Okay, one second.")
-        filler = self._spawn(asyncio.sleep(0) if timings.get("input") == "after_verification"
-                             else self._filler_after(self.s.filler_after_ms / 1000, mark_filler))
         sentences: asyncio.Queue = asyncio.Queue()
         trace_id = None
 
@@ -392,7 +392,6 @@ class VoiceSession:
 
         async def speak():
             while (event := await sentences.get()) is not None:
-                filler.cancel()
                 self._agent_text = event.text
                 await self.send_json({"type": "agent_text", "text": event.text})
                 first_chunk = True
@@ -404,22 +403,19 @@ class VoiceSession:
             await asyncio.gather(produce(), speak())
             await self.player.wait_done()
         except asyncio.CancelledError:
-            filler.cancel()
             raise
         except Exception as e:
             logger.exception("reply failed")
             self._audit("error", source="reply", error=f"{type(e).__name__}: {e}")
-            filler.cancel()
             self.player.enqueue(await self.phrases.get("unclear", self.language))
             await self.player.wait_done()
-        finally:
-            filler.cancel()
         voice = {**timings}
         if timings.get("input") == "after_verification":  # no caller turn to time from: it waited behind "you are verified"
             first_audio.clear()
-        if "wall" in first_audio:  # caller stopped speaking -> first audio of the answer
+        # caller stopped speaking -> first audio of the reply (the opener, when the brain said one; no timed filler since 22 Nov)
+        if "wall" in first_audio:
             voice["voice_to_voice_ms"] = round((first_audio["wall"] - user_end_wall) * 1000)
-        if "any" in first_audio:  # ... -> first thing the caller hears (the filler, if one played)
+        if "any" in first_audio:
             voice["first_audio_ms"] = round((first_audio["any"] - user_end_wall) * 1000)
         await self.send_json({"type": "turn_metrics", **voice})
         if trace_id and self.on_voice_timings:
@@ -429,13 +425,6 @@ class VoiceSession:
             self._start_hold()
             return
         self._arm_no_input()
-
-    async def _filler_after(self, delay_s: float, on_start: Callable[[], None] | None = None) -> None:
-        await asyncio.sleep(delay_s)
-        if not self.player.playing:  # the next line of the pool each time: the caller never hears the same one twice running
-            variant = getattr(self, "_filler_turn", 0)
-            self._filler_turn = variant + 1
-            self.player.enqueue(await self.phrases.get("filler", self.language, variant), on_start=on_start)
 
     async def _say_phrase(self, kind: str, language: str) -> None:
         pcm = await self.phrases.get(kind, language)
@@ -554,7 +543,7 @@ class VoiceSession:
         async for pcm in self.tts.stream(speech_text(text, language), language):
             self.player.enqueue(pcm)
         self._agent_audio_started = True
-        if question:  # prepared while "you are verified" plays: queued right behind it, so no gap and no filler
+        if question:  # prepared while "you are verified" plays: queued right behind it, so no gap
             self._start_reply(Transcript(question, None, 0.0, 0), time.perf_counter(), {"input": "after_verification"})
             return  # (this task is replaced by the reply; it must not wait for the player)
         await self.player.wait_done()

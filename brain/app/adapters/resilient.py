@@ -36,20 +36,20 @@ class ResilientLLM:
             window.clear()
             logger.warning("llm breaker open", extra={"data": {"model": model, "seconds": BREAKER_OPEN_S}})
 
-    async def json(self, model, system, user, schema, max_tokens=400):
+    async def json(self, model, system, user, schema, max_tokens=None, effort=None):
         if self._use_fallback_first(model):
-            return await self._json_fallback(model, system, user, schema, max_tokens, None)
+            return await self._json_fallback(model, system, user, schema, max_tokens, None, effort)
         try:
-            return await self.inner.json(model, system, user, schema, max_tokens)
+            return await self.inner.json(model, system, user, schema, max_tokens, effort=effort)
         except Exception as e:
             self._record_failure(model)
             if model not in self.fallbacks:
                 raise
-            return await self._json_fallback(model, system, user, schema, max_tokens, e)
+            return await self._json_fallback(model, system, user, schema, max_tokens, e, effort)
 
-    async def _json_fallback(self, model, system, user, schema, max_tokens, original):
+    async def _json_fallback(self, model, system, user, schema, max_tokens, original, effort=None):
         try:
-            data, meta = await self.inner.json(self.fallbacks[model], system, user, schema, max_tokens)
+            data, meta = await self.inner.json(self.fallbacks[model], system, user, schema, max_tokens, effort=effort)
         except Exception:
             self.stats["fallback_failed"] += 1
             if original is not None:
@@ -58,13 +58,13 @@ class ResilientLLM:
         self.stats["fallback_used"] += 1
         return data, meta | {"fallback_for": model}
 
-    async def stream(self, model, messages, meta, max_tokens=400):
+    async def stream(self, model, messages, meta, max_tokens=None, effort=None):
         models = [self.fallbacks[model]] if self._use_fallback_first(model) else [model] + (
             [self.fallbacks[model]] if model in self.fallbacks else [])
         for i, name in enumerate(models):
             started, last = False, i == len(models) - 1
             try:
-                async for delta in self.inner.stream(name, messages, meta, max_tokens):
+                async for delta in self.inner.stream(name, messages, meta, max_tokens, effort=effort):
                     started = True
                     yield delta
                 if name != model:

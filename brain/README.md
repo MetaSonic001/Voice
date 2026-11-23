@@ -29,7 +29,7 @@ Two ways to run it:
 | **Grounded answers** | Groq `gpt-oss-120b`, 1–3 spoken-style sentences in the caller's language, citation markers, or `CLARIFY` when a needed detail is missing. |
 | **Safety checks in code** | An answer is refused if it cites nothing, if **any number in it doesn't appear in the cited sources** (1,00,000 / 1 lakh / 100000 count as equal), or if it **states a figure in words** ("saat point paanch percent", "सात दशमलव छह प्रतिशत"). Words can't be checked, so answers must use digits: a rate or amount word (percent, lakh, crore, rupees, प्रतिशत…) must follow a digit. The caller then hears "I don't have approved information… I can connect you to a specialist". |
 | **Conflicting sources** | What banks do: rates come from one authoritative source (the rate sheet / rate master), and contradictions are fixed in the content, not guessed at by the assistant. At answer time, if the sources give different figures for the same thing, the assistant doesn't pick one: it says it can't confirm and offers a specialist. What it can't catch is a document *stating* a figure that another contradicts. Example: the product KB says senior-citizen FD rates go "up to 7.90%" (3 places), while the 23 Apr 2026 rate sheet's highest senior rate is 7.75%. Retrieval finds both with high confidence (0.97+), and the model quotes the explicit sentence. Fix such contradictions in the documents (Knowledge base page); answers marked ✗ Wrong in the UI show where. |
-| **Voice-ready replies** | Every reply has `answer` (display) and `speech_text` (no markers, numbers as Indian words in English). |
+| **Voice-ready replies** | Every reply has `answer` (display) and `speech_text` (no markers or markup; amounts stay as digits, which Sarvam reads). |
 | **Traces** | Every question stores: understanding, both search lists with ranks/scores, reranker scores, chunks used, citations, check results, model and prompt versions, timings per step, tokens. |
 | **Evaluations** | Golden set (105 questions: EN/HI/Hinglish, answer/clarify/refuse/verify/handoff) → pass rate, fact accuracy, retrieval hit@k/MRR, latency p50/p95 per step, cost, Markdown report, run comparison. |
 | **Voice call** | Streaming pipeline: Silero VAD → STT (Groq Whisper / Sarvam) → brain (streamed sentence by sentence) → TTS (Edge / Sarvam) → paced audio. Details below. |
@@ -63,12 +63,32 @@ bun run dev
 ```
 That's the test UI at http://localhost:3000.
 
-- **Postgres** runs privately from `data/pg` through `pgserver` (pip-installed, includes pgvector). No Docker, no install. Set `DATABASE_URL` to use any other Postgres with pgvector instead.
+- **Postgres** runs privately from `data/pg` through `pgserver` (pip-installed, includes pgvector). No Docker, no install. Set `DATABASE_URL` to use any other Postgres with pgvector instead. For a Postgres **without** pgvector, set `VECTOR_STORE=numpy` (exact search in memory, no extra library; fine to ~50,000 chunks) or `VECTOR_STORE=chroma` (in-process Chroma under `data/chroma`; install with `uv sync --extra chroma`). Postgres keeps everything, including the vectors as plain arrays (`app/services/vectors.py`). On the office laptop, Application Control blocks both pgvector's and Chroma's DLLs, so use `numpy` there.
 - **Models**: if `models/bge-m3` and `models/bge-reranker-v2-m3` exist they're loaded from there (offline); otherwise they're downloaded from Hugging Face on first start.
 - **Bank data (MVP 2)**: read-only from `../Sample Questions/Inbound_Voice_Agent_Dummy_Data.xlsx` (the file is never changed or indexed). "Today" is fixed at 31 Dec 2026, because the dummy transactions end then (`DEMO_TODAY`).
-- **GPU**: `DEVICE=auto` (default) uses an NVIDIA GPU in fp16 when present (here an RTX 3050: rerank ~0.5 s instead of ~25 s on CPU). `GET /health/ready` and the startup log show the device.
-- **Search models in another process** (optional; AWS uses it): `SEARCH_PROVIDER=local` (default) loads the two models in the brain. `SEARCH_PROVIDER=http` calls a search server instead, started with `uv run python -m app search` (port 8200, on the GPU machine; set the same `SEARCH_TOKEN` on both sides when it listens beyond 127.0.0.1). Same models, same scores. If the server is down, product questions get the "system problem" reply with a hand-over; everything else keeps working. See `deploy/README.md`.
+- **GPU**: `DEVICE=auto` (default) uses an NVIDIA GPU in fp16 when present (here an RTX 3050: rerank ~0.5 s instead of ~25 s on CPU). `GET /health/ready` and the startup log show the device. **No GPU:** `SEARCH_RUNTIME=onnx` runs the same models with ONNX Runtime (run `scripts/download_models.py --onnx` first): identical results, query embedding ~3x faster, reranking no faster (ADR 0029).
+- **Search models in another process** (optional; AWS uses it): `SEARCH_PROVIDER=local` (default) loads the two models in the brain. `SEARCH_PROVIDER=http` calls a search server instead, started with `uv run python -m app search` (port 8200, on the GPU machine; set the same `SEARCH_TOKEN` on both sides when it listens beyond 127.0.0.1). `SEARCH_PROVIDER=sagemaker` with `SAGEMAKER_ENDPOINT=<name>` calls the same server image hosted as a SageMaker endpoint (AWS credentials allowed `sagemaker:InvokeEndpoint`; no models needed on this machine). Same models, same scores in all three. If the server is down, product questions get the "system problem" reply with a hand-over; everything else keeps working. See `deploy/README.md`.
 - **Live-call limit**: `MAX_LIVE_CALLS=9` (default; `0` = no limit). One process takes at most this many live voice calls; the next caller gets a `busy` event and the WebSocket closes with code 1013. `/health/ready` shows `live_calls`; `/metrics` has `brain_live_calls` and `brain_calls_refused_total`. Why 9: PROJECT-GUIDE §26.11.
+
+## Setup with Docker Desktop (Postgres + pgvector; optionally the brain and UI too)
+
+`compose.yaml` in the repository root runs Postgres 16 with pgvector (`pgvector/pgvector:0.8.0-pg16`), the brain and the
+UI. The same database serves the brain in Docker and the brain run normally, so you can switch between them.
+
+1. Once: copy `.env.example` (repository root) to `.env` and set `PG_PASSWORD` (letters and digits only: it goes into a
+   URL). Add the same password to `brain/.env`:
+   `DATABASE_URL=postgresql://au:<password>@127.0.0.1:5432/au_voice`
+2. Database only, brain and UI run normally: `docker compose up -d db`, then `uv run python app.py` and `bun run dev`.
+3. Everything in Docker: `docker compose up -d --build` (first build: several minutes). UI http://localhost:3000, API
+   http://localhost:8000. The brain uses the GPU (NVIDIA, through Docker Desktop's WSL 2 engine); the models come
+   from `brain/models` and files from `brain/data`, both mounted, so nothing is downloaded again.
+4. Run one brain at a time (both use port 8000): `docker compose stop brain` before `uv run python app.py`.
+
+On the first start the brain creates every table itself (the migrations in `app/migrations`, in order, in seconds) and
+seeds the mock bank; nothing needs to be run by hand. The new database starts empty: upload the knowledge base again
+(the /kb page, or `uv run python -m app upload "../Sample Questions/Knowledge Base/CC KB.docx" ...` with the brain running). Calls
+recorded in the old private database (`data/pg`) stay there; it is used again only if `DATABASE_URL` is removed.
+`docker compose down` stops everything and keeps the data (volume `pgdata`); `down -v` deletes the database.
 
 ## Use it
 
@@ -116,7 +136,7 @@ curl -X POST localhost:8000/v1/auth/verify -H "content-type: application/json" -
 | Verification | `POST /v1/auth/verify` · `POST /v1/auth/resend` · `GET /v1/auth/{session_id}` · `POST /v1/auth/end` · `GET /v1/demo/callers` (dev) |
 | Traces | `GET /v1/traces[?outcome=refused]` · `GET /v1/traces/{id}` · `POST /v1/traces/{id}/feedback` (correct / wrong, from testing) |
 | Voice | `GET /v1/voice/providers` · `POST /v1/voice/stt` · `POST /v1/voice/tts` · `POST /v1/voice/turn` · `WS /v1/voice/stream` |
-| Ops | `GET /health` · `GET /health/ready` · `GET /metrics` · `GET /v1/stats` |
+| Ops | `GET /health` · `GET /health/ready` · `GET /metrics` · `GET /v1/stats` · `GET /v1/bench` · `POST`/`DELETE /v1/bench/baseline` |
 
 `POST /v1/ask` returns:
 ```json
@@ -155,7 +175,8 @@ uv run python -m evals.golden_run mine   # another set: evals/golden/mine.yaml
   - the chunks given to the model;
   - the raw model output, the check results, and timings.
 - **Metrics:** `GET /metrics` exposes request counts and latency per route, outcomes by language, and latency per pipeline stage.
-- **Stats:** `GET /v1/stats` gives a quick summary for the last 24 h.
+- **Stats:** `GET /v1/stats` gives a quick summary for the last 24 h. `GET /v1/bench` (the `/bench` page) compares the running setup with a benchmark: speed per stage, eval pass rates and answer quality, real turns only. Reasoning per step: `UNDERSTAND_REASONING_EFFORT`, `ANSWER_REASONING_EFFORT` (none | low | medium | high; default low).
+- **No reranker (`RERANK=false`):** for a machine without a GPU, where reranking takes ~20 s. The reranker model is not loaded, the passages keep the hybrid-search order, and the refusal gate uses embedding similarity (`MIN_DENSE_SCORE`, default 0.35, not calibrated yet). `/bench` shows it as its own setup ("Reranker: off"). Back on: `RERANK=true` and a restart.
 
 ### 7. Try the voice agent
 - **UI:** use **Voice note** (record, then send) or **Live call** (continuous two-way; speakers work: the console plays the agent through a WebRTC loopback so the browser removes the echo, ADR 0012). Verification works the same in calls: the keypad code goes over the socket as data, not speech.
@@ -190,6 +211,12 @@ Every conversation (typed, voice notes, live calls) is saved as a **call record*
   playback, deleted after `RECORDING_RETENTION_DAYS`. Keypad codes are typed, so they are never in a recording.
   Stored in `data/recordings/` (`FILE_STORE=local`, the default) or under `<S3_PREFIX>recordings/` in the bucket
   (`FILE_STORE=s3`, which refuses to start without `RECORDING_KEY`, since a key file would be lost with the container).
+- **Call record file:** after each call, its full record (every turn with its hash, verification steps, timeline,
+  alerts, recording details; never the keypad code) is written as one JSON file to `data/call_records/` or
+  `<S3_PREFIX>call_records/` in the bucket (`services/callrecords.py`). A background sweep (every 5 minutes) also
+  exports dropped calls and chats quiet for `CALL_IDLE_MIN`. With `CALL_ROWS_DAYS` > 0 (production), the turn rows
+  are then removed from Postgres that many days later and the call page is rebuilt from the file, looking the same;
+  the `sessions` row stays as the call index. `0` (the default) keeps every row, as before.
 - **Tamper evidence:** each turn stores SHA-256(previous turn's hash + this turn); the call shows **Record intact** or
   **Record altered** (which turn, and whether it was changed or removed).
 - **Grounding level** per answer: high / medium / low from the best cited source's reranker score (≥ 0.5 / ≥ 0.15),
@@ -332,7 +359,7 @@ caller PCM16 16 kHz, 20 ms frames ──▶ VoiceSession
   brain      Conversation.turn(): streams the answer sentence by sentence; each sentence is figure-checked
   TTS        sentence 1 is synthesized while sentence 2 is generated; Edge (dev) | Sarvam bulbul (prod)
   player     sends audio paced at real time, only 200 ms ahead, so a barge-in stops it within ~0.2 s
-  filler     "ek moment…" only if the first sentence isn't ready after 1.2 s
+  opener     product questions: the understanding call's short "let me check" line, said while the answer is found
 barge-in   while the agent talks, caller sound must score higher on the VAD (0.65 vs 0.5), must not be much quieter
            than the caller's own voice (< -12 dB = a person or TV in the background), and is ignored in the
            first 0.3 s of agent audio (echo). Then ≥350 ms of it → the agent's volume drops (no silent gap) → STT:
@@ -355,7 +382,7 @@ recording  both sides captured in memory, encoded to Opus and encrypted when the
   - `auth`: show the keypad / simulated SMS, or "verified";
   - `barge_in_check` and `interrupted`;
   - `clear` (drop buffered audio now);
-  - `turn_metrics`: stt / endpoint ms, `first_audio_ms` (speech end → first sound, including the filler) and `voice_to_voice_ms` (→ first answer audio);
+  - `turn_metrics`: stt / endpoint ms, `first_audio_ms` (speech end → first sound, the opener if one was said) and `voice_to_voice_ms` (→ first answer audio);
   - `end`.
 
 **Latency** (voice-to-voice = the caller stops speaking → the first agent audio):
@@ -406,7 +433,7 @@ tests/             unit, API end-to-end, voice scenarios, live Groq checks (test
 
 | Piece | Local / dev | Production | Settings |
 |---|---|---|---|
-| LLM | Groq | AWS Bedrock | `LLM_PROVIDER=bedrock`, `AWS_REGION`, `UNDERSTAND_MODEL`, `ANSWER_MODEL` (AWS credentials from IAM role / env) |
+| LLM | Groq | AWS Bedrock | `LLM_PROVIDER=bedrock`, `AWS_REGION`, `UNDERSTAND_MODEL`, `ANSWER_MODEL` (AWS credentials from the IAM role; on a laptop, a Bedrock API key in `.env` as `AWS_BEARER_TOKEN_BEDROCK`) |
 | STT | Groq Whisper | Sarvam saaras | `STT_PROVIDER=sarvam`, `SARVAM_API_KEY`, `SARVAM_STT_MODEL` (saaras:v4), `SARVAM_STT_MODE` (codemix) |
 | TTS | Edge | Sarvam bulbul | `TTS_PROVIDER=sarvam`, `SARVAM_API_KEY`, `SARVAM_TTS_MODEL` (bulbul:v4-flash), `SARVAM_V4_SPEAKERS` (or `SARVAM_SPEAKER` for v3), `SARVAM_PACE` |
 
@@ -430,11 +457,13 @@ The `route` field (`auth_required` / `handoff`) tells Phases B–D what to do ne
 
 | Setting | Default | What it does |
 |---|---|---|
-| `BANK_PROVIDER` | `http` | `http` = the bank's systems over HTTP (the embedded mock bank), `mock` = in-process, `off` |
-| `BANK_BASE_URL` | empty | empty = start the mock bank inside this process; else AU's gateway or a separate mock |
+| `MOCK_BANK` | `false` | `true` = start the embedded mock bank and seed the demo customers (local demo and the AWS pilot set it); `false` = no mock bank |
+| `BANK_PROVIDER` | `http` | `http` = the bank's systems over HTTP, `mock` = in-process mock (tests), `off` |
+| `BANK_BASE_URL` | empty | used when `MOCK_BANK=false`: AU's gateway or a separately started mock; empty = no bank (personal questions go to a person) |
 | `MOCKBANK_PORT` | `0` | `8100` to browse the mock bank's OpenAPI at `/docs` |
 | `MOCK_BANK_FAIL` | empty | fault injection, e.g. `cards:lost_response,cbs:latency=400` (kinds: latency, timeout, 5xx, malformed, unexpected_status, lost_response) or `read` / `card_update` / `all` |
 | `BANK_SERVICE_TOKEN`, `BANK_TOKEN_SECRET` | random per process | brain -> bank auth; set both when the bank runs separately |
+| `EXPORT_CALLS` / `CALL_IDLE_MIN` / `CALL_ROWS_DAYS` | `true` / `30` / `0` | call record file after each call; export quiet calls after N minutes; remove turn rows N days after export (0 = keep) |
 | `JUDGE_MODE` / `JUDGE_MODEL` | `all` / `llama-3.3-70b-versatile` | post-call review: `all` (development), `selective` (production), `off` |
 | `LLM_FALLBACK` | empty | `{"openai/gpt-oss-120b": "<model>"}`: fallback on 429 / outage. Enable only after that model passes the smoke set |
 | `LLM_REPLAY_DIR` | empty | evals only: cache every LLM response on disk |
@@ -451,7 +480,7 @@ Pronunciation of "AU" is fixed in `services/pronunciation.py` (`SPELLING`). The 
 ## Known limitations
 - **The KB doesn't cover some sample questions** (FD premature penalty, personal loan documents, salary accounts). The synthetic policy pack fills these for the demo; it is labelled synthetic and must be replaced by the bank's approved text.
 - **The KB contradicts itself in places.** For example, the FD maximum is "up to 7.90%" in the KB but 7.75% in the rates sheet, and the Vikaas monthly credit limit is ₹1 lakh vs ₹5 lakh. The agent says it sees two figures and offers a specialist instead of picking one; fix it in the source documents.
-- **Hindi/Hinglish `speech_text` keeps digits** (Indian TTS voices read them natively). Only English numbers are converted to words.
+- **`speech_text` keeps digits in every language** (Sarvam reads them; English number-to-words was removed on 22 Nov 2026).
 - **Large PDFs** (hundreds of pages): read page by page with memory freed; running headers/footers and contents
   lines are removed so they don't fill passages; embedding runs in batches and a live question waits for at most one
   batch, not the whole file. Uploads up to `MAX_UPLOAD_MB` (100).

@@ -255,7 +255,8 @@ def test_the_bank_provider_is_a_setting(container):
     assert build_bank(Settings(bank_provider="off", **base), container.db) == (None, None)
     with pytest.raises(ValueError):
         build_bank(Settings(bank_provider="nonsense", **base), container.db)
-    bank, server = build_bank(Settings(bank_provider="http", **base), container.db)  # the embedded mock bank on a free port
+    assert build_bank(Settings(bank_provider="http", mock_bank=False, **base), container.db) == (None, None)  # default: no mock
+    bank, server = build_bank(Settings(bank_provider="http", mock_bank=True, **base), container.db)  # embedded, free port
     try:
         assert bank.find_by_mobile(RAVI).cif and server.port > 0
     finally:

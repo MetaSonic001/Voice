@@ -72,10 +72,16 @@ def grounding(outcome: str, intent: str, data: dict, citations: list[dict], timi
         basis = ["bank records, fixed template (no AI wording)", "caller verified"]
         return {"level": "low" if unclear else "high", "basis": basis + (["caller was not heard clearly"] if unclear else [])}
     if outcome == "answered" and citations:
-        scores = {h["chunk_id"]: h.get("rerank_score") or 0.0 for h in (data.get("retrieval") or {}).get("reranked", [])}
-        best = max((scores.get(c.get("chunk_id"), 0.0) for c in citations), default=0.0)
-        level = "high" if best >= HIGH else "medium" if best >= MEDIUM else "low"
-        basis = [f"source match {best:.2f}", "all figures verified in the source"]
+        retrieval = data.get("retrieval") or {}
+        if retrieval.get("reranker") == "off":  # RERANK=false: no relevance score, so never "high"
+            best = retrieval.get("closest_dense") or 0.0
+            level = "medium"
+            basis = [f"no reranker: closest passage by meaning {best:.2f}", "all figures verified in the source"]
+        else:
+            scores = {h["chunk_id"]: h.get("rerank_score") or 0.0 for h in retrieval.get("reranked", [])}
+            best = max((scores.get(c.get("chunk_id"), 0.0) for c in citations), default=0.0)
+            level = "high" if best >= HIGH else "medium" if best >= MEDIUM else "low"
+            basis = [f"source match {best:.2f}", "all figures verified in the source"]
         if unclear:
             level = {"high": "medium", "medium": "low"}.get(level, "low")
             basis.append("caller was not heard clearly")
@@ -90,6 +96,7 @@ def grounding(outcome: str, intent: str, data: dict, citations: list[dict], timi
 class AuditStore:
     def __init__(self, db: Database):
         self.db = db
+        self.records = None  # CallRecords (services/callrecords.py), set by the container: rebuilds calls whose rows were removed
         self._errors: deque[float] = deque(maxlen=20)  # recent system errors (for the health alert)
         self._last_health_alert = 0.0
 
@@ -166,8 +173,9 @@ class AuditStore:
                          "WHERE t.session_id = s.id AND (t.question ILIKE %s OR t.answer ILIKE %s)))")
             args += [f"{q}%", f"%{q}%", f"%{q}%", f"%{q}%"]
         with self.db.connection() as conn:
-            return conn.execute(
+            rows = conn.execute(
                 "SELECT s.id, s.created_at, s.ended_at, s.end_reason, s.language, s.caller_number, s.verified_at, "
+                "s.purged_at IS NOT NULL AS rows_removed, s.summary, "
                 "s.customer_id, t.turns, t.first_at, t.last_at, t.answered, t.unanswered, t.last_question, "
                 "(SELECT count(*) FROM alerts a WHERE a.session_id = s.id) AS alerts, "
                 "(SELECT count(*) FROM recordings r WHERE r.session_id = s.id AND r.path IS NOT NULL) AS recordings, "
@@ -181,14 +189,35 @@ class AuditStore:
                 "FROM traces WHERE session_id = s.id) t ON true "
                 "WHERE " + " AND ".join(where) + " ORDER BY s.created_at DESC LIMIT %s",
                 (*args, limit)).fetchall()
+        for r in rows:  # turns removed from Postgres (CALL_ROWS_DAYS): the counts saved at export stand in
+            summary = r.pop("summary") or {}
+            if r["rows_removed"]:
+                r.update({k: summary.get(k) for k in ("turns", "first_at", "last_at", "answered", "unanswered")})
+        return rows
 
     def call(self, session_id: str) -> dict | None:
+        """The readable call record. After its rows were removed from Postgres (CALL_ROWS_DAYS), it is rebuilt from the
+        exported record file (services/callrecords.py) and looks the same; recordings and alerts still come from here."""
+        rows = self.call_rows(session_id)
+        if rows is None:
+            return None
+        if rows.get("purged_at") and self.records is not None:
+            stored = self.records.load(rows.get("record_key"))
+            if stored is not None:
+                stored["recordings"], stored["alerts"] = rows["recordings"], rows["alerts"]
+                return call_view(stored)
+        return call_view(rows)
+
+    def call_rows(self, session_id: str) -> dict | None:
+        """Everything recorded about one call, as stored (turns with their hashes): what the record file holds."""
         with self.db.connection() as conn:
             s = conn.execute("SELECT id, created_at, ended_at, end_reason, language, caller_number, customer_id, "
-                             "verified_at, facts, chain_hash, chain_len FROM sessions WHERE id = %s", (session_id,)).fetchone()
+                             "verified_at, facts, chain_hash, chain_len, state->'agenda' AS agenda, record_key, "
+                             "exported_at, purged_at FROM sessions WHERE id = %s", (session_id,)).fetchone()
             if not s:
                 return None
-            turns = conn.execute("SELECT * FROM traces WHERE session_id = %s ORDER BY created_at, id", (session_id,)).fetchall()
+            s["turns"] = conn.execute("SELECT * FROM traces WHERE session_id = %s ORDER BY created_at, id",
+                                      (session_id,)).fetchall()
             s["auth_events"] = conn.execute("SELECT created_at, event, detail FROM auth_events WHERE session_id = %s "
                                             "ORDER BY created_at", (session_id,)).fetchall()
             s["events"] = conn.execute("SELECT created_at, kind, detail FROM call_events WHERE session_id = %s "
@@ -198,11 +227,21 @@ class AuditStore:
             s["recordings"] = conn.execute(
                 "SELECT id, trace_id, kind, started_at, duration_ms, format, bytes, sha256, deleted_at, path IS NOT NULL AS available "
                 "FROM recordings WHERE session_id = %s ORDER BY started_at", (session_id,)).fetchall()
-        s["integrity"] = verify_chain(s, turns)
-        s["turns"] = [_turn_view(t) for t in turns]
-        for t in s["turns"]:
-            t["why"] = why(t)
         return s
+
+
+def call_view(s: dict) -> dict:
+    """The call record page from the stored rows (Postgres, or the exported record file)."""
+    s = {k: v for k, v in s.items() if k not in ("record_key", "exported_at", "purged_at")}
+    turns = s.pop("turns")
+    # what the caller asked on this call and what became of each (services/agenda.py): labels and statuses only
+    s["agenda"] = [{"id": i.get("id"), "label": i.get("label") or "", "kind": (i.get("req") or {}).get("kind", ""),
+                    "status": i.get("status")} for i in (s.get("agenda") or []) if isinstance(i, dict)]
+    s["integrity"] = verify_chain(s, turns)
+    s["turns"] = [_turn_view(t) for t in turns]
+    for t in s["turns"]:
+        t["why"] = why(t)
+    return s
 
 
 def _turn_view(t: dict) -> dict:

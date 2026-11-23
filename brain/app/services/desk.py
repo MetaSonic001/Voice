@@ -39,9 +39,10 @@ TAT_DAYS = {"atm_cash_not_dispensed": 5, "payment_failed_debited": 5, "transfer_
 
 
 def department_name(key: str, lang: str = "en") -> str:
+    """The team's name as the agent says it: "and", never "&" (call 3eab4732 spoke "Payments & Disputes")."""
     if lang == "hi":
         return NAMES_HI.get(key, NAMES_HI["general"])
-    return DEPARTMENTS.get(key, DEPARTMENTS["general"])[0]
+    return DEPARTMENTS.get(key, DEPARTMENTS["general"])[0].replace(" & ", " and ")
 
 
 def add_working_days(start: date, days: int) -> date:

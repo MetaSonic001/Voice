@@ -1,4 +1,6 @@
-"""Fixed phrases (greeting, filler, re-prompt, goodbye) per language, synthesised once and cached as PCM."""
+"""Fixed phrases (greeting + disclosure, re-prompt, code reminder, hold, unclear, goodbye) per language, synthesised once
+and cached as PCM. The timed "one moment" filler was removed on 22 Nov 2026: product answers now start with the
+understanding call's own opener (services/conversation.opener_for)."""
 
 import asyncio
 import hashlib
@@ -18,10 +20,6 @@ PHRASES = {
         "en": "Hello! This is AU Small Finance Bank's virtual assistant. This call is recorded for quality and security. "
               "You can ask me in English or Hindi.",
     },
-    # Said only when the answer is slow (settings.filler_after_ms); a small pool, never the same line twice in a row.
-    "filler": {"en": ["Let me check that.", "Okay, one second.", "Right, let me look.", "Just a moment."],
-               "hi": ["एक सेकंड, मैं देख रही हूँ।", "जी, बस एक पल।", "ठीक है, देखती हूँ।", "जी, मैं चेक करती हूँ।"],
-               "hinglish": ["Ek second, main dekh rahi hoon.", "Ji, bas ek pal.", "Theek hai, dekhti hoon.", "Ji, main check karti hoon."]},
     "reprompt": {"en": "Are you still there? You can ask me about our accounts, deposits, cards or loans.",
                  "hi": "क्या आप लाइन पर हैं? आप हमारे खातों, जमा, कार्ड या लोन के बारे में पूछ सकते हैं।",
                  "hinglish": "Kya aap line par hain? Aap accounts, deposits, cards ya loans ke baare mein pooch sakte hain."},
@@ -88,12 +86,8 @@ class PhraseCache:
             path.write_bytes(pcm)
         return pcm
 
-    def clear(self) -> None:
-        """Forget the synthesised phrases (e.g. after the pronunciation choice changed) so they are made again."""
-        self._cache.clear()
-
     async def warm(self) -> None:
-        """Pre-synthesise everything so the greeting and fillers play instantly."""
+        """Pre-synthesise everything so the greeting and the other fixed lines play instantly."""
         jobs = [self.get(kind, lang, i) for kind, options in PHRASES.items() for lang in options
                 for i in range(len(variants(kind, lang)))]
         results = await asyncio.gather(*jobs, return_exceptions=True)

@@ -49,7 +49,7 @@ def test_ask_answers_with_citation_and_trace(client, doc):
     reply = client.post("/v1/ask", json={"question": "What is the minimum balance requirement for the savings account?"}).json()
     assert reply["outcome"] == "answered", reply
     assert "10,000" in reply["answer"] and reply["citations"]
-    assert "ten thousand rupees" in reply["speech_text"]
+    assert "10,000" in reply["speech_text"] and "[" not in reply["speech_text"]
     trace = client.get(f"/v1/traces/{reply['trace_id']}").json()
     assert trace["data"]["retrieval"]["reranked"]
     assert trace["data"]["checks"] and all(not c["unsupported_numbers"] for c in trace["data"]["checks"])

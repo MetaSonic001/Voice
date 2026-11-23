@@ -1,0 +1,72 @@
+# Local development with Docker Desktop: Postgres with pgvector, the brain and the test UI.
+# (AWS does not use this file: see deploy/README.md.)
+#
+# Once: copy .env.example to .env (next to this file) and set PG_PASSWORD. brain/.env holds the brain's own settings.
+#   docker compose up -d db              only the database (for running the brain and UI normally, without Docker)
+#   docker compose up -d --build         database + brain + UI: UI on http://localhost:3000, API on http://localhost:8000
+#   docker compose down                  stop (the database is kept in the volume "pgdata"; add -v to delete it)
+#
+# The same database serves both ways of running: the brain in Docker reaches it as db:5432, the brain run normally
+# (uv run python app.py) as 127.0.0.1:5432 (DATABASE_URL in brain/.env). Run one brain at a time: both use port 8000.
+# Both share brain/data (uploaded files, recordings and their key, call records) and brain/models (the search models,
+# not copied into the image), so either one sees the same knowledge base, calls and recordings.
+
+name: au-voice
+
+services:
+  db:
+    image: pgvector/pgvector:0.8.0-pg16  # PostgreSQL 16 (as on the laptop and RDS) with the pgvector extension
+    environment:
+      POSTGRES_USER: au
+      POSTGRES_PASSWORD: ${PG_PASSWORD:?set PG_PASSWORD in the .env file next to compose.yaml}
+      POSTGRES_DB: au_voice
+    ports:
+      - "127.0.0.1:5432:5432"  # this machine only
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U au -d au_voice"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  brain:
+    build:
+      context: .
+      dockerfile: brain/Dockerfile
+      args:
+        SEARCH_MODELS: "0"  # the models come from brain/models (mounted below), so the image doesn't download 4.5 GB
+    env_file: brain/.env    # Groq / Sarvam keys and other settings; the lines below override it
+    environment:
+      DATABASE_URL: postgresql://au:${PG_PASSWORD}@db:5432/au_voice
+      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./brain/models:/app/models:ro
+      - ./brain/data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+    deploy:
+      resources:
+        reservations:
+          devices:  # the laptop's NVIDIA GPU for the search models; remove this block to run on CPU (much slower)
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  ui:
+    build:
+      context: .
+      dockerfile: ui/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000  # compiled into the pages: the browser calls the brain here
+    ports:
+      - "127.0.0.1:3000:8080"
+    depends_on:
+      - brain
+
+volumes:
+  pgdata:

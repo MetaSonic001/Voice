@@ -87,6 +87,9 @@ def hold_reason(reason: str | None, lang: str) -> str:
 T = {
     "acct": {"en": "your {type} account ending {l4}", "hi": "आपके {l4} वाले {type} अकाउंट",
              "hinglish": "aapke {type} account ending {l4}"},
+    # the caller said "salary account": said back, with which account it is (call fbe5b9aa heard only "your Value account")
+    "acct_salary": {"en": "your salary account, the {type} account ending {l4}", "hi": "आपके सैलरी अकाउंट, यानी {l4} वाले {type} अकाउंट",
+                    "hinglish": "aapke salary account, yaani {type} account ending {l4}"},
     "balance": {"en": "You have ₹{amt} in {acct}.", "hi": "{acct} में ₹{amt} हैं।", "hinglish": "{acct} mein ₹{amt} hain."},
     "balance_hold": {"en": "Of that, ₹{hold} is on hold for {reason}, so you can use ₹{avail} right now.",  # reason: "a pending card payment"
                      "hi": "इसमें से ₹{hold} होल्ड पर है, क्योंकि {reason}। इसलिए अभी आप ₹{avail} इस्तेमाल कर सकते हैं।",
@@ -140,6 +143,8 @@ T = {
     "which": {"en": "You have {n} accounts. {list}. Which one would you like me to check?",
               "hi": "आपके {n} अकाउंट हैं। {list}। आप किस अकाउंट के बारे में जानना चाहेंगे?",
               "hinglish": "Aapke {n} accounts hain. {list}. Aap kaunsa account check karwana chahenge?"},
+    "cards_have": {"en": "You have {n} {what}. {list}.", "hi": "आपके पास {n} {what} हैं। {list}।",
+                   "hinglish": "Aapke paas {n} {what} hain. {list}."},
     "which_item": {"en": "You have {n} {what}. {list}. Which one do you mean?",
                    "hi": "आपके {n} {what} हैं। {list}। आप किसकी बात कर रहे हैं?",
                    "hinglish": "Aapke {n} {what} hain. {list}. Aap kiski baat kar rahe hain?"},
@@ -152,13 +157,16 @@ T = {
                   "hi": "आपके किसी अकाउंट में सैलरी क्रेडिट नहीं दिख रहा, इसलिए सैलरी अकाउंट नहीं बता सकती।",
                   "hinglish": "Aapke kisi account mein salary credit nahi dikh raha, isliye salary account nahi bata sakti."},
     "linked_dc": {"en": "{Acct} has a {variant} debit card ending {l4}, and it's {status}.",
-                  "hi": "{acct} के साथ {l4} वाले {variant} डेबिट कार्ड जुड़ा है, और यह {status} है।",
+                  "hi": "{acct} के साथ {l4} वाला {variant} डेबिट कार्ड जुड़ा है, और यह {status} है।",
                   "hinglish": "{acct} ke saath {variant} debit card ending {l4} linked hai, aur yeh {status} hai."},
     "no_dc_on": {"en": "There's no debit card on {acct}.", "hi": "{acct} पर कोई डेबिट कार्ड नहीं है।",
                  "hinglish": "{acct} par koi debit card nahi hai."},
     "variant": {"en": "That's your {type} savings account, ending {l4}.", "hi": "यह आपका {l4} वाला {type} सेविंग्स अकाउंट है।",
                 "hinglish": "Yeh aapka {l4} wala {type} savings account hai."},
-    "acct_status": {"en": "{Acct} is {status}.", "hi": "{acct} {status} है।", "hinglish": "{acct} {status} hai."},
+    # Hindi: the account as the subject is "आपका ... वाला ... अकाउंट" ("{acct}" is the "of / in" form, आपके ... वाले);
+    # call a6545287 heard "आपके 4521 वाले Value अकाउंट चालू है"
+    "acct_status": {"en": "{Acct} is {status}.", "hi": "आपका {l4} वाला {type} अकाउंट {status} है।",
+                    "hinglish": "Aapka {type} account ending {l4} {status} hai."},
     "inactive_note": {"en": "It's been inactive for a while. A quick visit to the app or a branch makes it active again.",
                       "hi": "यह कुछ समय से इनएक्टिव है। ऐप या ब्रांच से इसे फिर से एक्टिव किया जा सकता है।",
                       "hinglish": "Yeh kuch time se inactive hai. App ya branch se ise phir se active kar sakte hain."},
@@ -694,8 +702,11 @@ def _status(s: str, lang: str) -> str:
     return T["status_words"].get(lang, T["status_words"]["en"]).get(s, s)
 
 
-def _acct(a: Account, lang: str) -> str:
-    return t("acct", lang, type=a.type, l4=a.last4)
+def _acct(a: Account, lang: str, asked: str = "") -> str:
+    """The account in words. `asked`: the caller's own word for it; "salary" is said back ("your salary account, the
+    Value account ending 4521")."""
+    key = "acct_salary" if asked == "salary" and a.is_salary else "acct"
+    return t(key, lang, type=a.type, l4=a.last4)
 
 
 def _balance(c: Customer, q: PersonalQuery, lang: str, today: date) -> PersonalAnswer:
@@ -707,16 +718,16 @@ def _balance(c: Customer, q: PersonalQuery, lang: str, today: date) -> PersonalA
         for a in accounts:
             avail = money(a.available if a.available is not None else a.balance)
             if a.status == "inactive":  # a balance is not permission to pay (PM review, 17 Nov)
-                lines.append(_cap(t("avail_inactive", lang, avail=avail, acct=_acct(a, lang))))
+                lines.append(_cap(t("avail_inactive", lang, avail=avail, acct=_acct(a, lang, q.account))))
             elif a.hold_amount:  # ledger, hold and available said apart, so "excluding the hold" is answered
-                lines.append(_cap(t("avail_after_hold", lang, acct=_acct(a, lang), bal=money(a.balance), hold=money(a.hold_amount),
+                lines.append(_cap(t("avail_after_hold", lang, acct=_acct(a, lang, q.account), bal=money(a.balance), hold=money(a.hold_amount),
                                     reason=hold_reason(a.hold_reason, lang), avail=avail)))
             else:
-                lines.append(_cap(t("avail_line", lang, avail=avail, acct=_acct(a, lang))))
+                lines.append(_cap(t("avail_line", lang, avail=avail, acct=_acct(a, lang, q.account))))
         return PersonalAnswer(lines, fields=[f"account:{a.last4}:balance" for a in accounts])
     lines = []
     for a in accounts:
-        lines.append(_cap(t("balance", lang, acct=_acct(a, lang), amt=money(a.balance))))
+        lines.append(_cap(t("balance", lang, acct=_acct(a, lang, q.account), amt=money(a.balance))))
         if a.hold_amount:  # a hold is mentioned only when there is one ("nothing on hold" is noise on a phone call)
             lines.append(t("balance_hold", lang, hold=money(a.hold_amount), reason=hold_reason(a.hold_reason, lang), avail=money(a.available or 0)))
     return PersonalAnswer(lines, fields=[f"account:{a.last4}:balance" for a in accounts])
@@ -751,7 +762,7 @@ def _account(c: Customer, q: PersonalQuery, lang: str, today: date) -> PersonalA
             fields.append(f"account:{a.last4}:variant")
             return PersonalAnswer(lines, fields=fields, needs_kb=f"What are the features and benefits of the AU {a.type} Savings Account?")
         elif q.detail == "status":
-            lines.append(_cap(t("acct_status", lang, Acct=_cap(_acct(a, lang)), acct=_acct(a, lang), status=_status(a.status, lang))))
+            lines.append(_cap(t("acct_status", lang, Acct=_cap(_acct(a, lang)), type=a.type, l4=a.last4, status=_status(a.status, lang))))
             if a.status != "active":
                 lines.append(t("inactive_note", lang))
             fields.append(f"account:{a.last4}:status")
@@ -1024,7 +1035,9 @@ def _transactions(c: Customer, q: PersonalQuery, lang: str, today: date) -> Pers
     if not merged:
         return PersonalAnswer([_nothing_found(q, lang, accounts, filtered)], fields=fields)
     several = len(accounts) > 1  # name each line's account when more than one is in play
-    shown = merged[: max(1, min(q.count or (3 if filtered else 5), 10))]
+    # A filtered list ("my UPI payments this week") counts every match, not the first three: call 5884ab26 heard "₹3,940 in
+    # 4 payments" and then "I found 3". Three are read out, then "Want the other 1?" (below), so count and list agree.
+    shown = merged[: max(1, min(q.count or (10 if filtered else 5), 10))]
     lines = [_txn_line(x, lang, a.last4 if several else "", today) for a, x in shown]
     yes = f"{YES.get(lang, YES['en'])} " if _is_check(q) else ""  # "did my salary come?": the answer starts with yes
     notes = {id(x): note_text(x, lang) for _, x in shown if x.note and (filtered or len(shown) == 1)}
@@ -1034,7 +1047,9 @@ def _transactions(c: Customer, q: PersonalQuery, lang: str, today: date) -> Pers
         note = [notes[id(shown[0][1])]] if notes.get(id(shown[0][1])) else []
         if short and not several:
             return PersonalAnswer([t("txn_only_one", lang, l4=accounts[0].last4), lines[0]] + note + inactive, fields=fields)
-        return PersonalAnswer([yes + _cap(lines[0])] + note, fields=fields)
+        # A caller with more than one account hears which account this was (not only when several are in play)
+        line = lines[0] if several or len(c.accounts) < 2 else _txn_line(shown[0][1], lang, shown[0][0].last4, today)
+        return PersonalAnswer([yes + _cap(line)] + note, fields=fields)
     key = ("txn_merged_found" if filtered else "txn_merged_intro") if several else ("txn_found" if filtered else "txn_intro")
     if short:
         key = "txn_merged_only" if several else "txn_only"
@@ -1286,6 +1301,10 @@ def _loan(c: Customer, q: PersonalQuery, lang: str, today: date) -> PersonalAnsw
 def _credit_card(c: Customer, q: PersonalQuery, lang: str, today: date) -> PersonalAnswer:
     if not c.credit_cards:
         return PersonalAnswer([t("no_cc", lang)])
+    if q.detail == "status" and not q.item:  # "do I have any credit cards?": the cards, not a bill (call de568948)
+        return PersonalAnswer([t("cards_have", lang, n=len(c.credit_cards), what=plural("credit card", lang),
+                                 list=_listing(c.credit_cards, lang, lambda x: x.variant, "credit card"))],
+                              fields=[f"credit_card:{k.last4}" for k in c.credit_cards])
     picked, ask = _pick(c.credit_cards, q.item, lang, ("credit cards",), lambda x: x.variant, lambda x: (x.variant, x.last4))
     if ask:
         return ask
@@ -1350,6 +1369,10 @@ def _debit_card(c: Customer, q: PersonalQuery, lang: str, today: date) -> Person
     if hint and "salary" in hint.lower():
         salary = {a.last4 for a in c.accounts if a.is_salary}
         picked = [d for d in cards if d.account_last4 in salary] or picked
+    if len(picked) > 1 and q.detail == "status" and not q.item:  # "do I have any debit cards?": all of them
+        return PersonalAnswer([t("cards_have", lang, n=len(picked), what=plural("debit card", lang),
+                                 list=_listing(picked, lang, lambda d: d.variant, "debit card"))],
+                              fields=[f"debit_card:{d.last4}" for d in picked])
     if len(picked) > 1 and q.detail != "declines":
         picked = [d for d in picked if d.status != "blocked"] or picked
         if len(picked) > 1:

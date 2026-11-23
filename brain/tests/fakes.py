@@ -42,14 +42,35 @@ class FakeReranker:
 class FakeLLM:
     """Understanding: keyword rules. Answer: first line of context source [1] that shares words with the question."""
 
-    async def json(self, model, system, user, schema, max_tokens=400):
+    async def json(self, model, system, user, schema, max_tokens=400, effort=None):
         """Understanding v2 by keyword rules. " and then " (or "; ") splits a turn into separate requests."""
         question = user.rsplit("Caller:", 1)[-1].strip()
         if "Conversation so far" in user and False:  # (history is not used by the fake)
             pass
         pending = "The assistant just asked:" in user
         parts = [p.strip() for p in re.split(r"\band then\b|;", question) if p.strip()] or [question]
+        found = re.search(r"^Already found: (.*)$", user, re.M)  # the agenda's second look: only what was not found
+        if found:
+            seen = found.group(1).lower()
+            parts = [p for p in parts if p.lower() not in seen] or ["thanks"]
+        else:  # a part with "FAKE_MISS" is missed by the first reading (tests the coverage check and the second look)
+            parts = [p for p in parts if "FAKE_MISS" not in p] or parts
         requests = [self._request(p) for p in parts[:3]]
+        # every part is an ask in the caller's own words (labels left to code)
+        asks = [] if found and parts == ["thanks"] else [{"quote": p, "type": "question", "label": ""} for p in parts[:8]]
+        agenda_reply, agenda_pick = "none", 0
+        if "Still to answer:" in user:
+            low = question.lower()
+            pick = re.search(r"\b(first|second|third|fourth|1st|2nd|3rd|4th)\b", low)
+            if re.search(r"that'?s all|no more|leave (the rest|them)|stop", low):
+                agenda_reply = "stop"
+            elif re.search(r"\bskip\b", low):
+                agenda_reply = "skip"
+            elif pick:
+                agenda_reply = "choose"
+                agenda_pick = {"first": 1, "1st": 1, "second": 2, "2nd": 2, "third": 3, "3rd": 3, "fourth": 4, "4th": 4}[pick.group(1)]
+            elif re.search(r"\b(go on|continue|carry on)\b", low):
+                agenda_reply = "continue"
         first = parts[0].lower()
         risk = []
         if re.search(r"don't recogni[sz]e|didn't make|did not make", first):
@@ -62,7 +83,8 @@ class FakeLLM:
             if reply == "none" and requests[0]["kind"] == "general" and "?" not in question:
                 reply = "answer"  # a statement after our question answers it ("about 30,000, mostly shopping")
         lang = "hi" if re.search(r"[ऀ-ॿ]", question) else "en"
-        data = {"language": lang, "requests": requests, "risk": risk, "reply_to_pending": reply,
+        data = {"language": lang, "asks": asks, "agenda_reply": agenda_reply, "agenda_pick": agenda_pick,
+                "requests": requests, "risk": risk, "reply_to_pending": reply,
                 "search_query_en": question, "facts": {"senior_citizen": "unknown", "product": "", "tenure": "", "amount": "",
                                                        "account": ""},
                 "department": "credit_cards" if "credit" in first else "payments" if requests[0]["kind"] == "issue" else "general"}
@@ -113,7 +135,7 @@ class FakeLLM:
                 "action": action if kind in ("action", "issue") else None, "issue": issue if kind == "issue" else "none",
                 "goal": goal, "product": product, "own_check": own_check}
 
-    async def stream(self, model, messages, meta, max_tokens=400):
+    async def stream(self, model, messages, meta, max_tokens=400, effort=None):
         user = messages[-1]["content"]
         question = user.rsplit("Question:", 1)[-1].strip()
         sources = re.findall(r"\[(\d+)\] .*?\n(.*?)(?=\n\[\d+\] |\n\n(?:Caller details|Last exchange|What to do|Question):)", user, re.S)

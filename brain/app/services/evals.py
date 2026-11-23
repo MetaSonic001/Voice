@@ -171,7 +171,8 @@ class EvalRunner:
 
     def config_snapshot(self) -> dict:
         s = self.s
-        return {"understand_model": s.understand_model, "answer_model": s.answer_model,
+        return {"setup_id": self.conversation.setup_id, "setup": self.conversation.setup,  # for the /bench page
+                "understand_model": s.understand_model, "answer_model": s.answer_model,
                 "embedder": self.conversation.retriever.embedder.name, "reranker": self.conversation.retriever.reranker.name,
                 "retrieval": {"dense_query": s.dense_query, "dense_k": s.dense_k, "keyword_k": s.keyword_k,
                               "rerank_candidates": s.rerank_candidates, "context_chunks": s.context_chunks,

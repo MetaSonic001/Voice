@@ -20,6 +20,7 @@ from app.logs import log
 from app.ports import LLM, STT, TTS, VAD, Bank, Embedder, FileStore, Reranker
 from app.services.audit import AuditStore
 from app.services.auth import AuthService
+from app.services.callrecords import CallRecords
 from app.services.conversation import Conversation
 from app.services.desk import HandoffService, LocalServiceDesk
 from app.services.documents import DocumentService
@@ -75,9 +76,12 @@ class Container:
     bank_server: object | None = None  # the embedded mock bank systems, stopped on close
     reviews: ReviewService | None = None
     summariser: Summariser | None = None
+    call_records: CallRecords | None = None
 
     async def close(self) -> None:
         self.worker.stop()
+        if self.call_records:
+            self.call_records.stop()
         if hasattr(self.llm, "close"):
             await self.llm.close()
         if self.voice:
@@ -108,7 +112,8 @@ def _build_provider(s: Settings) -> LLM:
     if s.llm_provider == "bedrock":
         from app.adapters.bedrock import BedrockLLM
 
-        return BedrockLLM(s.aws_region, s.llm_timeout_s)
+        # "low" for the calls that pass no effort (hand-over summary, judge); understanding and answers pass their own
+        return BedrockLLM(s.aws_region, s.llm_timeout_s, api_key=s.aws_bearer_token_bedrock.get_secret_value())
     if s.llm_provider == "openai":
         from app.adapters.llm import OpenAICompatibleLLM
 
@@ -139,24 +144,48 @@ def build_recording_files(s: Settings) -> FileStore:
     raise ValueError(f"unknown FILE_STORE '{s.file_store}' (use local or s3)")
 
 
+def build_call_record_files(s: Settings) -> FileStore:
+    """Where the call records go (services/callrecords.py): data_dir/call_records, or <S3_PREFIX>call_records/ in the
+    bucket (Object Lock and versioning are set on the bucket, not here)."""
+    if s.file_store == "s3":
+        return S3FileStore(s.s3_bucket, s.s3_prefix + "call_records/", s.aws_region, s.s3_endpoint_url)
+    if s.file_store == "local":
+        return LocalFileStore(s.data_dir / "call_records")
+    raise ValueError(f"unknown FILE_STORE '{s.file_store}' (use local or s3)")
+
+
 def build_search(s: Settings) -> tuple[Embedder, Reranker]:
-    """The embedder and reranker: loaded in this process (local), or on the GPU search server (http)."""
-    if s.search_provider == "http":
-        from app.adapters.search_http import HttpEmbedder, HttpReranker, SearchClient
+    """The embedder and reranker: loaded in this process (local), on our GPU search server (http), or on a SageMaker
+    endpoint running the same server image (sagemaker). Same model code everywhere, so no re-indexing on a switch.
+    RERANK=false: the reranker model is not loaded at all (NoReranker)."""
+    from app.adapters.models import NoReranker
 
-        client = SearchClient(s.search_url, s.search_token.get_secret_value(), embed_model=s.embed_model,
-                              dim=s.embed_dim, rerank_model=s.rerank_model, timeout_s=s.search_timeout_s,
-                              ingest_timeout_s=s.search_ingest_timeout_s)
-        if client.try_verify():  # wakes the server's GPU too, like the local warm-up below
+    if s.search_provider in ("http", "sagemaker"):
+        from app.adapters.search_http import HttpEmbedder, HttpReranker, SageMakerSearchClient, SearchClient
+
+        same = {"embed_model": s.embed_model, "dim": s.embed_dim, "rerank_model": s.rerank_model,
+                "timeout_s": s.search_timeout_s, "ingest_timeout_s": s.search_ingest_timeout_s}
+        client = SageMakerSearchClient(s.sagemaker_endpoint, s.aws_region, **same) if s.search_provider == "sagemaker" \
+            else SearchClient(s.search_url, s.search_token.get_secret_value(), **same)
+        if client.try_verify() and s.rerank:  # wakes the server's GPU too, like the local warm-up below
             client.post("/v1/rerank", {"query": "warm up", "passages": ["warm up"]})
-        return HttpEmbedder(client), HttpReranker(client)
+        return HttpEmbedder(client), (HttpReranker(client) if s.rerank else NoReranker())
     if s.search_provider != "local":
-        raise ValueError(f"unknown SEARCH_PROVIDER '{s.search_provider}' (use local or http)")
-    from app.adapters.models import CrossEncoderReranker, TransformerEmbedder
-
+        raise ValueError(f"unknown SEARCH_PROVIDER '{s.search_provider}' (use local, http or sagemaker)")
     models_dir = ROOT / "models"
-    embedder = TransformerEmbedder(s.embed_model, s.embed_dim, s.device, models_dir=models_dir)
-    reranker = CrossEncoderReranker(s.rerank_model, s.device, s.rerank_max_tokens, models_dir=models_dir)
+    if s.search_runtime == "onnx":  # the same models as ONNX files, on the CPU (ADR 0029)
+        from app.adapters.models import OnnxEmbedder, OnnxReranker
+
+        embedder = OnnxEmbedder(s.embed_model, s.embed_dim, models_dir=models_dir)
+        reranker = OnnxReranker(s.rerank_model, s.rerank_max_tokens, models_dir=models_dir) if s.rerank else NoReranker()
+    elif s.search_runtime == "torch":
+        from app.adapters.models import CrossEncoderReranker, TransformerEmbedder
+
+        embedder = TransformerEmbedder(s.embed_model, s.embed_dim, s.device, models_dir=models_dir)
+        reranker = CrossEncoderReranker(s.rerank_model, s.device, s.rerank_max_tokens, models_dir=models_dir) \
+            if s.rerank else NoReranker()
+    else:
+        raise ValueError(f"unknown SEARCH_RUNTIME '{s.search_runtime}' (use torch or onnx)")
     embedder.embed_query("warm up")  # first call is slow; pay it at startup, not on the first question
     reranker.score("warm up", ["warm up"])
     return embedder, reranker
@@ -217,16 +246,19 @@ def build_bank(s: Settings, db: Database) -> tuple[Bank | None, object | None]:
     if s.bank_provider == "off":
         return None, None
     if s.bank_provider == "http":
+        if s.mock_bank:  # MOCK_BANK=true: the embedded mock bank, seeded with the demo customers
+            from app.mockbank.server import start_embedded
+
+            server, bank = start_embedded(db, s)
+            return bank, server
         if s.bank_base_url:  # AU's gateway, or a separately started mock bank
             from app.adapters.http_bank import HttpBank
 
             return HttpBank(s.bank_base_url, s.bank_service_token.get_secret_value(),
                             s.bank_token_secret.get_secret_value().encode(), timeout_s=s.bank_timeout_s,
                             token_ttl_s=s.bank_token_ttl_s), None
-        from app.mockbank.server import start_embedded
-
-        server, bank = start_embedded(db, s)
-        return bank, server
+        logger.warning("no bank systems: MOCK_BANK=false and BANK_BASE_URL is empty; personal questions go to a person")
+        return None, None
     if s.bank_provider != "mock":
         raise ValueError(f"unknown BANK_PROVIDER '{s.bank_provider}' (use http, mock or off)")
     from app.adapters.mock_corebank import MockCoreBank
@@ -252,7 +284,11 @@ def build(settings: Settings, *, start_worker: bool = True, overrides: dict | No
           golden_dir: Path | None = None, reports_dir: Path | None = None) -> Container:
     t = time.perf_counter()
     o = overrides or {}
-    db = Database(settings.database_url, settings.data_dir)
+    if settings.use_system_certs:  # before any HTTPS client exists (Sarvam, Bedrock, Groq, edge-tts)
+        import truststore
+
+        truststore.inject_into_ssl()
+    db = Database(settings.database_url, settings.data_dir, settings.vector_store)
 
     if "embedder" in o:
         embedder, reranker = o["embedder"], o["reranker"]
@@ -263,13 +299,24 @@ def build(settings: Settings, *, start_worker: bool = True, overrides: dict | No
     voice = o.get("voice") or (build_voice(settings) if settings.voice_enabled else None)
     bank, bank_server = (o["bank"], None) if "bank" in o else build_bank(settings, db)
 
-    db.ensure_vector_index(embedder.name, embedder.dim)
-    documents = DocumentService(db, store, ParserRouter(), embedder, settings)
+    vectors = None
+    if settings.vector_store in ("numpy", "chroma"):  # a Postgres without pgvector (services/vectors.py)
+        from app.services import vectors as vector_stores
+
+        db.ensure_plain_embeddings()
+        vectors = (vector_stores.NumpyVectors(embedder.name, embedder.dim) if settings.vector_store == "numpy"
+                   else vector_stores.ChromaVectors(settings.data_dir / "chroma", embedder.name, embedder.dim))
+        vectors.sync(db)
+    else:
+        db.ensure_vector_index(embedder.name, embedder.dim)
+    documents = DocumentService(db, store, ParserRouter(), embedder, settings, vectors)
     worker = IngestWorker(db, documents, settings.worker_poll_s)
     traces = TraceStore(db)
-    retriever = Retriever(db, embedder, reranker, settings)
+    retriever = Retriever(db, embedder, reranker, settings, vectors)
     auth = AuthService(db, bank, settings) if bank else None
     audit = AuditStore(db)
+    call_records = CallRecords(db, audit, o.get("call_record_files") or build_call_record_files(settings), settings)
+    audit.records = call_records
     recordings = RecordingStore(db, settings, o.get("recording_files") or build_recording_files(settings))
     service_desk = LocalServiceDesk(db, settings.demo_today)
     handoffs = HandoffService(db, settings)
@@ -289,7 +336,8 @@ def build(settings: Settings, *, start_worker: bool = True, overrides: dict | No
         _load_policy_pack(documents)
     if start_worker:
         worker.start()
+        call_records.start()
     log(logger, "container ready", llm=settings.llm_provider, voice=bool(voice), device=getattr(embedder, "device", "-"),
         startup_ms=round((time.perf_counter() - t) * 1000))
     return Container(settings, db, embedder, reranker, llm, documents, worker, traces, retriever, conversation, evals, voice,
-                     bank, auth, audit, recordings, service_desk, handoffs, bank_server, reviews, summariser)
+                     bank, auth, audit, recordings, service_desk, handoffs, bank_server, reviews, summariser, call_records)

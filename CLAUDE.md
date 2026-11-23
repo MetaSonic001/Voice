@@ -3,12 +3,12 @@
 An inbound AI voice agent for AU Small Finance Bank. It answers product questions from the bank's documents (RAG), verifies callers with a keypad code, reads their own bank data, does a few controlled card actions with confirmation, raises tickets, and hands over to human agents with context. It works in English, Hindi and Hinglish.
 
 - `brain/`: Python FastAPI service (text and voice), Postgres via pgserver with pgvector, bge-m3 embedder and reranker on the GPU, Groq LLMs.
-- `ui/`: Next.js + shadcn test console. Pages: `/` (console), `/kb`, `/calls`, `/desk`, `/fixes`.
+- `ui/`: Next.js + shadcn test console. Pages: `/` (console), `/kb`, `/calls`, `/desk`, `/fixes`, `/bench` (speed and quality per setup).
 - **Production target (proposed, 13 Nov 2026):** callers → AU's Cisco → our app on AWS Mumbai (ECS), Sarvam for speech, gpt-oss-120b on Bedrock Mumbai. Details: `docs/deployment-options-and-costs.md`.
 
 ## Read before doing anything
 
-1. `context/progress-tracker.md`: **where we are**: what's built, what's live, the current step, open questions. Always read it first.
+1. `context/progress-tracker.md`: **where we are**: what's built, what's live, the current step, open questions, and how the owner's laptop differs from the company laptop. Always read it first. The full dated history (4–22 Nov 2026) is `context/progress-archive.md` (read only when you need the why; not updated).
    Then `context/pending-work.md`: **what is left**, for the local demo and for production on AWS.
 2. `reference/PROJECT-GUIDE.md`: **the one detailed document**. How the whole system works (§1–24; §23 Phase 3, §24 Phase 4), what each phase built and what the calls showed (§25), going live on Cisco / AWS / Sarvam (§26), every Indian language (§27), lessons from other voice agents (§28), production research (§29), open questions (§30). §33 explains every code file (why it exists, what it does), §34 how a reply is made (templates, journeys, the LLM). §31 maps the sections of the merged documents (`PHASE-4-PLAN.md`, `ROADMAP.md`, the deep dive, the playbook) to their new place, so old references in ADRs and code comments still resolve.
 3. `brain/README.md` and `ui/README.md`: how to run, configure and test each part.
@@ -75,6 +75,8 @@ uv run python -m evals.golden_run    # rarely: 105-question golden set, paced, c
 uv run python -m app.cli clean-slate # delete all recorded calls (KB kept, mock bank re-seeded); asks for DELETE
 bun run dev                          # UI on http://localhost:3000
 bun run build                        # UI production build; must pass after UI changes
+docker compose up -d db              # (repo root) Postgres 16 + pgvector in Docker; DATABASE_URL in brain/.env points at it
+docker compose up -d --build         # (repo root) database + brain + UI in Docker (brain/README "Setup with Docker Desktop")
 ```
 
 Demo callers (mock core bank): mobiles `9000000101`–`9000000107`. For example, Ravi is `…101` and Imran is `…105`. Their stories are in `brain/app/adapters/mock_corebank.py`.

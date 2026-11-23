@@ -158,7 +158,7 @@ class TraceStore:
             stages = conn.execute(
                 "SELECT stage, count(v) AS n, percentile_cont(0.5) WITHIN GROUP (ORDER BY v) AS p50, "
                 "percentile_cont(0.95) WITHIN GROUP (ORDER BY v) AS p95, percentile_cont(0.99) WITHIN GROUP (ORDER BY v) AS p99 "
-                # first_audio_ms counts the "one moment" filler; voice_to_voice_ms is the first audio of the real answer
+                # first audio of the reply (the opener, when one was said); before 22 Nov first_audio_ms also counted the timed filler
                 "FROM (SELECT s.stage, (CASE WHEN s.stage IN ('first_audio_ms', 'voice_to_voice_ms') THEN t.data->'voice'->>s.stage "
                 "ELSE t.data->'timings'->>s.stage END)::numeric AS v FROM traces t, "
                 "(VALUES ('first_audio_ms'), ('voice_to_voice_ms'), ('understand_ms'), ('bank_ms'), ('embed_ms'), ('rerank_ms'), ('llm_ttft_ms'), ('total_ms')) AS s(stage) "

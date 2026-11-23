@@ -1,6 +1,6 @@
 {
   "family": "au-ui",
-  "requiresCompatibilities": ["FARGATE"],
+  "requiresCompatibilities": ["EC2", "MANAGED_INSTANCES"],
   "networkMode": "awsvpc",
   "cpu": "256",
   "memory": "512",

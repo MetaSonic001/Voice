@@ -12,7 +12,7 @@ from app.config import Settings
 from app.services.conversation import Reply, TurnEvent
 from app.services.numbers import speech_text
 from app.voice.audio import silence, tone
-from app.voice.phrases import PhraseCache, phrase_text, variants
+from app.voice.phrases import PhraseCache, phrase_text
 from app.voice.session import VoiceSession
 from tests.fakes import FakeSTT, FakeTTS, FakeVAD
 
@@ -48,7 +48,7 @@ class StubBrain:
 
 class Harness:
     def __init__(self, brain=None, **overrides):
-        settings = dict(audio_rate=RATE, playback_lead_ms=100, no_input_s=30, filler_after_ms=5000)
+        settings = dict(audio_rate=RATE, playback_lead_ms=100, no_input_s=30)
         settings.update(overrides)
         self.settings = Settings(**settings)
         self.events: list[dict] = []
@@ -207,14 +207,6 @@ async def test_correction_while_thinking_merges_with_previous_question():
             break
         await asyncio.sleep(0.01)
     assert brain.questions[1] == f"{Q} ruko, what about senior citizens?"
-    await h.close()
-
-
-async def test_filler_plays_when_answer_is_slow():
-    h = await Harness(StubBrain(think_s=0.8), filler_after_ms=200).start()
-    await h.feed(quiet(200) + speech(300) + quiet(1000))
-    await h.wait_for("turn_metrics", timeout=8)
-    assert h.tts.spoken[0] == speech_text(phrase_text("filler", "en"), "en")
     await h.close()
 
 
@@ -378,15 +370,14 @@ class ResumeBrain(CodeBrain):
         return {"status": "verified", "pending_question": "What is my balance?"}, "Thank you, you are verified.", "en"
 
 
-async def test_after_verification_the_answer_follows_with_no_filler():
+async def test_after_verification_the_answer_follows_right_behind():
     # live call 16 Nov: "...you are verified." then "Okay, one second." then the answer - three lines where two do
-    h = await Harness(brain=ResumeBrain(), filler_after_ms=100).start()
+    h = await Harness(brain=ResumeBrain()).start()
     await h.feed(quiet(200) + speech(300) + quiet(1000))
     await h.wait_for("auth", status="otp_sent")
     await h.session.submit_code("123456")
     await h.wait_for("agent_text", text="You have ten rupees.", timeout=5)
     await h.wait_for("turn_metrics", timeout=5)
-    filler = {speech_text(t, "en") for t in variants("filler", "en")}
-    assert not filler & set(h.tts.spoken)
-    assert h.tts.spoken.index("Thank you, you are verified.") < h.tts.spoken.index("You have ten rupees.")
+    # nothing is said between the two lines
+    assert h.tts.spoken.index("You have ten rupees.") == h.tts.spoken.index("Thank you, you are verified.") + 1
     await h.close()

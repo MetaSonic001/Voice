@@ -9,7 +9,7 @@ English, Hindi and Hinglish. Security and compliance come before features.
 | I want to... | Read |
 |---|---|
 | Understand everything: how it works, what was built in each phase, how it goes live, research, open questions | [reference/PROJECT-GUIDE.md](reference/PROJECT-GUIDE.md) (the one detailed document) |
-| Know where the project is, what is live, the dated log and numbers | [context/progress-tracker.md](context/progress-tracker.md) |
+| Know where the project is, what is live and the numbers | [context/progress-tracker.md](context/progress-tracker.md) (full history to 22 Nov: [progress-archive.md](context/progress-archive.md)) |
 | See what is left to do (local demo and AWS) | [context/pending-work.md](context/pending-work.md) |
 | Know **why** something was decided | [adr/](adr/README.md) (24 decisions) |
 | Run, configure or test the backend | [brain/README.md](brain/README.md) |

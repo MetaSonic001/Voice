@@ -55,6 +55,11 @@ def is_courtesy(text: str) -> bool:
     return 0 < len(w) <= 5 and "?" not in text and bool(_THANKS.search(text) or _BYE.search(text))
 
 
+def is_goodbye(text: str) -> bool:
+    """"Bye", "that's all", "बस इतना": the caller is finishing (the agenda reminds them once of anything left)."""
+    return bool(_BYE.search(text)) and len(words(text)) <= 8
+
+
 def reply_for(text: str, language: str) -> str:
     """One short line that fits what was said ("" if there is nothing to say)."""
     kind = ("thanks" if _THANKS.search(text) else "bye" if _BYE.search(text) else "waiting" if _WAITING.search(text)

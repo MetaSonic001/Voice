@@ -20,7 +20,7 @@ import re
 import time
 import uuid
 from collections.abc import AsyncIterator
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 
 from app.domain import LANGUAGES, Hit, Request, Understanding
 from app.logs import log
@@ -30,11 +30,13 @@ from app.adapters.llm import LLMError
 from app.ports import LLM, BankError
 from app.services.audit import AuditStore, grounding, log_turn
 from app.services.auth import AuthService
+from app.services.benchmark import setup_of
 from app.services.numbers import allowed_numbers, clean_markup, speech_text, spelled_figures, unsupported_numbers
 from app.services.guard import injection, unsafe_output
 from app.services.kbmeta import (mention_note, missing_products, named_products, product_of, provenance, select_sources,
                                  trim_context, variant_gate)
 from app.services.confirm import read_reply
+from app.services.says import new_request, topics_named
 from app.services.dialogue import (COMPARE_MISSING, SAFETY_LIMIT, STRATEGY_LINES, TARGET_WORDS, can_offer_own, describe_facts, merge_facts, next_question, own_offer,
                                     recommend_request)
 from app.services.dialogue import strategy as pick_strategy
@@ -48,14 +50,15 @@ from app.services.privacy import is_code_entry, redact
 from app.services.registry import task_for
 from app.services.retrieval import Retriever, _ms, family_variants
 from app.services.sentences import SentenceSplitter
-from app.services.smalltalk import REPLIES as SMALLTALK, is_courtesy, is_fragment, is_greeting, is_repeat, reply_for
+from app.services import agenda
+from app.services.smalltalk import REPLIES as SMALLTALK, is_courtesy, is_fragment, is_goodbye, is_greeting, is_repeat, reply_for
 from app.services.state import CallState, StateStore
 from app.services.store import TraceStore
 from app.services.understanding import repair
-from app.services.understanding import MAX_REQUESTS, UNDERSTAND_SCHEMA, UNDERSTAND_SCHEMA_LENIENT, UNDERSTAND_SYSTEM, asked_only, broad_charges, build_input, card_failing, correct, own_data, parse, wants_own_charges, with_risk
+from app.services.understanding import MAX_REQUESTS, UNDERSTAND_SCHEMA, UNDERSTAND_SCHEMA_LENIENT, UNDERSTAND_SYSTEM, asked_only, both_cards, broad_charges, build_input, card_failing, correct, coverage_gap, issue_screened, own_data, parse, pick_department, wants_own_charges, with_issue, with_risk
 
 logger = logging.getLogger(__name__)
-PROMPT_VERSION = "2026-11-11.1"  # everyday Hindi in answers; dialogue layer (ADR 0024) + router scope / named products
+PROMPT_VERSION = "2026-11-22.1"  # opener (understanding writes it, code decides, the answer continues from it)
 
 ANSWER_SYSTEM = """You are a customer service representative at AU Small Finance Bank, talking to a customer on the phone. You are warm, calm and helpful, and you sound like a real person: short natural sentences, everyday words, contractions.
 
@@ -283,7 +286,7 @@ def fraud_opening(risk: list[str]) -> str:
     return "fraud_first"
 
 
-# Outcomes that end in a question to the caller or a hand-over: requests waiting behind them are kept for later.
+# Outcomes that end in a question to the caller or a hand-over: requests waiting behind them stay on the agenda.
 HOLDING = {"clarify", "confirm", "auth_required", "handoff", "refused", "error", "action_failed"}
 DONE = {"answered", "action_done", "ticket", "callback"}
 
@@ -293,11 +296,88 @@ def describe_pending(p: dict) -> str:
     kind = p.get("kind")
     if kind == "action":
         return redact(str(p.get("question", "")))[:200]
+    if kind == "agenda_next":  # "Shall I go on to X? Still to answer: 1) X 2) Y": the router reads agenda_reply from it
+        return redact(agenda.describe(p))[:400]
     return {"handoff": "Shall I connect you to our team?", "ticket": "Shall I raise a complaint or request for this?",
             "fraud_followup": "Shall I raise a dispute and connect you to the fraud team?",
             "lead": "Would you like someone from our team to call you to help open an account?",
             "action_target": "Which card is it?", "block_type": "Block the card temporarily or permanently?", "check_own": p.get("text", ""),
             "charges_which": p.get("text", "")}.get(kind, "a yes or no question")
+
+
+def _corrected(u: Understanding, raw: str) -> Understanding:
+    """The code corrections on the router's reading, in their order (the request list last)."""
+    u = with_issue(with_risk(own_data(card_failing(correct(u, raw), raw), raw), raw), raw)
+    return pick_department(both_cards(asked_only(u, raw), raw), raw)
+
+
+# ───────── the LLM's reading, checked against the caller's own words ─────────
+# Calls a6545287, 5884ab26, d42aa7ed (20-21 Nov): the understanding step copied the bank-data question answered in the
+# turn before into the new turn ("no cash came out of the ATM" became the balance again; "does that include money people
+# sent me?" became the UPI count again), so the caller heard the last answer again. Code now compares each bank-data
+# request with what was answered last turn: the same data, with no word in the new sentence naming that topic, is a copy.
+_ECHO_FIELDS = ("topic", "detail", "account", "item", "card", "period", "keyword", "direction", "count")
+# "that", "those", "it", "isme", "उसमें": the new sentence refers back to the last answer
+_REFERS_BACK = re.compile(r"\b(that|those|these|this|it|them|they|isme|usme|inme|unme|ismein|usmein|inmein|unmein|wo|woh|ye|yeh)\b|"
+                          r"इसमें|उसमें|इनमें|उनमें|वो|ये", re.I)
+
+
+def answer_key(p: dict | None) -> dict:
+    """The data a bank-data request asked for (wording, totals and amounts aside), kept for the next turn's copy check."""
+    p = p or {}
+    return {k: str(p.get(k) or "").lower() for k in _ECHO_FIELDS}
+
+
+def copied(r: Request, raw: str, previous: list[dict]) -> bool:
+    """This request asks for exactly what was answered last turn and the caller's words don't name its topic again."""
+    if r.kind != "personal" or not previous:
+        return False
+    topic = (r.personal or {}).get("topic") or ""
+    return answer_key(r.personal) in previous and topic not in topics_named(raw)
+
+
+_SPECIFICS = ("detail", "keyword", "direction", "count", "item", "card")
+
+
+def rider(r: Request, raw: str, previous: list[dict]) -> bool:
+    """A bank-data request that only repeats the topic and period answered last turn and adds nothing of its own (no
+    detail, name, direction, count): call 5884ab26, "How much did Rajesh send me?" also brought back the whole list.
+    Dropped only while another request remains (`_without_copies`)."""
+    if r.kind != "personal" or not previous:
+        return False
+    key = answer_key(r.personal)
+    if key["topic"] in topics_named(raw) or any(key[k] not in ("", "any", "0") for k in _SPECIFICS):
+        return False
+    return any(p["topic"] == key["topic"] and p["period"] == key["period"] and p["account"] == key["account"] for p in previous)
+
+
+def without_duplicates(requests: list[Request]) -> list[Request]:
+    """Bank-data requests asking for the same data are one request (after the code corrections, two differently worded
+    requests can become the same one: calls 5884ab26 and d42aa7ed answered "No, that total is only money you paid out" twice)."""
+    out, seen = [], []
+    for r in requests:
+        if r.kind == "personal" and (r.personal or {}).get("topic"):
+            key = answer_key(r.personal)
+            if key["detail"] in CODE_DETAILS:  # a detail code sets has one fixed answer ("No, that total is only...")
+                key = {"topic": key["topic"], "detail": key["detail"]}
+            if key in seen:
+                continue
+            seen.append(key)
+        out.append(r)
+    return out
+
+
+def carry_period(u: Understanding, raw: str, previous: list[dict]) -> None:
+    """A follow-up on transactions just listed ("and those, were they all UPI?") keeps the period of that list, so nothing
+    from outside it is listed (call d42aa7ed: a 1 Nov salary under "the last 7 days")."""
+    if not _REFERS_BACK.search(raw):
+        return
+    periods = {p["period"] for p in previous if p.get("topic") == "transactions" and p.get("period")}
+    if len(periods) != 1:
+        return
+    for r in u.requests:
+        if r.kind == "personal" and (r.personal or {}).get("topic") == "transactions" and not (r.personal or {}).get("period"):
+            r.personal = {**r.personal, "period": next(iter(periods))}
 
 
 def _merge(replies: list) -> "Reply":
@@ -318,6 +398,8 @@ def _note(state: CallState, task, req: Request, reply: "Reply") -> None:
         state.mark(task.name)
     elif reply.outcome == "cancelled":
         state.mark(task.name, declined=True)
+    if reply.outcome == "answered" and req.kind == "personal" and (req.personal or {}).get("topic"):
+        state.answered.append(answer_key(req.personal))  # the next turn's copy check (`copied`)
     account = str((req.personal or {}).get("account") or "")
     if reply.outcome == "answered" and account and account not in ("all", "both"):
         state.focus["account"] = account
@@ -364,7 +446,12 @@ _ASK_ENGLISH = re.compile(r"\b(speak|talk|reply|answer|continue|baat|bolo|boliye
 # Common Hindi words written in Latin letters: two or more of them make a Latin-script sentence Hinglish, not English.
 _HINGLISH_WORDS = {"hai", "hain", "kya", "kab", "kitna", "kitne", "kitni", "mera", "meri", "mere", "mujhe", "aap", "aapka",
                    "aapke", "nahi", "nahin", "kaise", "kyun", "kyon", "batao", "bataiye", "bata", "chahiye", "karna", "karo",
-                   "kiya", "tha", "thi", "mein", "aur", "abhi", "wala", "wali", "baaki", "hua", "hui", "gaya", "gayi", "dijiye"}
+                   "kiya", "tha", "thi", "mein", "aur", "abhi", "wala", "wali", "baaki", "hua", "hui", "gaya", "gayi", "dijiye",
+                   "paise", "paisa", "kat", "kata", "gaye", "bhi", "se", "ka", "ki", "ke", "ko", "toh", "yeh", "ye", "woh",
+                   "kuch", "koi", "raha", "rahi", "rahe", "sakta", "sakti", "sakte", "chahta", "chahti", "chahte", "nikla",
+                   "nikle", "dekho", "bataye", "batana", "karwa", "karwana", "kijiye", "hoga", "hogi",
+                   "kyunki", "lekin", "matlab", "wapas", "kab", "kahan", "kaun", "kaunsa", "kitna", "hamara", "humara",
+                   "apna", "apni", "apne", "mere", "tera", "aapki", "aapko", "unka", "uska", "iska", "isme", "usme"}
 
 
 def reply_language(text: str, llm_language: str | None, fallback: str) -> str:
@@ -389,9 +476,9 @@ def reply_language(text: str, llm_language: str | None, fallback: str) -> str:
         return "hi"
     if devanagari * 2 == len(words):  # half and half ("मेरा balance"): the LLM's reading of the whole sentence
         return llm_language if llm_language in ("hi", "en", "hinglish") else "hi"
-    if llm_language in ("en", "hinglish"):
-        return llm_language
-    return "hinglish" if sum(w in _HINGLISH_WORDS for w in words) >= 2 else "en"
+    # Latin letters: any romanised Hindi word makes it Hinglish, otherwise English. The LLM's label is not used here
+    # (calls a6545287, d42aa7ed, 3eab4732: plain English sentences were labelled Hinglish and answered in Hinglish).
+    return "hinglish" if any(w in _HINGLISH_WORDS for w in words) else "en"
 
 
 def _carries_no_language(text: str) -> bool:
@@ -408,6 +495,30 @@ _DIGIT_NAME = re.compile(r"(?<![\wऀ-ॿ])(" + "|".join(sorted(_DIGIT_NAMES, ke
 def spoken_digits(text: str) -> str:
     """'saat ek shunya ...' / 'seven one zero ...' -> '7 1 0 ...' (for reading a mobile number said aloud)."""
     return _DIGIT_NAME.sub(lambda m: _DIGIT_NAMES[m.group(1).lower()], text)
+
+
+# The opener (22 Nov 2026; replaces the timed "one moment" filler): the understanding call also writes a short line
+# ("Sure, let me check the FD rates for you."). It is said the moment understanding ends, while search and the answer
+# model run, and the answer model is told it was said, so the caller hears one continuous reply with no repeated
+# "let me check". Code decides whether it is said and checks it: it is spoken without the figure check.
+_OPENER_BAD = re.compile(r"[\d₹%?\[\]#*@/]|https?:")  # \d is any script's digits
+_OPENER_OUTCOME = re.compile(r"\b(block|blocked|unblock|approved?|refund|reversed?|guarantee|done|ब्लॉक|रिफंड)\b", re.I)
+
+
+def opener_for(u: Understanding, lang: str, guided: bool) -> str:
+    """The LLM's opener if this turn may have one, else "". Only for a product question answered from the KB (the slow
+    path: search, then the answer model). Bank-data, action, fraud and hand-over replies are templates, ready at once,
+    so they need no opener."""
+    text = re.sub(r"\s+", " ", u.opener or "").strip()
+    primary = u.requests[0] if u.requests else None
+    if (not text or guided or u.risk or lang != u.language or primary is None
+            or primary.kind not in ("general", "new_customer") or primary.goal == "choose" or primary.scope == "choose"
+            or sum(1 for a in u.asks if a.get("type") == "question") >= 3):  # 3+ questions: the agenda intro is said instead
+        return ""
+    if not 2 <= len(text.split()) <= 12 or len(text) > 90 or _OPENER_BAD.search(text) or _OPENER_OUTCOME.search(text) \
+            or redact(text) != text:
+        return ""
+    return text if text[-1] in ".!।" else f"{text}."
 
 
 def _trim(text: str, limit: int = 300) -> str:
@@ -487,16 +598,18 @@ class Conversation:
         self.llm, self.retriever, self.traces, self.s, self.auth, self.audit = llm, retriever, traces, settings, auth, audit
         self.journeys = journeys
         self.states = StateStore(traces.db)
+        self.setup_id, self.setup = setup_of(settings, PROMPT_VERSION)  # what /bench groups this brain's turns by
         self.summariser = None  # set by the container; writes the AI handover summary in the background
         self._background: set[asyncio.Task] = set()
 
     async def understand(self, question: str, history: list[dict], facts: dict | None = None, pending: str = "",
-                         focus: str = "") -> tuple[Understanding, dict]:
+                         focus: str = "", found: list[str] | None = None) -> tuple[Understanding, dict]:
         # Long answers are trimmed: the window is for resolving follow-ups, the facts carry what must persist.
         convo = "".join(f"Caller: {t['question']}\nAssistant: {_trim(t['answer'])}\n" for t in history)
-        user = build_input(question, convo, describe_facts(facts or {}), pending, focus)
+        user = build_input(question, convo, describe_facts(facts or {}), pending, focus, found)
         try:
-            data, meta = await self.llm.json(self.s.understand_model, UNDERSTAND_SYSTEM, user, UNDERSTAND_SCHEMA, max_tokens=800)
+            data, meta = await self.llm.json(self.s.understand_model, UNDERSTAND_SYSTEM, user, UNDERSTAND_SCHEMA,
+                                             effort=self.s.understand_reasoning_effort or None)
         except LLMError as e:
             if "expected schema" not in str(e):  # only a rejected value is repaired; an outage is not
                 raise
@@ -505,7 +618,7 @@ class Conversation:
                 meta = {"model": self.s.understand_model, "schema_repair": "local", "invalid": note}
             else:
                 data, meta = await self.llm.json(self.s.understand_model, UNDERSTAND_SYSTEM, user, UNDERSTAND_SCHEMA_LENIENT,
-                                                 max_tokens=800)
+                                                 effort=self.s.understand_reasoning_effort or None)
                 meta.update(lenient_retry=True, schema_repair="retry", invalid=note)
             logger.warning("router output repaired", extra={"data": {"how": meta["schema_repair"], "invalid": note}})
         u = parse(data, question, facts or {}, merge_facts)
@@ -521,12 +634,24 @@ class Conversation:
 
     async def turn(self, question: str, session_id: str | None = None,
                    extra_timings: dict | None = None) -> AsyncIterator[TurnEvent]:
-        """Run one turn, yielding events as they become available. Always ends with a `done` event."""
+        """Run one turn, yielding events as they become available. Always ends with a `done` event.
+        Also times the first sentence of the reply on every path (`first_reply_ms`, the brain's time to first output),
+        which the /bench page compares across setups."""
         started = time.perf_counter()
+        timings: dict = dict(extra_timings or {})
+        inner = self._turn(question, session_id, timings, started)
+        try:
+            async for event in inner:
+                if event.kind == "sentence" and "first_reply_ms" not in timings:
+                    timings["first_reply_ms"] = _ms(started)  # the same dict the trace is saved from
+                yield event
+        finally:
+            await inner.aclose()  # a barge-in closes this generator: the inner one records the interrupted turn
+
+    async def _turn(self, question: str, session_id: str | None, timings: dict, started: float) -> AsyncIterator[TurnEvent]:
         tid = str(uuid.uuid4())
         trace_ctx.set(tid)
-        timings: dict = dict(extra_timings or {})
-        data: dict = {"prompt_version": PROMPT_VERSION, "models": {
+        data: dict = {"setup_id": self.setup_id, "setup": self.setup, "prompt_version": PROMPT_VERSION, "models": {
             "understand": self.s.understand_model, "answer": self.s.answer_model,
             "embedder": self.retriever.embedder.name, "reranker": self.retriever.reranker.name}}
         raw = question.strip()
@@ -547,24 +672,56 @@ class Conversation:
                 self.traces.history(session_id, self.s.history_turns), self.traces.facts(session_id),
                 self.traces.pending(session_id), self.states.load(session_id)))) if session_id else ([], {}, None, state)
             state_before = asdict(state)
+            previous, state.answered = list(state.answered), []  # bank-data requests answered last turn (copy check)
             # 1. The agent asked something ("Shall I block card ending 6712?"): a yes / no is read in code,
             #    with no LLM call. Anything else drops the question and the turn is understood normally.
-            step, dropped, own_yes = None, None, None
+            step, dropped, own_yes, agenda_go = None, None, None, None
+            # After the keypad code: the agenda items that waited for it are answered from what was understood before
+            # the code, with no second reading of the text (a second reading lost a request: smoke A3, 17 Nov).
+            resume = agenda.resume_after_verification(state) if str(timings.get("input", "")).startswith("after_verification") else []
             if waiting and self.journeys:
                 lang = waiting.get("lang", "en")
-                if waiting.get("kind") == "check_own" and not expired(waiting) and read_reply(raw) == "yes":
+                if waiting.get("kind") == "agenda_next":  # "Shall I go on to X?": a plain yes / no is read in code
+                    said = read_reply(raw)
+                    if not expired(waiting) and (said in ("yes", "no") or is_goodbye(raw)):
+                        agenda_go = ("continue" if said == "yes" and not is_goodbye(raw) else "stop", waiting)
+                elif waiting.get("kind") == "check_own" and not expired(waiting) and read_reply(raw) == "yes":
                     own_yes = waiting  # handled below, like any other request for the caller's own data
                 elif waiting.get("kind") == "charges_which":  # "taken from my account" -> their charges; else the router reads it
                     own_yes = waiting if not expired(waiting) and wants_own_charges(raw) else None
                 elif not expired(waiting):
                     step = await asyncio.to_thread(self.journeys.resolve, session_id, waiting, raw, lang, channel)
                 if step is None:
-                    dropped = None if own_yes else waiting
+                    dropped = None if (own_yes or agenda_go) else waiting
                     await asyncio.to_thread(self.traces.set_pending, session_id, None)
+            waited: list[int] = []  # bank-data questions waiting on "which account?" (agenda.after_account_choice)
+            if step is None:  # what was waiting on the caller has been answered or left: its own flow carries it
+                waited = agenda.settle(state)
             # Asked for the registered mobile number: read it from the caller's own words (before redaction),
             # in code - it never goes to the LLM.
             mobile = _MOBILE.search(spoken_digits(raw.translate(_DEVANAGARI_DIGITS)))
-            if own_yes is not None:
+            if resume:
+                lang = state.agenda_meta.get("language") or (history[-1]["language"] if history else None) or "en"
+                async for event in self._run_agenda(agenda.plan(resume), lang, tid, session_id, question, history, facts,
+                                                    state, timings, data):
+                    if event.kind == "understood":
+                        intent = event.intent
+                    if event.kind == "done":
+                        reply = event.reply
+                    else:
+                        yield event
+                # the record shows everything that sentence asked (answered now or still on the agenda)
+                data["understanding"]["requests"] = [asdict(agenda.to_request(i)) for i in resume if i.get("req")]
+            elif agenda_go is not None:
+                async for event in self._agenda_reply(agenda_go[0], agenda_go[1], raw, lang, tid, session_id, question,
+                                                      history, facts, state, timings, data):
+                    if event.kind == "understood":
+                        intent = event.intent
+                    if event.kind == "done":
+                        reply = event.reply
+                    else:
+                        yield event
+            elif own_yes is not None:
                 intent = "personal"
                 req = Request("personal", own_yes["question"], own_yes.get("personal") or {}, product=own_yes.get("product", ""))
                 shell = Understanding(lang, "personal", req.question, "", req.personal, facts=facts)
@@ -586,13 +743,8 @@ class Conversation:
                     state.mark(str((waiting or {}).get("kind")), declined=True)
                 elif step.outcome not in ("confirm", "clarify"):
                     state.mark(str((waiting or {}).get("kind")))
-                if state.open_requests and step.pending is None:  # requests that waited behind that question carry on now
-                    shell = Understanding(lang, "general", "", "", facts=facts)
-                    async for event in self._process(state.take_open(), shell, lang, tid, session_id, question, state, timings, data):
-                        if event.kind == "done":
-                            replies.append(event.reply)
-                        else:
-                            yield event
+                if step.pending is None:  # the question is settled; what waited behind it is offered below
+                    waited += agenda.settle(state, declined=step.outcome == "cancelled")
                 reply = _merge(replies)
             elif mobile and self.auth and await asyncio.to_thread(self.auth.awaiting_mobile, session_id):
                 lang, intent = (history[-1]["language"] if history else "en") or "en", "personal"
@@ -604,7 +756,7 @@ class Conversation:
                         yield event
             else:
                 async for event in self._understood(tid, session_id, raw, question, history, facts, dropped, state,
-                                                    timings, data):
+                                                    timings, data, previous):
                     if event.kind == "understood":
                         lang, intent = event.language, event.intent
                     if event.kind == "done":
@@ -617,6 +769,12 @@ class Conversation:
                     yield TurnEvent("sentence", lang, intent, again, speech_text(again, lang))
                     reply.answer, reply.speech_text = f"{reply.answer} {again}".strip(), f"{reply.speech_text} {speech_text(again, lang)}".strip()
                     await asyncio.to_thread(self.traces.set_pending, session_id, {**dropped, "at": make_pending("x", lang)["at"]})
+            if waited and reply is not None:
+                agenda.after_account_choice(state, waited, bool(data.get("resumed_question")), reply.outcome)
+            if session_id and reply is not None and state.agenda:
+                async for event in self._offer_next(session_id, state, reply, data):
+                    yield event
+                data["agenda"] = [{"id": i["id"], "label": agenda.label(i, "en"), "status": i["status"]} for i in state.agenda]
             if session_id and asdict(state) != state_before:
                 await asyncio.to_thread(self.states.save, session_id, state)
         except (asyncio.CancelledError, GeneratorExit):
@@ -666,7 +824,7 @@ class Conversation:
     # ───────── understanding a turn and running its requests ─────────
 
     async def _understood(self, tid, session_id, raw, question, history, facts, dropped, state: CallState, timings,
-                          data) -> AsyncIterator[TurnEvent]:
+                          data, previous: list[dict] | None = None) -> AsyncIterator[TurnEvent]:
         chosen = "en"  # the language picked when the call started, for a first turn that is only "hey" / "हाँ"
         if not history and session_id:
             chosen = ((await asyncio.to_thread(self.traces.session, session_id)) or {}).get("language") or "en"
@@ -675,6 +833,17 @@ class Conversation:
             data["courtesy"] = True
             u = Understanding(lang0 if lang0 in LANGUAGE_INSTRUCTIONS else "en", "smalltalk", question, "")
             yield TurnEvent("understood", u.language, "smalltalk")
+            if is_goodbye(raw):
+                data["goodbye"] = True  # no "Shall I go on?" after a goodbye
+                item = None if state.agenda_meta.get("bye_reminded") else agenda.next_offer(state)
+                if item is not None and session_id and self.journeys:  # "Before you go, you'd also asked about X." (once)
+                    state.agenda_meta["bye_reminded"] = True
+                    text = agenda.offer_text(state, item, u.language, bye=True)
+                    await asyncio.to_thread(self.traces.set_pending, session_id, make_pending(
+                        "agenda_next", u.language, **agenda.offer_pending(state, item, text)))
+                    async for event in self._say(tid, session_id, "smalltalk", u.language, text, "answered"):
+                        yield event
+                    return
             async for event in self._smalltalk(tid, session_id, raw, u, u.language, state):
                 yield event
             return
@@ -733,7 +902,11 @@ class Conversation:
         if prefetch:
             await asyncio.gather(prefetch, return_exceptions=True)
         timings["understand_ms"] = _ms(t)
-        u = asked_only(with_risk(own_data(card_failing(correct(u, raw), raw), raw), raw), raw)  # corrections last
+        u = _corrected(u, raw)
+        u = await self._without_copies(u, raw, question, facts, asked, state, previous or [], timings, data)
+        gap = coverage_gap(question, u.asks)
+        if gap and not dropped:  # words no listed question covers: one more look for a question the first list missed
+            await self._second_look(u, question, history, facts, state, timings, data, len(gap.split()))
         if session_id and u.facts != facts:
             await asyncio.to_thread(self.traces.save_facts, session_id, u.facts)
         data["understanding"], data["understand_llm"] = asdict(u), meta
@@ -743,6 +916,9 @@ class Conversation:
         if history and lang != lang0 and _carries_no_language(raw):  # a Hindi caller's "Yes." stays Hindi (call f4d36d3a)
             u.language = lang = lang0
         yield TurnEvent("understood", lang, u.intent)
+        lead = opener_for(u, lang, guided=bool(state.flow))
+        if lead:  # said by `_answer` if this turn's first request reaches the KB answer (see opener_for)
+            data["opener"], data["opener_for"] = lead, u.standalone_question
         if broad_charges(u, raw):  # "charges on my account": taken from it, or the bank's general charges? Asked, not guessed
             text = template("charges_which", lang)
             data["clarify"] = "charges_which"
@@ -764,26 +940,70 @@ class Conversation:
             state.flow = {}  # the caller moved on: the flow is dropped, the new request is answered
         # A short reply naming an account ("second one", "dusra wala") answers a pending "which account?",
         # whatever kind of request the LLM gave it.
-        choosing = (self.auth and session_id and len(question.split()) <= 6 and account_choice(question)
-                    and await asyncio.to_thread(self.auth.pending_query, session_id))
-        earlier = state.take_open()  # requests that were still waiting come first
-        queue = ([Request("personal", u.standalone_question, u.personal)] + earlier) if choosing else earlier + u.requests
-        async for event in self._process(queue, u, lang, tid, session_id, question, state, timings, data):
+        # Decided by what the reply says, not its length (call a6545287: a 7-word Hindi answer missed a 6-word limit and
+        # the caller's "last 5 transactions" was lost): it names an account and nothing else (no other topic, problem,
+        # request for a person or product question).
+        waiting_query = (await asyncio.to_thread(self.auth.pending_query, session_id)
+                         if self.auth and session_id and account_choice(question) else None)
+        choosing = bool(waiting_query) and not new_request(raw, keep={waiting_query.get("topic", "")}, general=False)
+        if choosing:
+            async for event in self._process([Request("personal", u.standalone_question, u.personal)], u, lang, tid,
+                                             session_id, question, state, timings, data):
+                yield event
+            return
+        new_requests = [r for r in u.requests if r.kind != "smalltalk"]
+        if dropped and dropped.get("kind") == "agenda_next":  # the reply to "Shall I go on to X?", read by the router
+            how = u.agenda_reply if u.agenda_reply != "none" else ("stop" if u.reply_to_pending == "decline" else "none")
+            # "go on" / "skip that one" / "the second one" answer our question: their words are not a new question.
+            # Only "no, but what's my FD rate?" carries one, so only a stop goes on to the new requests.
+            if how in ("continue", "skip", "choose") or (how == "stop" and not new_requests):
+                async for event in self._agenda_reply(how, dropped, raw, lang, tid, session_id, question, history, facts,
+                                                      state, timings, data, pick=u.agenda_pick, announced=True):
+                    yield event
+                return
+            if how == "stop":
+                agenda.stop(state)
+            elif how == "skip":
+                agenda.skip(state, dropped.get("item"))
+        if not session_id or not new_requests:  # small talk only, or no call to keep an agenda for
+            async for event in self._process(u.requests, u, lang, tid, session_id, question, state, timings, data):
+                yield event
+            return
+        # The call agenda: every separate thing asked goes on it; code decides what is answered now (services/agenda.py).
+        for r in new_requests:
+            if r.kind == "fraud" and not r.risk:
+                r.risk = list(u.risk)
+        items = agenda.add(state, new_requests, u.extra_asks, u.followup)
+        for item in items:
+            item.setdefault("department", u.department)
+        state.agenda_meta["language"] = lang
+        await asyncio.to_thread(self.states.save, session_id, state)  # saved before answering: a barge-in can't lose it
+        opening = agenda.intro(items, lang)
+        if opening:
+            data.pop("opener", None)  # the intro is the first line instead
+            yield TurnEvent("sentence", lang, u.intent, opening, speech_text(opening, lang))
+        async for event in self._run_agenda(agenda.plan(items), lang, tid, session_id, question, history, facts, state,
+                                            timings, data, u=u):
+            if event.kind == "done" and opening:
+                event.reply.answer = f"{opening} {event.reply.answer}".strip()
+                event.reply.speech_text = speech_text(event.reply.answer, event.reply.language)
             yield event
 
     async def _process(self, queue: list[Request], u: Understanding, lang, tid, session_id, question, state: CallState,
                        timings, data) -> AsyncIterator[TurnEvent]:
-        """Run the requests one after another (at most three per turn; none is ever dropped). A request that ends in a
-        question to the caller holds the rest, which are kept in the call state and carried on afterwards."""
-        batch, rest = queue[:MAX_REQUESTS], queue[MAX_REQUESTS:]
+        """Run the requests one after another. A request that ends in a question to the caller (or a hand-over) holds
+        the rest. Requests that belong to the call agenda (`ref`) are recorded there, so what is left stays on the
+        agenda and is offered afterwards ("Shall I go on to ...?"); nothing runs again on its own."""
+        batch = queue[:MAX_REQUESTS]
         journeys = bool(self.journeys and self.auth and session_id)
         replies, summary = [], []
         for i, req in enumerate(batch):
             view = u.for_request(req)
-            # re-asked after verification. When everything the caller said is still to do, their own words are kept: a
-            # rewritten question lost "don't block it yet" / "tomorrow at 10" / "and connect me" (PM test list, 17 Nov)
-            whole = i == 0 and not rest and [r.question for r in queue] == [r.question for r in u.requests]
-            view.resume_text = question if whole else " ".join(r.question for r in batch[i:] + rest)
+            # The text stored with a verification request (for the record and plain chat): when everything the caller
+            # said is still to do, their own words; else the requests still to do. After the code, agenda items resume
+            # from what was understood the first time (`agenda.resume_after_verification`), not from this text.
+            whole = i == 0 and [r.question for r in batch] == [r.question for r in u.requests]
+            view.resume_text = question if whole else " ".join(r.question for r in batch[i:])
             task = task_for(req)
             reply = None
             async for event in self._dispatch(task, tid, session_id, question, view, lang, timings, data, journeys, state):
@@ -797,21 +1017,190 @@ class Conversation:
                 await asyncio.to_thread(self.traces.set_pending, session_id, self.journeys.offer_transfer(
                     view.department, lang, f"the agent could not answer ({reply.reason or reply.outcome})").pending)
             replies.append(reply)
-            summary.append({"task": task.name, "access": task.access, "outcome": reply.outcome})
+            summary.append({"task": task.name, "access": task.access, "outcome": reply.outcome, "agenda_item": req.ref or None})
             _note(state, task, req, reply)
-            if reply.outcome == "auth_required":  # the whole remaining text is re-asked after the code
-                rest = []
+            if req.ref:
+                agenda.record(state, req.ref, reply.outcome)
+            if reply.outcome == "auth_required":  # the rest of this turn's items wait for the code with it
                 break
-            more = batch[i + 1:] or rest
+            more = batch[i + 1:]
             if more and (reply.outcome in HOLDING or (session_id and await asyncio.to_thread(self.traces.pending, session_id))):
-                rest = batch[i + 1:] + rest
                 break
-        state.queue(rest)
         data["requests"] = summary
         if not replies:
             raise RuntimeError("no request produced a reply")
         final = _merge(replies)
         yield TurnEvent("done", final.language, final.intent, reply=final)
+
+    # ───────── the call agenda (services/agenda.py) ─────────
+
+    async def _run_agenda(self, items: list[dict], lang, tid, session_id, question, history, facts, state: CallState,
+                          timings, data, u: Understanding | None = None) -> AsyncIterator[TurnEvent]:
+        """Answer these agenda items now. Items not understood yet (the 4th+ question of a turn) are understood first,
+        from the caller's own words for them. `u`: this turn's understanding, when the items come from this turn."""
+        reqs = []
+        for item in items:
+            if item.get("req") is None and not await self._understand_item(item, history, facts, state, timings, data):
+                item["status"] = "failed"
+                continue
+            reqs.append(agenda.to_request(item))
+        if not reqs:
+            raise RuntimeError("no agenda item could be understood")
+        if u is None:  # a later turn ("yes, go on" / after the code): a view of the stored items, nothing re-read
+            first = items[0]
+            u = Understanding(lang, reqs[0].kind, reqs[0].question, "", reqs[0].personal, facts=facts, action=reqs[0].action,
+                              issue=reqs[0].issue, department=first.get("department") or "general", requests=reqs,
+                              risk=list(reqs[0].risk), goal=reqs[0].goal, product=reqs[0].product,
+                              own_check=reqs[0].own_check, scope=reqs[0].scope, named=reqs[0].named)
+            if history:
+                u.recent = f"Caller: {history[-1]['question']}\nYou: {_trim(history[-1]['answer'], 220)}"
+            data["understanding"] = asdict(u)
+            data["agenda_run"] = [i["id"] for i in items]
+            yield TurnEvent("understood", lang, u.intent)
+        else:
+            u = replace(u, requests=reqs)  # same turn: keep its search keywords and recent exchange
+        async for event in self._process(reqs, u, lang, tid, session_id, question, state, timings, data):
+            yield event
+
+    async def _agenda_reply(self, how: str, offer: dict, raw: str, lang, tid, session_id, question, history, facts,
+                            state: CallState, timings, data, pick: int = 0, announced: bool = False) -> AsyncIterator[TurnEvent]:
+        """The caller's answer to "Shall I go on to X?": continue (X, or X with the next short one), stop (the rest are
+        skipped), skip (X is skipped, the next one follows), choose (the one they named)."""
+        data["agenda_reply"] = how
+        if how == "stop":
+            agenda.stop(state)
+            bye = is_goodbye(raw)
+            if bye:
+                data["goodbye"] = True
+            text = (reply_for(raw, lang) if bye else "") or agenda.say("stopped", lang)
+            if not announced:
+                yield TurnEvent("understood", lang, "smalltalk")
+            async for event in self._say(tid, session_id, "smalltalk", lang, text, "answered"):
+                yield event
+            return
+        listed = sorted(agenda.open_items(state), key=lambda i: (-i["batch"], i["id"]))
+        if how == "skip":
+            agenda.skip(state, offer.get("item"))
+            listed = [i for i in listed if i["id"] != offer.get("item")]
+            run = agenda.plan(listed)
+        elif how == "choose":
+            chosen = agenda.picked(state, offer, pick)
+            run = [chosen] if chosen is not None and chosen["status"] in agenda.OPEN else agenda.plan(listed)
+        else:
+            start = next((n for n, i in enumerate(listed) if i["id"] == offer.get("item")), 0)
+            run = agenda.plan(listed[start:])
+        if not run:  # nothing left (already answered elsewhere): say so plainly
+            if not announced:
+                yield TurnEvent("understood", lang, "smalltalk")
+            async for event in self._say(tid, session_id, "smalltalk", lang, agenda.say("stopped", lang), "answered"):
+                yield event
+            return
+        async for event in self._run_agenda(run, lang, tid, session_id, question, history, facts, state, timings, data):
+            if announced and event.kind == "understood":
+                continue
+            yield event
+
+    async def _understand_item(self, item: dict, history, facts, state: CallState, timings, data) -> bool:
+        """An agenda item the caller asked but the first reading only listed (beyond the three detailed per turn): read
+        it now from the caller's own words for it. One router call, the same as any other turn."""
+        t = time.perf_counter()
+        try:
+            v, meta = await self.understand(item["quote"], history, facts, "", state.focus_text())
+        except LLMError:
+            logger.warning("agenda item not understood", exc_info=True)
+            return False
+        v = _corrected(v, item["quote"])
+        timings["understand_ms"] = timings.get("understand_ms", 0) + _ms(t)
+        r = v.requests[0]
+        if r.kind == "fraud" and not r.risk:
+            r.risk = list(v.risk)
+        item["req"] = r.to_dict()
+        item["department"] = v.department
+        item["label"] = item.get("label") or r.label
+        data.setdefault("agenda_understood", []).append({"item": item["id"], "llm": meta})
+        return True
+
+    async def _without_copies(self, u: Understanding, raw, question, facts, asked, state: CallState, previous: list[dict],
+                              timings, data) -> Understanding:
+        """Drop bank-data requests the LLM copied from the turn before (`copied`). If nothing is left, the sentence is read
+        once more without the conversation (the conversation is where the copy came from). That reading is used if it
+        found a real request; if it only finds a general question or small talk, the first reading stands: the caller
+        may really have asked the same thing again, and "and the total?" needs the conversation to make sense."""
+        copies = [r for r in u.requests if copied(r, raw, previous)]
+        if len(copies) < len(u.requests):  # riders go only while a real request is left
+            riders = [r for r in u.requests if r not in copies and rider(r, raw, previous)]
+            if len(riders) + len(copies) < len(u.requests):
+                copies += riders
+        if copies:
+            data["copied_requests"] = [r.question for r in copies]
+            kept = [r for r in u.requests if r not in copies]
+            if kept or issue_screened(raw):  # a problem the caller reports leads the turn anyway (with_issue)
+                u.requests = kept
+                if kept:
+                    first = kept[0]
+                    u.intent, u.standalone_question, u.personal, u.issue = first.kind, first.question, first.personal, first.issue
+            else:
+                t = time.perf_counter()
+                try:
+                    v, meta = await self.understand(question, [], facts, asked, state.focus_text())
+                except LLMError:
+                    logger.warning("re-reading a copied request failed", exc_info=True)
+                    v, meta = None, {}
+                timings["reread_ms"] = _ms(t)
+                if v is not None:
+                    v = _corrected(v, raw)
+                    real = [r for r in v.requests if r.kind in ("personal", "issue", "fraud", "action", "human")
+                            and not copied(r, raw, previous)]
+                    data["reread"] = {"used": bool(real), "llm": meta}
+                    if real:
+                        u = v
+        u.requests = without_duplicates(u.requests)
+        if u.requests:
+            first = u.requests[0]
+            u.intent, u.standalone_question, u.personal, u.issue = first.kind, first.question, first.personal, first.issue
+        carry_period(u, raw, previous)
+        return u
+
+    async def _second_look(self, u: Understanding, question, history, facts, state: CallState, timings, data, gap_words: int) -> None:
+        """The coverage check found many of the caller's words in no listed question. One more router call, told what
+        was already found, adds any question the first reading missed. Logged, so how often it happens is measured."""
+        t = time.perf_counter()
+        found = [a["quote"] for a in u.asks]
+        try:
+            v, meta = await self.understand(question, history, facts, "", state.focus_text(), found=found)
+        except LLMError:
+            logger.warning("second look failed", exc_info=True)
+            data["coverage_retry"] = {"gap_words": gap_words, "error": True}
+            return
+        v = _corrected(v, question)
+        added = [r for r in v.requests if r.kind != "smalltalk"
+                 and not any(r.kind == x.kind and r.question.lower() == x.question.lower() for x in u.requests)]
+        u.requests += added
+        u.extra_asks += v.extra_asks
+        u.asks += v.asks
+        timings["second_look_ms"] = _ms(t)
+        data["coverage_retry"] = {"gap_words": gap_words, "added": len(added) + len(v.extra_asks), "llm": meta}
+
+    async def _offer_next(self, session_id: str, state: CallState, reply: Reply, data: dict) -> AsyncIterator[TurnEvent]:
+        """End of a turn: hand open items to a person who is taking the call, or offer the next one ("Shall I go on to
+        X?" / "Shall I go back to X?"). Never when the reply already ends in a question, a code request or a goodbye."""
+        if reply.handoff or reply.outcome == "handoff":
+            agenda.hand_over(state)
+            return
+        if (not reply.answer or reply.outcome in HOLDING or data.get("goodbye") or not self.journeys
+                or await asyncio.to_thread(self.traces.pending, session_id)):
+            return
+        item = agenda.next_offer(state)
+        if item is None:
+            return
+        lang = reply.language
+        text = agenda.offer_text(state, item, lang)
+        await asyncio.to_thread(self.traces.set_pending, session_id, make_pending(
+            "agenda_next", lang, **agenda.offer_pending(state, item, text)))
+        data["agenda_offer"] = item["id"]
+        yield TurnEvent("sentence", lang, reply.intent, text, speech_text(text, lang))
+        reply.answer = f"{reply.answer} {text}".strip()
+        reply.speech_text = speech_text(reply.answer, lang)
 
     async def _dispatch(self, task, tid, session_id, question, view: Understanding, lang, timings, data,
                         journeys: bool, state: CallState) -> AsyncIterator[TurnEvent]:
@@ -970,7 +1359,9 @@ class Conversation:
             rest = [a for a in customer.accounts if mine and a not in mine]
             choice = rest[0].last4 if len(rest) == 1 else ""
             q = PersonalQuery(**(asdict(q) | {"account": choice}))
-        if pending and choice and q.topic in ("other", pending["topic"]):
+        # Resumed whatever topic the LLM gave the reply (it read "दूसरे account के बारे में" as an account-status question),
+        # unless the caller's own words name a different topic.
+        if pending and choice and not new_request(question, keep={pending.get("topic", "")}, general=False):
             q = PersonalQuery(**(pending | {"account": choice}))
             data["resumed_question"] = True
         t = time.perf_counter()
@@ -1111,7 +1502,14 @@ class Conversation:
 
     async def _answer(self, tid, session_id, question, u: Understanding, lang, timings, data,
                       strategy: str = "direct") -> AsyncIterator[TurnEvent]:
+        lead = ""  # the opener, said first while search and the answer model run (opener_for)
+        if data.get("opener") and data.get("opener_for") == u.standalone_question:
+            lead = data.pop("opener")
+            data["opener_said"] = lead
+            yield TurnEvent("sentence", lang, u.intent, lead, speech_text(lead, lang))
+
         def finish(outcome: str, text: str, reason: str | None = None, citations=None) -> TurnEvent:
+            text = f"{lead} {text}".strip()  # the record holds everything the caller heard
             reply = Reply(tid, session_id, outcome, u.intent, lang, text, speech_text(text, lang),
                           route="handoff" if outcome == "refused" else None, reason=reason, citations=citations or [])
             return TurnEvent("done", lang, u.intent, reply=reply)
@@ -1132,7 +1530,13 @@ class Conversation:
         }
         context: list[Hit] = [h for h in reranked[: self.s.context_chunks]
                               if (h.rerank_score or 0) >= self.s.min_rerank_score * 0.5]
-        if not context or (reranked[0].rerank_score or 0) < self.s.min_rerank_score:
+        if self.s.rerank:
+            weak = not context or (reranked[0].rerank_score or 0) < self.s.min_rerank_score
+        else:  # RERANK=false: no relevance score; the closest passage by meaning (embedding similarity) decides
+            closest = max((h.dense_score or 0 for h in context), default=0.0)
+            data["retrieval"].update(reranker="off", closest_dense=round(closest, 4))
+            weak = not context or closest < self.s.min_dense_score
+        if weak:
             for e in refusal("low_relevance", []):
                 yield e
             return
@@ -1179,6 +1583,9 @@ class Conversation:
             {"role": "system", "content": ANSWER_SYSTEM.format(language=LANGUAGE_INSTRUCTIONS[lang])},
             {"role": "user", "content": f"Sources:\n{sources}\n\n" + (f"Caller details: {details}\n" if details else "")
              + (f"Last exchange:\n{u.recent}\n" if u.recent else "")
+             + (f'You have just said to the caller: "{lead}" Continue straight into the answer, as the same reply: '
+                "don't repeat it, and don't start with another acknowledgement (no \"Sure\", \"Let me check\", \"Okay\").\n"
+                if lead else "")
              + f"What to do: {STRATEGY_LINES.get(strategy, STRATEGY_LINES['direct'])}"
              + (f" There is no source for {_or_list(missing)}: leave it out.\n" if missing else "\n")
              + f"Question: {u.standalone_question}"},
@@ -1193,7 +1600,7 @@ class Conversation:
         cited: set[int] = set()
         checks: list[dict] = []
         splitter = SentenceSplitter()
-        stream = self.llm.stream(self.s.answer_model, messages, meta, max_tokens=700)
+        stream = self.llm.stream(self.s.answer_model, messages, meta, effort=self.s.answer_reasoning_effort or None)
         failed, capped = None, False
         # The prompt sets the length (progressive disclosure, services/dialogue.py). This is only a safety net for a
         # runaway answer, at a sentence boundary, and never for an explicit request for the full details.
@@ -1402,6 +1809,7 @@ _DETAIL_TOPIC = {
 # `payment_status` read out card payments. On a loan, these details mean the loan's own fact.
 _LOAN_SAME = {"amount_due": "outstanding", "payment_status": "emi_status", "statement": "emi_status", "available_limit": "outstanding"}
 _TOPIC_KEEPS = {("transactions", "salary_account"), ("account", "available_balance"), ("credit_card", "outstanding"),
+               ("credit_card", "status"), ("debit_card", "status"),  # "do I have any cards?" (call de568948: account status)
                ("transactions", "payment_status")}  # "was my UPI payment to Suresh completed?" is a transaction, not a card
 
 

@@ -218,6 +218,11 @@ def code_checks(call: dict, packet: dict) -> list[Check]:
                      "; ".join(f"turn {n}: {', '.join(m)}" for n, m in written.items()) if written else ""))
     degraded = [t["n"] for t in turns if t["fallback"]]
     out.append(Check("main_model_used", not degraded, "warn", f"fallback model used in turn {degraded}" if degraded else ""))
+    # The call agenda (services/agenda.py): something the caller asked that was neither answered nor let go by them.
+    # "skipped" (the caller said that's all), "dropped" (offered twice, not taken up) and "handed_over" are not counted.
+    left = [i.get("label") or i.get("kind") or "a request" for i in call.get("agenda") or [] if i.get("status") in ("pending", "auth")]
+    out.append(Check("every_request_answered", not left, "warn",
+                     f"asked but never answered or offered again: {'; '.join(left)}" if left else ""))
     return out
 
 
@@ -262,7 +267,12 @@ def verify_findings(judge: dict, packet: dict) -> tuple[list[dict], int]:
     the problem may still be real, but nothing in it is presented as a transcript quote unless it is one."""
     by_turn = {t["n"]: _norm(f"{t['caller']} {t['agent']}") for t in packet["turns"]}
     out, unverified = [], 0
-    for f in (judge.get("findings") or [])[:MAX_FINDINGS]:
+    for f in [f for f in (judge.get("findings") or []) if isinstance(f, dict) and (f.get("what_happened") or f.get("fix"))][:MAX_FINDINGS]:
+        # The model does not always follow the schema: an unknown or missing label becomes "other", missing text becomes "".
+        f = f | {"category": f.get("category") if f.get("category") in CATEGORIES else "other",
+                 "source": f.get("source") if f.get("source") in SOURCES else "agent",
+                 "fix_area": f.get("fix_area") if f.get("fix_area") in FIX_AREAS else "none",
+                 "what_happened": f.get("what_happened") or "", "why_it_matters": f.get("why_it_matters") or "", "fix": f.get("fix") or ""}
         ok = f.get("turn") in by_turn and _norm(f.get("quote", "")) and _norm(f["quote"]) in by_turn[f["turn"]]
         if not ok:
             unverified += 1
@@ -320,7 +330,7 @@ class ReviewService:
         user = (f"Language: {packet['language']}. Caller verified: {packet['verified']}. Events: "
                 f"{', '.join(sorted({e['kind'] for e in packet['events']})) or 'none'}.\n"
                 + (f"Automatic checks flagged: {'; '.join(notes)}\n" if notes else "") + f"\nTranscript:\n{transcript}")[:9000]
-        data, _ = await self.llm.json(self.s.judge_model, RUBRIC, user, JUDGE_SCHEMA, max_tokens=1600)
+        data, _ = await self.llm.json(self.s.judge_model, RUBRIC, user, JUDGE_SCHEMA)
         kept, dropped = verify_evidence(data, packet)
         data["evidence"], data["dropped_evidence"] = kept, dropped
         data["findings"], data["unverified_findings"] = verify_findings(data, packet)

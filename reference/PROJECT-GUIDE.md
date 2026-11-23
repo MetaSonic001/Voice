@@ -24,7 +24,7 @@ Each part starts with a **simple picture** (how you'd explain it to a child), th
 | Document | What it is for |
 |---|---|
 | `README.md` | The short map for everyone: what it is, how to run it, where to look |
-| `context/progress-tracker.md` | The dated log: what changed, when, the numbers, what is live |
+| `context/progress-tracker.md` | Where we are: what is live, the numbers, the latest changes (the full dated log to 22 Nov 2026 is `context/progress-archive.md`) |
 | `context/pending-work.md` | The to-do list for the local demo and for AWS |
 | `adr/` | Why each big decision was made (Architecture Decision Records) |
 | `brain/README.md`, `ui/README.md` | Setup, settings and commands for each part |
@@ -152,7 +152,7 @@ This is the short map. **Section 33 explains every file in detail** (why it exis
 | `context/` | Project memory: tracker, pending work, architecture, standards, rules |
 | `docs/` | Cost estimate, deployment notes, test scripts, diagrams |
 | `reference/` | This guide, the AWS primer, the review-meeting briefing, sizing notes |
-| `deploy/` | ECS task definitions and how to run the images on AWS |
+| `deploy/` | ECS task definitions, how to run the images on AWS, the EC2 pilot guide (`aws-pilot-guide.md`: database, deploys, CI/CD) and the database DDL for the DBA (`database/`) |
 | `Sample Questions/` | The hackathon inputs: problem statement, sample questions, dummy data, KB. **Never modified** |
 
 **`brain/app/`, the core**
@@ -194,7 +194,7 @@ This is the short map. **Section 33 explains every file in detail** (why it exis
 | `dialogue.py` | Answer strategies, guided flows, caller facts |
 | `retrieval.py`, `kbmeta.py` | Hybrid search; product/variant tags, passage trimming, gates |
 | `chunking.py`, `documents.py`, `worker.py` | Passages; upload, versions, rollback; background ingestion |
-| `numbers.py`, `sentences.py` | Figure check, numbers as words, markup removal; sentence splitting |
+| `numbers.py`, `sentences.py` | Figure check, the text sent to the voice, markup removal; sentence splitting |
 | `personal.py` | Bank-data answers (templates, three languages) |
 | `actions.py`, `journeys.py`, `workflows.py`, `confirm.py` | Card actions, fraud / complaint journeys, multi-step workflows, yes/no in code |
 | `auth.py` | Verification state machine (RMN + keypad code) |
@@ -211,7 +211,7 @@ This is the short map. **Section 33 explains every file in detail** (why it exis
 
 **Other brain folders:** `app/api/` (HTTP routes), `app/migrations/` (SQL 001–011), `evals/` (smoke and regression packs, golden set, replay cache, reports), `tests/` (offline tests; `fakes.py` holds stand-ins used only by tests), `scripts/download_models.py`, `requests.http` (every API call, ready to send), `.env` / `.env.example`, and run-time folders `data/`, `logs/`, `models/`.
 
-**`ui/`**: `app/page.tsx` (console), `app/kb`, `app/calls`, `app/desk`, `app/fixes`; `components/` (call record, review panel, quality summary, answer details, shadcn `ui/`); `lib/` (`api.ts`, `live-call.ts`, `worklets.ts`, `echo-safe-output.ts`, `desk-call.ts`).
+**`ui/`**: `app/page.tsx` (console), `app/kb`, `app/calls`, `app/desk`, `app/fixes`, `app/bench` (speed and quality per setup); `components/` (call record, review panel, quality summary, answer details, shadcn `ui/`); `lib/` (`api.ts`, `live-call.ts`, `worklets.ts`, `echo-safe-output.ts`, `desk-call.ts`).
 
 ---
 
@@ -436,7 +436,7 @@ What code does with them, **before** the answer model runs:
   4. **Outgoing-speech filter** (`guard.unsafe_output`, 11 Nov): never asks the caller to tell or share an OTP, PIN, CVV, password or card number, and never gives a web address that isn't in the cited sources. Warnings ("never share your OTP") pass.
 - **If a check fails:** "I don't have approved information… I can connect you to a specialist". If earlier sentences were already spoken, they stay and the agent says "I'd rather not guess the rest… Is there something specific you'd like to know?" (no transfer pushed). The reason (`figure_check_failed`, `uncited`, `not_in_sources`, `low_relevance`, `unsafe_output`, `partial_…`) is in the trace.
 - **The known gap:** the figure check passes any real figure, so a figure from the **wrong row** of a rate table can slip through (seen once: "7.50%" for the highest senior rate). Open question: better table chunking or a deterministic lookup.
-- **For voice:** `speech_text` removes citation markers and, in English, turns numbers into Indian words ("nine lakh forty six thousand…"); `clean_markup` removes bullets, headings, bold and emojis before screen and speech; a semicolon pauses like a full stop.
+- **For voice:** `speech_text` removes citation markers and keeps amounts and rates as digits (Sarvam reads them; the English number-to-words step for the Edge voices was removed on 22 Nov 2026); `clean_markup` removes bullets, headings, bold and emojis before screen and speech; a semicolon pauses like a full stop.
 - **Outages:** LLM retries are capped at 4 seconds in total. After that the caller hears "I'm having trouble right now… I can connect you to our team", never silence. A fallback model can take over (section 24).
 
 How long the answer is, and what shape it takes (overview, direct, full, comparison, guided choice), is decided in code before the answer model writes anything (the dialogue layer, section 24).
@@ -496,13 +496,13 @@ How long the answer is, and what shape it takes (overview, direct, full, compari
 | Recent turns (6; answers trimmed to 300 characters; answers with account data replaced by "(account details were given)") | `traces`, read each turn | Sliding window |
 | **Call facts:** senior citizen, occupation | `sessions.facts` | Whole call |
 | **Task facts:** tenure, amount, FD type, purpose, balance preference, monthly spend, travel | `sessions.facts` | Until the product family changes |
-| **Call state:** open requests (never dropped), done, declined, focus (account, card, FD, transaction), last list read out, greeted | `sessions.state` (migration 006) | Whole call |
+| **Call state:** the call agenda (every question asked and its status, §24.4), done, declined, focus (account, card, FD, transaction), last list read out, greeted, a version for safe saving | `sessions.state` (migration 006) | Whole call |
 | The pending yes/no or "which account?" question | `sessions` | Until answered |
 | Verification | `sessions` | 10 minutes idle |
 | Full transcript | `traces` (one row per turn, hash-chained) | Kept, for audit |
 
 - **Facts come from the same router call**, so there's no extra LLM call. Only facts relevant to the product go to the answer model (`dialogue.merge_facts`, `describe_facts`).
-- **Several requests are tracked one by one** (done, declined, pending, failed). A request that ends in a question holds the rest; anything beyond 3 waits in `open_requests`; a "no" cancels only what was asked; after an interruption or a failure the rest carry on.
+- **Several requests are tracked one by one on the call agenda** (§24.4): up to 8 per sentence, answered one or two at a time with "Shall I go on to …?"; a "no" cancels only what was asked; "that's all" skips the rest; nothing is dropped silently.
 - **`focus` and `last_list` resolve references:** "this account", "the second one", "the ₹1,980 one", "the other card". If the caller barges in during a list, "go on" continues it.
 - **Account data never goes back to the LLM.**
 - **No session restore after a dropped call.** The next call verifies again.
@@ -530,7 +530,7 @@ How long the answer is, and what shape it takes (overview, direct, full, compari
 | 4. End of turn | 700 ms of silence if the sentence sounds complete (up to 1.5 s for callers who naturally pause a lot); up to 2.5 s (`INCOMPLETE_WAIT_MS`, 17 Nov; LiveKit uses 2.5 s, Pipecat 3 s) if it ends in "and…", "aur…", "कि…", "matlab…" or is filler only | Measured on the audio clock (deterministic). Not cutting people off is the main "human feel" rule |
 | 5. Think | `brain.turn()` streams checked sentences | Section 5 |
 | 6. Speak | Each sentence goes to TTS as soon as it's ready; `player.py` sends audio at real-time speed, only 200 ms ahead | Speaking starts after sentence one. The small lead means an interruption stops the agent within about 0.2 s |
-| 7. Waiting line | Only if the first sentence isn't ready after 1.2 s: one of four lines per language, never the same twice in a row | Silence feels like a dropped call; a filler on every turn sounds like stalling |
+| 7. Opener | Product questions only: a short line written by the understanding call ("Sure, let me check the FD rates for you."), said as soon as understanding ends; code checks it and the answer model continues from it (`conversation.opener_for`, 22 Nov 2026). No timed filler any more | The old 1.2 s filler often said the same words the answer then began with; bank-data and action replies are ready at once and need nothing |
 | 8. Interruptions | See below | |
 | 9. Silence | 8 s → a reprompt; again → a polite goodbye and hang-up | |
 | 10. Transfer | Hold music (generated in code); the desk accepts; the agent's audio is bridged; nobody within 180 s → a callback is booked | Section 23 |
@@ -669,7 +669,7 @@ These hold even if the LLM is fully fooled. A second AI moderator or Bedrock Gua
 | **Transcript log lines** | One masked line per turn (`app.transcript`) with the turn's hash; account figures replaced by the list of fields given |
 | **Traces** (`GET /v1/traces/{id}`) | Why an answer came out: masked question, understanding, search hits and scores, passages used, raw model output, checks, timings, models, prompt version, feedback |
 | **Metrics** (`GET /metrics`) | Prometheus counters and histograms: requests, latency per route and per stage, outcomes by language |
-| **Stats** (`GET /v1/stats`) | p50 / p95 / p99 for first audio, `voice_to_voice_ms` (first audio of the real answer, not the filler), understanding, bank, embed, rerank, LLM first token and total; 429 retries, fallback use, router repairs |
+| **Stats** (`GET /v1/stats`) | p50 / p95 / p99 for first audio, `voice_to_voice_ms` (first audio of the reply; since 22 Nov that is the opener on a product question), understanding, bank, embed, rerank, LLM first token and total; 429 retries, fallback use, router repairs |
 | **Health** | `/health` (liveness), `/health/ready` (readiness) |
 
 **The call record** (page `/calls`, ADR 0014). What a bank expects: there is no single RBI format for a voice-bot audit. The RBI IT Governance Master Direction (Nov 2023, in force April 2024) requires audit logs that are centralised, tamper-proof and ready for forensics, a written retention period, and governance of AI tools in proportion to their risk. DPDP adds consent, purpose limitation and deletion rights. So each call record answers the six questions an inspector, a QA reviewer or a complaint handler asks:
@@ -735,6 +735,7 @@ Further alerts researched but not built: complaint or fraud (critical), verifica
 | **Calls `/calls`** | Past calls; for each: the recording, the conversation with the "why" for every reply, sources, bank systems called, the audit trail, review panel and score chips, "needs review" filter, transcript download, delete; the quality summary when no call is open |
 | **Desk `/desk`** | The agent desk: team waiting lists; each case with a one-line headline, the deterministic brief, the figure-checked AI summary with the caller's mood, the full read-only transcript; accept, live audio bridge, chat, callbacks |
 | **Fixes `/fixes`** | The fix list from the judge's findings |
+| **Speed & quality `/bench`** | The running setup (models, reasoning effort, speech, search, prompt) against a benchmark to beat: p50 / p95 per stage incl. time to first sentence, eval pass rates, judge score, grounding, answer confidence (`services/benchmark.py`, 23 Nov 2026) |
 
 All pages fit at 390 / 768 / 1024 px with no horizontal page scroll (measured 6 Nov). Alerts appear as toasts everywhere.
 
@@ -842,7 +843,7 @@ Everything is a `.env` change; `.env.example` lists every option and when to use
 | Text-to-speech | Edge | Sarvam bulbul:v3 | `TTS_PROVIDER=sarvam`, `SARVAM_API_KEY` |
 | Files | local disk | S3 / MinIO | `FILE_STORE=s3`, `S3_BUCKET`, `S3_ENDPOINT_URL` (MinIO) |
 | Database | private pgserver | Aurora / RDS + pgvector | `DATABASE_URL` |
-| Bank data | the mock bank (`BANK_PROVIDER=http`, in-process; `mock` still works) | AU's API gateway | one new adapter implementing the `Bank` and `ServiceDesk` ports; `BANK_BASE_URL` for a separate bank service |
+| Bank data | the mock bank (`MOCK_BANK=true`, `BANK_PROVIDER=http`, in-process; `mock` still works) | AU's API gateway | one new adapter implementing the `Bank` and `ServiceDesk` ports; `BANK_BASE_URL` for a separate bank service |
 | OTP delivery | simulated (UI) | SMS gateway | `OTP_DELIVERY` + the gateway call in `auth.py` |
 | Judge | all calls | selective | `JUDGE_MODE` |
 | Text only | - | - | `VOICE_ENABLED=false` (no voice models loaded) |
@@ -855,6 +856,8 @@ Everything is a `.env` change; `.env.example` lists every option and when to use
 Changes to the conversation layer are kept as small as possible but can't be promised to be zero. Real APIs may differ in auth, status meanings, mandatory fields and limits, asynchronous processing, complaint and dispute lifecycles, failure modes and extra regulatory checks. So workflows, status mappings, state and tests must be **re-validated** against AU's real APIs before go-live. The human queue is chosen by a rule in code (task + risk + segment → queue); update that table when AU confirms its teams and hours. Bank reads become **selective** with the real adapter (ADR 0025): fetch only what the request needs.
 
 ---
+
+**Where the search models run** (18 Nov): `SEARCH_PROVIDER=local` (inside the brain), `http` (our search server on a GPU machine) or `sagemaker` (the same image as a SageMaker real-time endpoint, `SAGEMAKER_ENDPOINT`). Same model code in all three, so the same scores and no re-indexing; steps in `deploy/README.md`.
 
 ## 19. Speed and accuracy (measured)
 
@@ -1095,7 +1098,7 @@ In reality these are different systems with different APIs. The mock behaves lik
 - **fault injection** per system: added latency, timeouts, 5xx, malformed JSON, unexpected status values, "succeeded but the response was lost", partial failures across systems. The agent must say exactly what succeeded and what couldn't be confirmed;
 - **OpenAPI** for each system, generated by FastAPI: our **proposed** contracts to start a conversation with AU's integration team, not AU's specs;
 - **every bank call is an audit event** (call, operation, the authorisation decision, the result, timing; no OTP, CVV or full numbers) and is shown per turn on `/calls`;
-- it runs inside the brain process on a real socket (`MOCKBANK_PORT=8100` to browse its `/docs`) or separately (`BANK_BASE_URL`).
+- it starts only with `MOCK_BANK=true` (off by default since 20 Nov 2026). It runs inside the brain process on a real socket (`MOCKBANK_PORT=8100` to browse its `/docs`) or separately (`BANK_BASE_URL` with `MOCK_BANK=false`).
 
 **The `HttpBank` adapter:** a 3 s timeout per call (a caller is waiting); reads retry once; writes retry with the **same idempotency key**, so a card is never changed twice; reading a verified customer takes about 6–15 calls in 2 parallel rounds (8 workers), about 110 ms on the mock, cached 8 s, dropped after a card change; the verified caller's accounts are read **while the router is still understanding the turn** (prefetch).
 
@@ -1147,6 +1150,30 @@ Live calls sounded like a Q&A bot: brochure answers with markdown, menus of vari
 - **The answer step gets** the last exchange, the strategy line and only the facts relevant to the product.
 
 **Not built, on purpose:** an LLM phrasing call for lists, "slower please" (needs per-call TTS rate), an LLM function-calling loop, a separate "continuation / correction" router field (the self-contained rewrite plus code account resolution already handle "the first one" and "I meant ten"), an overdraft-against-FD suggestion (needs AU's approval).
+
+### 24.4 Several questions in one sentence: the call agenda (19 Nov 2026)
+
+> **Simple picture:** the helper writes every question on a to-do list, answers one or two, and asks "Shall I go on to the next?" She ticks each one off, crosses out what you don't want, and reminds you once before you hang up.
+
+**Who does what.** The LLM only *finds* the questions and reads the caller's reply to "Shall I go on?". Code decides everything else (`services/agenda.py`, pure: no database, network or LLM).
+
+| Step | How |
+|---|---|
+| Find | The router returns `asks`: every separate thing (up to 8), as the caller's own words (`quote`), `question` or `statement`, with a short spoken `label` in the caller's language. The first three are detailed as `requests` as before; the rest are understood when their turn comes |
+| Check (any language) | A quote must really be the caller's words (≥ 60% of its words appear in what they said), else it is dropped. A label may not carry digits the caller didn't say (labels are spoken without the figure check). If ≥ 6 words and ≥ 35% of the turn are in no quote, one more router call, told what was already found, adds the missed question. Word comparison, not grammar, so Hindi, Hinglish and English are checked alike |
+| Keep | Each item is saved in `sessions.state` (`CallState.agenda`) **before** anything is answered, so a barge-in can't lose it. At most 20 items per call |
+| Decide | 1 question, or 2 short reads → answered in one reply. 3+, a card action or a long answer → "You've asked about three things: A, B and C. Let me take them one by one." → A → "Shall I go on to B?". A fraud / lost-card request goes first |
+| Reply | yes / "go on" → next (no LLM call). no / "that's all" → the rest are skipped: "Okay, I'll leave those. Anything else?". "Skip that one" / "the second one" → read by the router (`agenda_reply`, `agenda_pick`), applied by code. A new question → answered, then "Shall I go back to B?" |
+| Let go | An item offered twice and not taken up is dropped. Goodbye with items left → "Before you go, you'd also asked about B. Shall I cover that?" (once) |
+| Verification | Items that need the keypad code wait for it, with the rest of their sentence; after the code they resume from the first reading (never re-read from text: re-reading lost a request, smoke A3) |
+| Hand-over | Open items go to the person; the desk brief has "Still to answer: …" |
+| Record | Each trace has `data.agenda`; the call record has `agenda`; the review's code check `every_request_answered` flags a question neither answered nor let go |
+
+"Money got deducted, check my balance" (owner's decision, 19 Nov): the balance first, then "Is there a payment you don't recognise that I should look into?"; yes starts the unrecognised-debit flow. Without a balance in the sentence it is handled as before.
+
+**Two turns of one call at once** (after a barge-in, or later on any copy of the brain): the state carries a version (`CallState.v`, inside the same jsonb, so no migration). A save succeeds only if nobody saved in between; otherwise the newer record is read and merged (a settled item is never reopened) and saved again.
+
+**Cost:** no extra LLM call normally. Extra router calls only for the 4th+ question when its turn comes and when the coverage check fires.
 
 ---
 
@@ -1487,7 +1514,7 @@ The old "2 servers, well over 100 calls each" is replaced. Memory per container 
 
 | Scenario | Automatic response | Caller hears | Today | To build |
 |---|---|---|---|---|
-| LLM rate-limited (429) | One bounded retry (4 s budget), then the fallback model; 3 failures in 60 s → fallback for 60 s | A slight delay, covered by the filler | **Built** | A fallback on Bedrock that passed the smoke set; quota alarms |
+| LLM rate-limited (429) | One bounded retry (4 s budget), then the fallback model; 3 failures in 60 s → fallback for 60 s | A slight delay | **Built** | A fallback on Bedrock that passed the smoke set; quota alarms |
 | LLM down or very slow | Fallback; if both fail, "I'm having trouble right now" + transfer | Honest message, then a person | **Built** | Lower timeout for voice (about 6 s) |
 | Understanding fails | A keyword router for the top 10 tasks, so "balance" and "block card" still work | | Not built | Small |
 | Sarvam STT down | Retry once; a second STT (Transcribe in Mumbai) or transfer | "Let me connect you to a colleague" | Per-turn STT errors handled | Fallback STT, or fail to human via Cisco |
@@ -2345,7 +2372,7 @@ Three rules explain most of the layout:
 | `logs.py`, `metrics.py` | 99 | Logs that never leak data; numbers for dashboards | Masked console and JSON logs; Prometheus counters and timings |
 | `tokens.py` | 49 | The bank must know which customer a request is for | Short-lived signed tokens (stdlib `hmac`) naming one verified customer; the bank systems check them |
 | `cli.py` | 375 | Everyday commands without the UI | `brain serve`, `ask`, `chat`, `upload`, `eval`, `sarvam-check`, `clean-slate` |
-| `search_server.py` | 100 | Run the GPU models on another machine in production | The embedder and reranker behind a small authenticated HTTP API |
+| `search_server.py` | 120 | Run the GPU models on another machine in production | The embedder and reranker behind a small authenticated HTTP API; with `--sagemaker` (the image's `serve` command) SageMaker's `/ping` and `/invocations` on port 8080 |
 
 **`migrations/`** (SQL, applied once each, in order): 001 documents, versions, chunks, embeddings, jobs, sessions · 002 verification events · 003
 call facts · 004 audit (events, recordings, alerts) · 005 the mock core bank tables, handoffs and tickets · 006 call state · 007 mock-bank
@@ -2371,11 +2398,11 @@ Each file is a FastAPI router: it checks the input, calls one service and return
 | File | Lines | Why | What is inside |
 |---|---|---|---|
 | `llm.py` | 127 | Talk to Groq (or any OpenAI-style API) | Strict-JSON calls (`json`) for understanding, streamed text (`stream`) for answers, one warm HTTP/2 client, one bounded retry |
-| `bedrock.py` | 102 | The production LLM in AWS Mumbai | The same two methods over Bedrock's Converse API; India-only model profile |
+| `bedrock.py` | 166 | The production LLM in AWS Mumbai | The same two methods over Bedrock's Converse API; India-only model profile (`in.openai.gpt-5.6-luna`); reasoning effort per call in `additionalModelRequestFields`; cached prompt tokens in meta |
 | `resilient.py` | 86 | A 429 or outage should not end the call | Wraps any LLM: on failure, the same request goes to a tested fallback model; a simple breaker |
 | `replay.py` | 72 | Evals must not burn the free tier | Saves every real LLM response keyed by a hash of the exact request; an unchanged re-run costs nothing |
 | `models.py` | 85 | Find the right document passages | bge-m3 embedder and bge reranker on the GPU (fp16) |
-| `search_http.py` | 138 | The same models on a separate GPU server | HTTP client with the same interface, plus a model-name check |
+| `search_http.py` | 230 | The same models on a separate GPU machine | Two clients with the same interface and a model-name check: our search server over HTTP (`SEARCH_PROVIDER=http`), or a SageMaker endpoint running the same image (`sagemaker`, InvokeEndpoint with AWS credentials) |
 | `parsers.py` | 252 | Documents come as DOCX, PDF, XLSX | Turns each file into ordered blocks: headings, paragraphs, lists, tables |
 | `storage.py` | 62 | Where uploaded files and recordings live | Local disk or S3, same three methods |
 | `http_bank.py` | 298 | The brain's only door to bank data | Calls the bank systems over HTTP in parallel, maps each system's own status words (`POSTED`, `HOT_LISTED`…) to the brain's words, so the conversation never sees a bank's codes. Swapping to AU = a new file like this one |
@@ -2465,8 +2492,7 @@ Each file is a FastAPI router: it checks the input, calls one service and return
 
 - **`numbers.py`** (206). *Why:* two rules: no figure may be said that the sources don't contain, and text must be
   ready to be spoken. *Inside:* the figure check (`allowed_numbers`, `unsupported_numbers`, which treat "1,00,000",
-  "1 lakh" and "100000" as equal); `speech_text()` (the text sent to TTS: rupees and numbers as Indian words in
-  English, references read digit by digit, brackets and semicolons turned into pauses); `spoken_punctuation()`;
+  "1 lakh" and "100000" as equal); `speech_text()` (the text sent to TTS: amounts as digits, references read digit by digit, brackets and semicolons turned into pauses); `spoken_punctuation()`;
   `screen_marks()` (finds written-only marks; used by a test on every template and by the call review).
 - **`guard.py`** (112): the injection screen, the risk screens on the caller's words (lost card, unrecognised debit,
   shared OTP), and `unsafe_output()`: the last check before speech (the agent never asks for an OTP or invents a link).
@@ -2480,6 +2506,9 @@ Each file is a FastAPI router: it checks the input, calls one service and return
 - **`store.py`** (185): sessions and one trace per turn (question, understanding, sources, timings).
 - **`audit.py`** (414): the tamper-evident call record (each turn hashes the previous one), events (verification, card
   action, handoff), alerts, the grounding label and the "why" lines shown on /calls, the transcript file.
+- **`callrecords.py`**: after each call, one JSON record file per call (every turn with its hash) in the file store;
+  a 5-minute sweep exports dropped calls and quiet chats; with `CALL_ROWS_DAYS` it later removes the turn rows from
+  Postgres, and /calls rebuilds the call from the file.
 - **`recordings.py`** (179): stereo recording (caller left, agent right), Opus, encrypted with AES-256-GCM.
 - **`review.py`** (423): after a call, free code checks (verification before data, leftover personal data, errors,
   slow replies, the caller repeating, written-only text in replies…) and the LLM judge (five scores with quoted
@@ -2495,7 +2524,7 @@ Each file is a FastAPI router: it checks the input, calls one service and return
 | `providers.py` | 325 | Speech vendors behind the ports: Groq Whisper and Edge (dev), Sarvam STT and TTS (production), Silero VAD |
 | `fallback.py` | 83 | If a Sarvam request fails, that request goes to the free backup; out of credit → backup for the rest of the run |
 | `player.py` | 104 | Sends audio at real-time speed only a little ahead, so an interruption stops the voice at once; lowers the volume while checking a possible interruption |
-| `phrases.py` | 102 | Greeting, filler, re-prompt, goodbye: synthesised once per language and cached |
+| `phrases.py` | 96 | Greeting and disclosure, re-prompt, code reminder, hold, unclear, goodbye: synthesised once per language and cached (the timed filler was removed on 22 Nov 2026) |
 | `audio.py`, `hold.py`, `vocab.py` | 135 | PCM/WAV helpers and decoding; hold music made in code; speech-recognition hints |
 
 ### 33.8 Outside `app/`

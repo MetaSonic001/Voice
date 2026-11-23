@@ -1,6 +1,9 @@
-"""Embedder and Reranker ports over HTTP: the brain's side of the GPU search server (app/search_server.py).
+"""Embedder and Reranker ports over the network: the brain's side of the GPU search server (app/search_server.py).
 
-Used when SEARCH_PROVIDER=http. Same interface as adapters/models.py, so nothing above the ports changes.
+SEARCH_PROVIDER=http: our search server on a GPU machine (SearchClient, bearer token).
+SEARCH_PROVIDER=sagemaker: the same server image as a SageMaker endpoint (SageMakerSearchClient, AWS credentials).
+Both run the very same model code as SEARCH_PROVIDER=local, so vectors and scores are identical and switching between
+the three needs no re-indexing. Same interface as adapters/models.py, so nothing above the ports changes.
 
 - Model check: the server's model names and vector size must equal EMBED_MODEL / RERANK_MODEL / EMBED_DIM.
   Stored vectors are tied to the embedder's name, so a different model would quietly break search. Checked at
@@ -11,6 +14,7 @@ Used when SEARCH_PROVIDER=http. Same interface as adapters/models.py, so nothing
 - Never logs the texts it sends.
 """
 
+import json
 import logging
 import threading
 
@@ -25,23 +29,18 @@ class SearchError(RuntimeError):
     """The search server did not answer (down, timeout, wrong token, wrong model)."""
 
 
-class SearchClient:
-    def __init__(self, url: str, token: str, *, embed_model: str, dim: int, rerank_model: str,
-                 timeout_s: float = 3.0, ingest_timeout_s: float = 60.0, transport: httpx.BaseTransport | None = None):
-        if not url:
-            raise ValueError("SEARCH_PROVIDER=http needs SEARCH_URL")
-        headers = {"Authorization": f"Bearer {token}"} if token else {}
-        # httpx.Client is thread-safe; the brain calls it from worker threads (asyncio.to_thread), so keep-alive
-        # connections are reused across calls (no new TCP connection per search).
-        # Connecting inside the VPC takes well under 1 ms, so a 1 s connect limit only cuts the wait when the server is gone.
-        self.http = httpx.Client(base_url=url.rstrip("/"), headers=headers, timeout=httpx.Timeout(timeout_s, connect=1.0),
-                                 transport=transport,
-                                 limits=httpx.Limits(max_connections=32, max_keepalive_connections=16))
+class _Remote:
+    """What both transports share: the model check, and the calls the embedder and reranker make."""
+
+    def _setup(self, embed_model: str, dim: int, rerank_model: str, ingest_timeout_s: float) -> None:
         self.expected = {"embed_model": embed_model, "dim": dim, "rerank_model": rerank_model}
         self.ingest_timeout_s = ingest_timeout_s
         self.device = "remote"
         self._verified = False
         self._lock = threading.Lock()
+
+    def _send(self, method: str, path: str, body: dict | None = None, timeout: float | None = None) -> dict:
+        raise NotImplementedError
 
     def verify(self) -> None:
         """Check the server runs the expected models. Raises SearchError on a mismatch or when it can't be reached."""
@@ -69,16 +68,31 @@ class SearchClient:
             logger.warning("search server not reachable yet; will check again before the first search (%s)", e)
             return False
 
+    def post(self, path: str, body: dict, timeout: float | None = None) -> dict:
+        self.verify()
+        return self._send("POST", path, body, timeout)
+
+
+class SearchClient(_Remote):
+    def __init__(self, url: str, token: str, *, embed_model: str, dim: int, rerank_model: str,
+                 timeout_s: float = 3.0, ingest_timeout_s: float = 60.0, transport: httpx.BaseTransport | None = None):
+        if not url:
+            raise ValueError("SEARCH_PROVIDER=http needs SEARCH_URL")
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        # httpx.Client is thread-safe; the brain calls it from worker threads (asyncio.to_thread), so keep-alive
+        # connections are reused across calls (no new TCP connection per search).
+        # Connecting inside the VPC takes well under 1 ms, so a 1 s connect limit only cuts the wait when the server is gone.
+        self.http = httpx.Client(base_url=url.rstrip("/"), headers=headers, timeout=httpx.Timeout(timeout_s, connect=1.0),
+                                 transport=transport,
+                                 limits=httpx.Limits(max_connections=32, max_keepalive_connections=16))
+        self._setup(embed_model, dim, rerank_model, ingest_timeout_s)
+
     def ping(self) -> str:
         try:
             self.http.get("/health", timeout=1.0).raise_for_status()
             return "ok" if self._verified else "ok (models not checked yet)"
         except httpx.HTTPError as e:
             return f"error: {type(e).__name__}"
-
-    def post(self, path: str, body: dict, timeout: float | None = None) -> dict:
-        self.verify()
-        return self._send("POST", path, body, timeout)
 
     def _send(self, method: str, path: str, body: dict | None = None, timeout: float | None = None) -> dict:
         kwargs = {"json": body} if body is not None else {}
@@ -105,8 +119,67 @@ class SearchClient:
         self.http.close()
 
 
+class SageMakerSearchClient(_Remote):
+    """The search server as a SageMaker real-time endpoint: InvokeEndpoint with the AWS credential chain (the EC2 or ECS
+    role in AWS, your AWS login on a laptop). The caller needs `sagemaker:InvokeEndpoint` on that endpoint.
+    Each call is {"op": ..., body} to /invocations. A read-only call, so botocore's own retry (2 attempts, throttling and
+    5xx only) is safe."""
+
+    _OPS = {"/v1/info": "info", "/v1/embed": "embed", "/v1/rerank": "rerank"}
+
+    def __init__(self, endpoint: str, region: str, *, embed_model: str, dim: int, rerank_model: str,
+                 timeout_s: float = 3.0, ingest_timeout_s: float = 60.0, runtime=None):
+        if not endpoint:
+            raise ValueError("SEARCH_PROVIDER=sagemaker needs SAGEMAKER_ENDPOINT")
+        self.endpoint, self.timeout_s = endpoint, timeout_s
+        if runtime is None:
+            import boto3
+            from botocore.config import Config
+
+            def client(read_s: float):  # boto3 clients are thread-safe; one per timeout (a question vs indexing)
+                return boto3.client("sagemaker-runtime", region_name=region, config=Config(
+                    connect_timeout=2, read_timeout=read_s, retries={"max_attempts": 2, "mode": "standard"},
+                    max_pool_connections=32))
+            self._fast, self._slow = client(timeout_s), client(ingest_timeout_s)
+        else:
+            self._fast = self._slow = runtime
+        self._setup(embed_model, dim, rerank_model, ingest_timeout_s)
+
+    def ping(self) -> str:
+        try:
+            self._send("GET", "/v1/info")
+            return "ok" if self._verified else "ok (models not checked yet)"
+        except SearchError as e:
+            return f"error: {e}"
+
+    def _send(self, method: str, path: str, body: dict | None = None, timeout: float | None = None) -> dict:
+        from botocore.exceptions import BotoCoreError, ClientError, ConnectTimeoutError, NoCredentialsError, ReadTimeoutError
+
+        client = self._slow if timeout and timeout > self.timeout_s else self._fast
+        payload = json.dumps({"op": self._OPS[path], **(body or {})}).encode()
+        try:
+            r = client.invoke_endpoint(EndpointName=self.endpoint, ContentType="application/json",
+                                       Accept="application/json", Body=payload)
+            return json.loads(r["Body"].read())
+        except ReadTimeoutError as e:
+            raise SearchError(f"SageMaker endpoint timed out on {path}") from e
+        except ConnectTimeoutError as e:
+            raise SearchError("SageMaker endpoint unreachable: ConnectTimeout") from e
+        except NoCredentialsError as e:
+            raise SearchError("no AWS credentials for SageMaker (role, profile or SSO login)") from e
+        except ClientError as e:
+            code = e.response.get("Error", {}).get("Code", "")
+            raise SearchError(f"SageMaker endpoint error {code} on {path} (endpoint {self.endpoint!r})") from e
+        except BotoCoreError as e:
+            raise SearchError(f"SageMaker endpoint unreachable: {type(e).__name__}") from e
+
+    def close(self) -> None:
+        for c in {id(self._fast): self._fast, id(self._slow): self._slow}.values():
+            getattr(c, "close", lambda: None)()
+
+
 class HttpEmbedder:
-    def __init__(self, client: SearchClient):
+    def __init__(self, client: _Remote):
         self.client = client
         self.name, self.dim = client.expected["embed_model"], client.expected["dim"]
 
@@ -128,7 +201,7 @@ class HttpEmbedder:
 
 
 class HttpReranker:
-    def __init__(self, client: SearchClient):
+    def __init__(self, client: _Remote):
         self.client = client
         self.name = client.expected["rerank_model"]
 

@@ -61,38 +61,6 @@ def unsupported_numbers(answer: str, allowed: set[str]) -> list[str]:
     return bad
 
 
-# ---------- speech text ----------
-
-_ONES = "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen".split()
-_TENS = "_ _ twenty thirty forty fifty sixty seventy eighty ninety".split()
-
-
-def _words_below_1000(n: int) -> str:
-    parts = []
-    if n >= 100:
-        parts.append(f"{_ONES[n // 100]} hundred")
-        n %= 100
-    if n >= 20:
-        parts.append(_TENS[n // 10] + (f" {_ONES[n % 10]}" if n % 10 else ""))
-    elif n or not parts:
-        parts.append(_ONES[n])
-    return " ".join(parts)
-
-
-def indian_words(n: int) -> str:
-    """123456 -> 'one lakh twenty three thousand four hundred fifty six' (Indian grouping)."""
-    if n == 0:
-        return "zero"
-    parts = []
-    for size, name in ((10**7, "crore"), (10**5, "lakh"), (10**3, "thousand")):
-        if n >= size:
-            parts.append(f"{indian_words(n // size) if n // size >= 1000 else _words_below_1000(n // size)} {name}")
-            n %= size
-    if n:
-        parts.append(_words_below_1000(n))
-    return " ".join(parts)
-
-
 # ───────── voice-safe text ─────────
 # Answers are spoken: markdown and chat formatting must never reach the screen or the voice ("star star", "dash").
 # Amounts, decimals, percentages, dates, "ending 4521" and citation markers are left alone.
@@ -159,27 +127,17 @@ def _spell_reference(m: re.Match) -> str:
 
 
 def speech_text(answer: str, language: str) -> str:
-    """Text ready for TTS: no citation markers, currency spoken, English numbers as Indian words.
+    """Text ready for TTS: no citation markers or markup, reference numbers spelled out, "Rs" / "INR" as "₹".
 
-    Hindi/Hinglish keep digits (Indian TTS voices read them natively in Hindi).
+    Amounts and percentages are left as digits in every language: Sarvam (bulbul v3 and later) reads numbers itself
+    (the English number-to-words step was for the Edge voices; removed 22 Nov 2026).
     """
     text = say(_REFERENCE.sub(_spell_reference, clean_markup(re.sub(r"\s*\[\d+\]", "", answer))), language)
     text = re.sub(r"\s*;\s+", ". ", text)  # a semicolon joins two ideas: spoken, a full stop gives the caller a pause
     text = spoken_punctuation(text, language)
     text = re.sub(r"\b(Rs\.?|INR)\s*", "₹", text)
-    if language != "en":
-        return re.sub(r"\s+", " ", text).strip()
-
-    def money(m: re.Match) -> str:
-        value = m.group(1).replace(",", "")
-        if "." in value:
-            return f"{value} rupees"
-        return f"{indian_words(int(value))} rupees"
-
-    text = re.sub(r"₹\s*(\d[\d,]*(?:\.\d+)?)(?!\s*(?:lakh|crore|k)\b)", money, text)
-    text = text.replace("₹", "rupees ")
-    text = re.sub(r"(\d+(?:\.\d+)?)\s*%", r"\1 percent", text)
-    text = re.sub(r"\bp\.a\.", "per annum", text)
+    if language == "en":
+        text = re.sub(r"\bp\.a\.", "per annum", text)  # an abbreviation, not a number
     return re.sub(r"\s+", " ", text).strip()
 
 

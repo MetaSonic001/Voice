@@ -1,7 +1,7 @@
 "use client";
 
 // Top bar shared by every page, and the live alerts (polled every few seconds, shown as toasts).
-import { BookOpen, Headset, ListChecks, MessagesSquare, ShieldCheck } from "lucide-react";
+import { BookOpen, Gauge, Headset, ListChecks, MessagesSquare, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
@@ -16,6 +16,7 @@ const NAV = [
   { href: "/desk", label: "Agent desk", icon: Headset },
   { href: "/calls", label: "Call audit", icon: ShieldCheck },
   { href: "/fixes", label: "Fix list", icon: ListChecks },
+  { href: "/bench", label: "Speed & quality", icon: Gauge },
 ];
 
 export function AppHeader() {

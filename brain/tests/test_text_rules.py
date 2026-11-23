@@ -97,3 +97,31 @@ def test_reply_language_follows_the_callers_words_not_one_misheard_filler():
     assert reply_language("Can you speak in Hindi please?", "en", "en") == "hi"  # an explicit choice, in Latin letters
     assert reply_language("English mein bolo", "hinglish", "hi") == "en"
     assert reply_language("हिंदी में बात कीजिए", "hi", "en") == "hi"
+
+
+# ───────── the opener (22 Nov 2026: replaces the timed filler) ─────────
+
+def _u(opener, kind="general", lang="en", **kw):
+    from app.domain import Request, Understanding
+
+    req = Request(kind, "What is the FD rate?", scope=kw.pop("scope", ""), goal=kw.pop("goal", "info"))
+    return Understanding(lang, kind, "What is the FD rate?", "", requests=[req], opener=opener, **kw)
+
+
+def test_opener_is_said_only_for_a_checked_kb_question():
+    from app.services.conversation import opener_for
+
+    assert opener_for(_u("Sure, let me check the FD rates for you"), "en", guided=False) == \
+        "Sure, let me check the FD rates for you."
+    assert opener_for(_u("जी, मैं FD की जानकारी देखती हूँ।", lang="hi"), "hi", guided=False).endswith("।")
+    for u, why in [(_u("Let me check that.", kind="personal"), "bank data is a template, ready at once"),
+                   (_u("Let me check that.", risk=["lost_card"]), "fraud has its own approved opening"),
+                   (_u("Let me check that.", scope="choose"), "a guided flow asks its own question"),
+                   (_u("The rate is 7.75%, let me check."), "never a figure"),
+                   (_u("Which tenure do you want?"), "never a question"),
+                   (_u("I've blocked it for you."), "never an outcome"),
+                   (_u("Okay"), "too short"),
+                   (_u(""), "nothing written")]:
+        assert opener_for(u, "en", guided=False) == "", why
+    assert opener_for(_u("Let me check that."), "en", guided=True) == ""  # a guided flow is waiting
+    assert opener_for(_u("Let me check that."), "hi", guided=False) == ""  # reply language changed by code

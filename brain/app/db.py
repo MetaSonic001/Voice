@@ -69,6 +69,13 @@ def _prune_dead_handles(path: Path) -> None:
         path.write_text(json.dumps(alive))
 
 
+def _embedding_type(conn) -> str:
+    """'vector' (pgvector) or 'real[]' (plain array) for chunk_embeddings.embedding."""
+    return conn.execute(
+        "SELECT format_type(atttypid, atttypmod) AS t FROM pg_attribute "
+        "WHERE attrelid = 'chunk_embeddings'::regclass AND attname = 'embedding'").fetchone()["t"]
+
+
 def _log_tail(path: Path, lines: int = 8) -> str:
     try:
         return "\n".join(path.read_text(encoding="utf-8", errors="replace").splitlines()[-lines:])
@@ -77,8 +84,10 @@ def _log_tail(path: Path, lines: int = 8) -> str:
 
 
 class Database:
-    def __init__(self, database_url: str, data_dir: Path):
+    def __init__(self, database_url: str, data_dir: Path, vector_store: str = "pgvector"):
+        """vector_store "numpy" or "chroma": the database needs no pgvector extension (embeddings are a plain real[])."""
         self._server = None
+        self.pgvector = vector_store not in ("numpy", "chroma")
         if not database_url:
             self._server, database_url = _start_private_server(data_dir / "pg")
         self.url = database_url
@@ -88,16 +97,17 @@ class Database:
             min_size=2,
             max_size=10,
             kwargs={"row_factory": dict_row, "autocommit": True},
-            configure=register_vector,
+            configure=register_vector if self.pgvector else None,
             open=True,
         )
 
     def _migrate(self) -> None:
-        """Create the vector extension (needed before register_vector) and apply pending migrations.
+        """Create the vector extension (pgvector mode; needed before register_vector) and apply pending migrations.
         One copy at a time (STARTUP_LOCK): otherwise two copies on an empty database both create the tables."""
         with psycopg.connect(self.url, autocommit=True) as conn:
             conn.execute("SELECT pg_advisory_lock(%s)", (STARTUP_LOCK,))  # released when this connection closes
-            conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+            if self.pgvector:
+                conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY, applied_at timestamptz DEFAULT now())"
             )
@@ -114,10 +124,23 @@ class Database:
         """Partial HNSW index for one embedding model. Search uses the same cast and WHERE clause."""
         safe = "".join(c if c.isalnum() else "_" for c in model.lower())[:40]
         with self.startup_lock() as conn:  # two copies creating the same index at once: one would fail
+            if _embedding_type(conn) != "vector":  # created by 001_init.sql, or used before with VECTOR_STORE=chroma
+                conn.execute("ALTER TABLE chunk_embeddings ALTER COLUMN embedding TYPE vector USING embedding::vector")
             conn.execute(
                 f"CREATE INDEX IF NOT EXISTS emb_hnsw_{safe}_{dim} ON chunk_embeddings "
                 f"USING hnsw ((embedding::vector({dim})) vector_cosine_ops) WHERE model = '{model}'"
             )
+
+    def ensure_plain_embeddings(self) -> None:
+        """VECTOR_STORE=chroma: embeddings as a plain real[] column. A database used before with pgvector is converted
+        (its HNSW indexes dropped first); that needs the extension, which such a database has."""
+        with self.startup_lock() as conn:
+            if _embedding_type(conn) == "vector":
+                for r in conn.execute("SELECT indexname FROM pg_indexes WHERE tablename = 'chunk_embeddings' "
+                                      "AND indexname LIKE 'emb_hnsw_%'").fetchall():
+                    conn.execute(f'DROP INDEX IF EXISTS "{r["indexname"]}"')
+                conn.execute("ALTER TABLE chunk_embeddings ALTER COLUMN embedding TYPE real[] USING embedding::real[]")
+                log(logger, "embeddings column converted to real[]")
 
     @contextmanager
     def startup_lock(self):

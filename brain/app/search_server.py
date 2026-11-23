@@ -1,8 +1,9 @@
 """The GPU search server: the embedder (bge-m3) and the reranker (bge-reranker-v2-m3) behind a small HTTP API.
 
     python -m app search [--host 0.0.0.0] [--port 8200]
+    python -m app search --sagemaker            (inside a SageMaker endpoint: `serve` in the image runs this)
 
-The brain uses it when SEARCH_PROVIDER=http (adapters/search_http.py). With SEARCH_PROVIDER=local (the default)
+The brain uses it when SEARCH_PROVIDER=http or sagemaker (adapters/search_http.py). With SEARCH_PROVIDER=local (the default)
 the brain loads the same two models itself and this server is not needed.
 
 It runs the very same model classes as the in-process mode (adapters/models.py), so vectors and scores are identical.
@@ -15,13 +16,18 @@ Endpoints:
   GET  /v1/info     {"embed_model", "dim", "rerank_model", "device"}
   POST /v1/embed    {"texts": [...]}              -> {"vectors": [[...], ...]}
   POST /v1/rerank   {"query": "...", "passages": [...]} -> {"scores": [...]}
+
+SageMaker mode (--sagemaker): SageMaker's container contract, on port 8080. SageMaker itself checks the caller (IAM
+SigV4) and is the only one that can reach the container, so no token is used there. Only in this mode:
+  GET  /ping         200 once the models are loaded (SageMaker's health check)
+  POST /invocations  {"op": "info" | "embed" | "rerank", ...the same body as the /v1 route} -> the same answer
 """
 
 import hmac
 import logging
 import time
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from app.config import ROOT, Settings, get_settings
@@ -43,7 +49,7 @@ class RerankIn(BaseModel):
     passages: list[str] = Field(max_length=MAX_PASSAGES)
 
 
-def create_app(embedder: Embedder, reranker: Reranker, token: str) -> FastAPI:
+def create_app(embedder: Embedder, reranker: Reranker, token: str, sagemaker: bool = False) -> FastAPI:
     app = FastAPI(title="AU SFB search server", version="0.1.0", docs_url=None, redoc_url=None)
 
     def check(authorization: str = Header(default="")) -> None:
@@ -76,10 +82,26 @@ def create_app(embedder: Embedder, reranker: Reranker, token: str) -> FastAPI:
         log(logger, "rerank", n=len(body.passages), ms=round((time.perf_counter() - t) * 1000))
         return {"scores": scores}
 
+    if sagemaker:  # never on the plain server: /invocations has no token check of its own
+        @app.get("/ping")
+        def ping():
+            return Response(status_code=200)
+
+        @app.post("/invocations")
+        def invocations(body: dict):
+            op = body.pop("op", "")
+            if op == "info":
+                return info()
+            if op == "embed":
+                return embed(EmbedIn(**body))
+            if op == "rerank":
+                return rerank(RerankIn(**body))
+            raise HTTPException(400, "op must be info, embed or rerank")
+
     return app
 
 
-def from_settings(s: Settings | None = None) -> FastAPI:
+def from_settings(s: Settings | None = None, sagemaker: bool = False) -> FastAPI:
     """Load the two models (as the brain does in local mode) and build the app. Used by `python -m app search`."""
     s = s or get_settings()
     setup_logging(s.log_level, s.log_dir, s.log_console)
@@ -92,7 +114,7 @@ def from_settings(s: Settings | None = None) -> FastAPI:
     embedder.embed_query("warm up")  # first call is slow; pay it now, not on the first question
     reranker.score("warm up", ["warm up"])
     log(logger, "search server ready", device=embedder.device, startup_ms=round((time.perf_counter() - t) * 1000))
-    return create_app(embedder, reranker, s.search_token.get_secret_value())
+    return create_app(embedder, reranker, s.search_token.get_secret_value(), sagemaker=sagemaker)
 
 
 def check_bind(host: str, token: str) -> None:

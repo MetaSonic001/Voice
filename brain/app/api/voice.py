@@ -46,6 +46,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/voice", tags=["voice"])
 MAX_AUDIO_BYTES = 10 * 1024 * 1024
 BUSY_CLOSE = 1013  # WebSocket "try again later": the caller's gateway sends the call to another copy or to people
+_background: set = set()  # after-call tasks still running (asyncio keeps only weak references to tasks)
 _live_calls = 0  # live calls in this process, counted from accept to close (one event loop, so no lock is needed)
 
 
@@ -267,6 +268,10 @@ async def stream(ws: WebSocket):
                                                 c.settings.audio_rate, session.recorder.started_at)
                 except Exception:
                     logger.exception("saving the call record failed")
+                if c.call_records:  # the call record file (services/callrecords.py); nothing waits for it
+                    task = asyncio.create_task(asyncio.to_thread(c.call_records.after_call, session.session_id))
+                    _background.add(task)  # referenced until done, so it isn't collected
+                    task.add_done_callback(_background.discard)
     finally:
         _live_calls -= 1
         LIVE_CALLS.set(_live_calls)

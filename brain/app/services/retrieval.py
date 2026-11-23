@@ -1,4 +1,4 @@
-"""Hybrid retrieval: dense (pgvector) + keyword (Postgres full-text) -> Reciprocal Rank Fusion -> rerank.
+"""Hybrid retrieval: dense (pgvector, or numpy / Chroma per VECTOR_STORE) + keyword (Postgres full-text) -> Reciprocal Rank Fusion -> rerank.
 
 Dense search handles meaning and other languages (Hindi/Hinglish questions over English documents);
 keyword search handles exact terms and product names. RRF merges both lists without tuning weights;
@@ -49,8 +49,9 @@ def rrf_fuse(dense: list[Hit], keyword: list[Hit]) -> list[Hit]:
 
 
 class Retriever:
-    def __init__(self, db: Database, embedder: Embedder, reranker: Reranker, settings):
+    def __init__(self, db: Database, embedder: Embedder, reranker: Reranker, settings, vectors=None):
         self.db, self.embedder, self.reranker, self.s = db, embedder, reranker, settings
+        self.vectors = vectors  # NumpyVectors or ChromaVectors (VECTOR_STORE=numpy|chroma); None = pgvector inside Postgres
         self._last_used = time.monotonic()
 
     def embed(self, text: str) -> list[float]:
@@ -64,9 +65,12 @@ class Retriever:
             return
         self._last_used = time.monotonic()
         self.embedder.embed_query("warm up")
-        self.reranker.score("warm up", ["warm up"])
+        if self.s.rerank:
+            self.reranker.score("warm up", ["warm up"])
 
     def dense(self, vector: list[float], k: int) -> list[Hit]:
+        if self.vectors is not None:
+            return self._dense_store(vector, k)
         dim = self.embedder.dim
         with self.db.connection() as conn:
             rows = conn.execute(
@@ -75,6 +79,21 @@ class Retriever:
                 f"WHERE c.active ORDER BY e.embedding::vector({dim}) <=> %s::vector({dim}) LIMIT %s",
                 (str(vector), self.embedder.name, str(vector), k)).fetchall()
         return [Hit(**_hit(r), dense_score=float(r["score"])) for r in rows]
+
+    def _dense_store(self, vector: list[float], k: int) -> list[Hit]:
+        """The vector store (numpy or Chroma) finds the nearest chunks among the searchable document versions; Postgres supplies their text.
+        `c.active` is checked again, so a document turned off a moment ago never comes back."""
+        with self.db.connection() as conn:
+            versions = [str(r["v"]) for r in conn.execute(
+                "SELECT current_version_id AS v FROM documents WHERE enabled AND deleted_at IS NULL "
+                "AND purpose = 'knowledge' AND current_version_id IS NOT NULL").fetchall()]
+            found = self.vectors.search([float(x) for x in vector], k, versions)
+            if not found:
+                return []
+            rows = {str(r["chunk_id"]): r for r in conn.execute(
+                f"SELECT {_HIT_COLUMNS} {_JOIN} WHERE c.active AND c.id = ANY(%s::uuid[])",
+                ([cid for cid, _ in found],)).fetchall()}
+        return [Hit(**_hit(rows[cid]), dense_score=score) for cid, score in found if cid in rows]
 
     def keyword(self, query: str, k: int) -> list[Hit]:
         if not query.strip():
@@ -118,10 +137,23 @@ class Retriever:
         dense_hits, keyword_hits = await asyncio.gather(dense_task(), keyword_task())
         fused = rrf_fuse(dense_hits, keyword_hits)
         candidates = fused[: self.s.rerank_candidates]
+        if not self.s.rerank:  # RERANK=false: keep the RRF order; no rerank_ms (the step did not run)
+            return without_reranker(candidates), fused
         t = time.perf_counter()
         reranked = await asyncio.to_thread(self.rerank, keyword_query or dense_query, candidates) if candidates else []
         timings["rerank_ms"] = _ms(t)
         return reranked, fused
+
+
+def without_reranker(candidates: list[Hit]) -> list[Hit]:
+    """RERANK=false. The candidates in the RRF order, each with `rerank_score` = its RRF score scaled to 0..1 (1.0 =
+    first in both searches), so the code after search (passage trim, source checks) works unchanged. This score only
+    orders passages: it does not say whether they answer the question, so the refusal gate uses the embedding
+    similarity instead (`Conversation`, MIN_DENSE_SCORE)."""
+    best = 2 / (RRF_K + 1)
+    for h in candidates:
+        h.rerank_score = round(min(1.0, h.rrf / best), 4)
+    return candidates
 
 
 def _hit(row: dict) -> dict:

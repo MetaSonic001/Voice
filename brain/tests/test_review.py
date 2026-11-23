@@ -21,7 +21,7 @@ class Judge:
     def __init__(self, **over):
         self.calls, self.over = 0, over
 
-    async def json(self, model, system, user, schema, max_tokens=400):
+    async def json(self, model, system, user, schema, max_tokens=400, effort=None):
         self.calls += 1
         if "handover note" in system:
             return {"summary": self.over.get("summary", "The caller wants their balance."), "mood": "calm"}, {}
@@ -173,6 +173,18 @@ def test_findings_keep_only_real_quotes_and_give_the_call_its_labels():
     found, unverified = rv.verify_findings(judge, packet)
     assert unverified == 1 and found[0]["quote_verified"] and found[1]["quote"] == "" and not found[1]["quote_verified"]
     assert rv.categories_of(found) == ["poor_voice_response", "missing_information"]  # the agent's own problems first
+
+
+def test_findings_missing_schema_fields_do_not_break_the_review():
+    """The judge model sometimes leaves out required fields (seen live: no "category"); the review must still work."""
+    packet = {"turns": [{"n": 1, "caller": "hi", "agent": "hello"}]}
+    judge = {"findings": [{"turn": 1, "quote": "hello", "what_happened": "x", "fix": "z"},
+                          {"category": "made_up", "source": "??", "what_happened": "y"},
+                          {"turn": 1, "quote": "hello"}, "not a dict"]}
+    found, _ = rv.verify_findings(judge, packet)
+    assert len(found) == 2 and [f["category"] for f in found] == ["other", "other"]
+    assert found[1]["source"] == "agent" and found[1]["fix"] == "" and found[1]["fix_area"] == "none"
+    assert rv.categories_of(found) == ["other"]
 
 
 async def test_summary_counts_recurring_problems_across_calls(client, container, monkeypatch):

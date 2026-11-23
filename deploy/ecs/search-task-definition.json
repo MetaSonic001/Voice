@@ -9,7 +9,7 @@
   "containerDefinitions": [
     {
       "name": "search",
-      "image": "ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/au-brain:IMAGE_TAG",
+      "image": "ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/au-search:IMAGE_TAG",
       "command": ["python", "-m", "app", "search", "--host", "0.0.0.0", "--port", "8200"],
       "essential": true,
       "portMappings": [{ "containerPort": 8200, "protocol": "tcp", "name": "search" }],

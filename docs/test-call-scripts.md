@@ -445,3 +445,33 @@ Number: 9000000101
 **Known, not changed:** "And when is the next one?" right after a balance answer is taken as the next EMI.
 **Not a code issue:** your own voice heard softly from one speaker during a live call is the laptop's audio settings
 (PROJECT-GUIDE §25.6 and the 17 Nov tracker entry say what to check).
+
+## Part E - one full customer call: bank data first, then the knowledge base, then a person (20 Nov 2026)
+
+Number: **9000000101** (Ravi). Needs `MOCK_BANK=true`. Text or voice; English. When asked for a code, type the 6 digits
+from the simulated SMS on the keypad. Never say it.
+
+Turns 1-7 should use **bank data only**: no knowledge-base search, no reranker. They stay fast on a CPU laptop.
+Turns 8-9 **search the knowledge base** (reranker: ~0.5 s on GPU, ~13 s on CPU). Turn 10 ends with a person.
+To check, open the call on `/calls`: a bank-only turn shows **Bank systems called** and no knowledge-base sources; its
+trace has no `rerank_ms`. A KB turn shows **Where the answer came from**.
+
+| # | Say | Expect | KB / reranker? |
+|---|---|---|---|
+| 1 | "Hi, what's the balance in my salary account?" | Asks to verify; after the code: the balance on 4521 and the ₹2,500 hold (fuel station) | No |
+| 2 | "Show me the last five transactions." | 5 transactions (3 read out, "want the other 2?") | No |
+| 3 | "I took out ten thousand from the ATM on MI Road two days ago, but no cash came out." | The failed withdrawal found; when the money comes back; offers a complaint | No (if it does search, the timeline came from the policy document: note it) |
+| 4 | "Yes, please raise a complaint." | A complaint reference number | No |
+| 5 | "And why did my personal loan EMI bounce?" | The ₹7,850 EMI failed because the balance was low at 6 am; the salary came in later | No |
+| 6 | "Block my credit card ending 2208 temporarily." | Reads the card back and asks for a clear yes | No |
+| 7 | "Yes." | Blocked, with a reference number | No |
+| 8 | "What's the annual fee on the Zenith+ credit card, and can it be waived?" | Fee and waiver rule, with KB sources | **Yes** |
+| 9 | "What's the FD interest rate for one year?" | The rate from the rates sheet, with a source | **Yes** |
+| 10 | "My home loan rate feels high. Can I speak to a person about reducing it?" | Hands over to the loans team with a short summary (or books a callback if nobody picks up) | No |
+
+After the call:
+- `/desk`: the handover is waiting, with the summary of the whole call (balance, ATM complaint, EMI, card block, the loan question).
+- `/calls`: the quality review, and the per-turn sources and bank systems as described above.
+- Run it again only after `uv run python -m app.cli clean-slate` (or a brain restart the next day): the card stays blocked
+  and the complaint stays raised until the mock bank is re-seeded.
+

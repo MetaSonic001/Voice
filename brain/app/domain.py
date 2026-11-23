@@ -99,17 +99,22 @@ class Request:
     own_check: bool = False  # a general answer that could differ for the caller's own product: offer to check theirs
     scope: str = ""  # specific | overview | full | compare | choose ("" = not given: code patterns decide)
     named: list = field(default_factory=list)  # product names the caller said ("Zenith+", "Altura")
+    label: str = ""  # a short spoken name for it ("your balance in both accounts"), for "Shall I go on to ...?"
+    ref: int = 0  # the call agenda item this request belongs to (services/agenda.py); 0 = none
+    risk: list = field(default_factory=list)  # a risk that belongs to this request alone (an agenda follow-up)
 
     def to_dict(self) -> dict:
         return {"kind": self.kind, "question": self.question, "personal": self.personal, "action": self.action,
                 "issue": self.issue, "status": self.status, "goal": self.goal, "product": self.product,
-                "own_check": self.own_check, "scope": self.scope, "named": self.named}
+                "own_check": self.own_check, "scope": self.scope, "named": self.named, "label": self.label,
+                "ref": self.ref, "risk": self.risk}
 
     @classmethod
     def from_dict(cls, d: dict) -> "Request":
         return cls(d["kind"], d["question"], d.get("personal") or {}, d.get("action") or {}, d.get("issue") or "none",
                    d.get("status") or "open", d.get("goal") or "info", d.get("product") or "", bool(d.get("own_check")),
-                   d.get("scope") or "", list(d.get("named") or []))
+                   d.get("scope") or "", list(d.get("named") or []), d.get("label") or "", int(d.get("ref") or 0),
+                   list(d.get("risk") or []))
 
 
 @dataclass
@@ -137,14 +142,23 @@ class Understanding:
     own_check: bool = False
     scope: str = ""
     named: list = field(default_factory=list)
+    # Several questions in one turn (services/agenda.py). `asks` lists every separate thing the caller said, as their own
+    # words ("quote"), "question" or "statement", with a short spoken "label"; requests beyond the three that were fully
+    # understood stay in `extra_asks` and are understood when their turn comes.
+    asks: list = field(default_factory=list)
+    extra_asks: list = field(default_factory=list)
+    agenda_reply: str = "none"  # the reply to "Shall I go on to ...?": none | continue | stop | skip | choose
+    agenda_pick: int = 0  # with "choose": which of the listed questions (1-based)
+    followup: str = ""  # a question code adds after the answers ("unrecognised_debit": "money got deducted" + a balance)
+    opener: str = ""  # the LLM's short "let me check" line; said only when code allows it (conversation.opener_for)
 
     def for_request(self, r: Request) -> "Understanding":
         # The English search keywords were written for the first general request only; others search on their own question.
         first_general = next((x for x in self.requests if x.kind in ("general", "new_customer")), None)
         search = self.search_query_en if r is first_general else ""
         return Understanding(self.language, r.kind, r.question, search, r.personal, self.facts, r.action,
-                             r.issue, self.department, [r], self.risk, self.reply_to_pending, self.clarify, self.resume_text,
-                             self.recent, r.goal, r.product, r.own_check, r.scope, r.named)
+                             r.issue, self.department, [r], r.risk or self.risk, self.reply_to_pending, self.clarify,
+                             self.resume_text, self.recent, r.goal, r.product, r.own_check, r.scope, r.named)
 
 
 @dataclass

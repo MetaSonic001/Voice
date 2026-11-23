@@ -2,6 +2,7 @@
 
   brain serve  (or: python -m app)     start the API on http://127.0.0.1:8000
   brain search [--host H --port 8200]  GPU search server (embed + rerank) for SEARCH_PROVIDER=http
+  brain search --sagemaker             the same, as a SageMaker endpoint (port 8080, /ping, /invocations)
   brain upload FILE... [--category X]  upload documents and wait until they're indexed
   brain ask "question" [--session ID]  ask one question and print the answer + citations + timings
   brain chat                           interactive session with follow-ups
@@ -43,6 +44,9 @@ def search(args) -> None:
     from app.search_server import check_bind, from_settings
 
     settings = get_settings()
+    if args.sagemaker:  # SageMaker's contract: port 8080 on every interface; SageMaker checks the caller (IAM)
+        uvicorn.run(from_settings(settings, sagemaker=True), host="0.0.0.0", port=8080, log_config=None)
+        return
     check_bind(args.host, settings.search_token.get_secret_value())
     uvicorn.run(from_settings(settings), host=args.host, port=args.port, log_config=None)
 
@@ -279,13 +283,13 @@ def voice(args) -> None:
 def clean_slate(args) -> None:
     """Works on the database directly (a running brain keeps working: it re-seeds the mock bank on its next start)."""
     from app.config import get_settings
-    from app.container import build_recording_files
+    from app.container import build_call_record_files, build_recording_files
     from app.db import Database
     from app.services import maintenance
 
     settings = get_settings()
     recording_files = build_recording_files(settings)
-    db = Database(settings.database_url, settings.data_dir)
+    db = Database(settings.database_url, settings.data_dir, settings.vector_store)
     try:
         print("This will delete:")
         for name, count in maintenance.preview(db).items():
@@ -293,7 +297,8 @@ def clean_slate(args) -> None:
         print("The knowledge base and eval history are kept. This cannot be undone.")
         if not args.yes and input("Type DELETE to continue: ").strip() != "DELETE":
             sys.exit("cancelled")
-        print(json.dumps(maintenance.clean_slate(db, recording_files, confirm=True)))
+        print(json.dumps(maintenance.clean_slate(db, recording_files, confirm=True,
+                                                    record_files=build_call_record_files(settings))))
     finally:
         db.close()
 
@@ -305,9 +310,10 @@ def main() -> None:
     s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--port", type=int, default=8000)
     s.set_defaults(fn=serve)
-    s = sub.add_parser("search", help="GPU search server (embed + rerank) for SEARCH_PROVIDER=http")
+    s = sub.add_parser("search", help="GPU search server (embed + rerank) for SEARCH_PROVIDER=http or sagemaker")
     s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--port", type=int, default=8200)
+    s.add_argument("--sagemaker", action="store_true", help="SageMaker endpoint mode: /ping and /invocations on port 8080")
     s.set_defaults(fn=search)
     s = sub.add_parser("upload")
     s.add_argument("files", nargs="+")

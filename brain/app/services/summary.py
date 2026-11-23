@@ -37,7 +37,7 @@ class Summariser:
                              "events": [{"kind": e["kind"], "detail": e["detail"]} for e in call["events"]
                                         if e["kind"] in ("card_action", "ticket", "handoff_requested")]}, default=str)
         try:
-            data, _ = await self.llm.json(self.model, SYSTEM, f"Record: {record}\n\nTranscript:\n{transcript}"[:8000], SCHEMA, max_tokens=350)
+            data, _ = await self.llm.json(self.model, SYSTEM, f"Record: {record}\n\nTranscript:\n{transcript}"[:8000], SCHEMA)
         except Exception:
             logger.exception("handover summary failed")
             return None
