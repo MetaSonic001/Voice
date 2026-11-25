@@ -1,6 +1,6 @@
 """Download every model the brain needs into brain/models/ (run once, when the internet is good).
 
-    uv run python scripts/download_models.py
+    python scripts/download_models.py
 
 - bge-m3 (embeddings) and bge-reranker-v2-m3 (reranker) from Hugging Face. Resumes interrupted
   downloads and verifies each weights file against its published SHA-256.
@@ -14,8 +14,8 @@
   EKS image for UAT: 2.2 GB less to download and to pull.
 Safe to re-run: complete, verified files are skipped.
 
-    uv run python scripts/download_models.py --onnx
-    uv run python scripts/download_models.py --embed-only
+    python scripts/download_models.py --onnx
+    python scripts/download_models.py --embed-only
 """
 
 import hashlib

@@ -15,20 +15,23 @@
 
 ARG PYTHON_IMAGE=python:3.12-slim-bookworm
 
-# ── 1. Build: Python packages and the two search models ──
+# ── 1. Build: Python packages and the search models ──
 FROM ${PYTHON_IMAGE} AS build
-COPY --from=ghcr.io/astral-sh/uv:0.8.13 /uv /bin/uv
-ENV UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy \
-    UV_PYTHON_DOWNLOADS=never \
-    UV_PYTHON=/usr/local/bin/python3.12 \
-    UV_PROJECT_ENVIRONMENT=/app/.venv
+RUN python -m venv /app/.venv
+ENV PATH="/app/.venv/bin:${PATH}" \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 WORKDIR /app
 
-# Packages first (this layer is reused until uv.lock changes). Exact versions from uv.lock; torch is the CUDA 12.8 build.
-COPY brain/pyproject.toml brain/uv.lock ./
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-install-project
+# PyTorch first, from the build that fits: TORCH=cpu (default: EKS and the office laptop; several GB smaller) or
+# TORCH=cu128 (an NVIDIA GPU; compose.gpu.yaml passes it).
+ARG TORCH=cpu
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/${TORCH}
+
+# Then every other package at its exact version (requirements.txt). Reused until that file changes.
+COPY brain/requirements.txt ./
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -r requirements.txt
 
 # The models (~4.5 GB) next, so a code change doesn't download them again. The script checks each weights file's SHA-256.
 # SEARCH_MODELS: 1 = both, embed = bge-m3 only, 0 = none (see the top of this file).
@@ -40,15 +43,13 @@ RUN case "$SEARCH_MODELS" in \
       *) mkdir -p models ;; \
     esac
 
-# Then the code, installed in place (app/config.py finds models/, seed/ and evals/ next to app/).
+# Then the code, used in place (PYTHONPATH=/app; app/config.py finds models/, seed/ and evals/ next to app/).
 COPY brain/app ./app
 COPY brain/seed ./seed
 COPY brain/evals ./evals
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
 COPY ["Sample Questions/Inbound_Voice_Agent_Dummy_Data.xlsx", "./seed/Inbound_Voice_Agent_Dummy_Data.xlsx"]
 
-# ── 2. Run: no uv, no build caches; a non-root user ──
+# ── 2. Run: no build caches; a non-root user ──
 FROM ${PYTHON_IMAGE} AS runtime
 RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin app
 WORKDIR /app
@@ -59,6 +60,7 @@ RUN mkdir -p /app/data /app/logs /app/evals/reports \
     && chown -R app:app /app/data /app/logs /app/evals/reports
 
 ENV PATH="/app/.venv/bin:${PATH}" \
+    PYTHONPATH=/app \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     HF_HUB_OFFLINE=1 \

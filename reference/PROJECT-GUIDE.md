@@ -222,17 +222,18 @@ This is the short map. **Section 33 explains every file in detail** (why it exis
 **First time only:**
 ```bash
 cd brain
-uv sync
-uv run python scripts/download_models.py
+pip install torch    # or the CPU / CUDA build: brain/requirements.txt header
+pip install -e ".[dev]"
+python scripts/download_models.py
 cd ../ui
 bun install
 ```
-`uv sync` installs the Python libraries; the download script fetches about 4.4 GB of models once (resumable, checksum-verified); `bun install` installs the UI's libraries.
+`pip install` installs the Python libraries (exact versions for Python 3.12: `requirements.txt`); the download script fetches about 4.4 GB of models once (resumable, checksum-verified); `bun install` installs the UI's libraries.
 
 **Every time** (two terminals):
 ```bash
 cd brain
-uv run python app.py
+python app.py
 ```
 ```bash
 cd ui
@@ -251,10 +252,10 @@ The first starts the brain at http://127.0.0.1:8000 (about a minute to load mode
 | Postman | Import `http://127.0.0.1:8000/openapi.json`; WebSocket `ws://127.0.0.1:8000/v1/voice/stream` |
 | VS Code | `brain/requests.http`: every call, including the verification steps |
 | Terminal | `brain ask "…"`, `brain chat`, `brain status`, `brain say "…" -o q.wav`, `brain voice q.wav` |
-| Offline tests | `uv run pytest -m "not live"` (316 tests, about a minute, no Groq calls) |
-| Real-LLM smoke set | `uv run python -m evals.smoke` (replay-cached: a second run with nothing changed makes 0 requests) |
-| Regression pack | `uv run python -m evals.smoke --pack regression --keep` (33 whole conversations, cached; `--only id …` for a few) |
-| Clean slate | `uv run python -m app.cli clean-slate` deletes all recorded calls, keeps the KB, re-seeds the mock bank; asks for DELETE |
+| Offline tests | `python -m pytest -m "not live"` (316 tests, about a minute, no Groq calls) |
+| Real-LLM smoke set | `python -m evals.smoke` (replay-cached: a second run with nothing changed makes 0 requests) |
+| Regression pack | `python -m evals.smoke --pack regression --keep` (33 whole conversations, cached; `--only id …` for a few) |
+| Clean slate | `python -m app.cli clean-slate` deletes all recorded calls, keeps the KB, re-seeds the mock bank; asks for DELETE |
 
 **Sharing the demo:** UI on ngrok, brain on a Cloudflare quick tunnel, plus `NEXT_PUBLIC_API_URL` and `CORS_ORIGINS` (see `ui/README.md`).
 
@@ -1559,7 +1560,7 @@ The old "2 servers, well over 100 calls each" is replaced. Memory per container 
 | **Audit** | Hash-chained transcript, `auth_events`, CloudTrail, Bedrock invocation logging **without text**, recordings with Object Lock, log retention per AU and CERT-In (180 days in India), logs shipped to AU's SIEM | Mostly built; AWS parts plan |
 | **Privacy (DPDP)** | Notice at call start (recording, AI) agreed with AU's DPO, its version stored per call; purpose limitation; a retention schedule for traces, recordings and call facts, set per type; a legal-hold flag on calls under complaint or dispute; erasure (delete a call: **built**); a data inventory; a breach plan (CERT-In 6 h) | Partly built |
 | **Change control for AI** | Every prompt, model and KB version is already on each trace; changes go live only after the golden set passes (accuracy ≥ the last release) with a sign-off | Plan |
-| **Supply chain** | Few libraries (ADR 0002), pinned versions (`uv.lock`), dependency scans (pip-audit, bun audit), image scanning, an SBOM | Partly |
+| **Supply chain** | Few libraries (ADR 0002), pinned versions (`brain/requirements.txt`), dependency scans (pip-audit, bun audit), image scanning, an SBOM | Partly |
 | **Testing** | A red-team set (prompt injection, other customers' data, social engineering, abusive callers) in three languages before each release; VAPT by a CERT-In empanelled auditor; load tests; a DR drill | Plan |
 | **Monitoring** | GuardDuty, Security Hub; alerts on injection spikes, verification failures, unusual data reads; feed to AU's SOC | Plan |
 | **Governance** | RBI FREE-AI: AI inventory entry, risk tier, disclosure, human oversight (judge + human review), vendor clauses (AWS, Sarvam) | Plan |

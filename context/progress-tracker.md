@@ -44,6 +44,16 @@ numbers, what needs a restart and the next step. Keep it short: move old entries
 | First audio of the real answer (voice) | 3.6 s typical, 5.8 s slow | 12 Nov, Groq + Edge. Re-measure on Bedrock (`/bench`) |
 | Search on CPU | rerank 16 passages 13–37 s; one query embedding ~0.2 s | 20 Nov |
 
+## Latest change: 25 Nov (2), uv removed (the office laptop blocks it)
+
+| What | Change |
+|---|---|
+| Packages | `uv.lock` → `brain/requirements.txt` (exact pins for Python 3.12, from the old lock: same versions) and `requirements-dev.txt` (pytest; pgserver only below 3.14). `pyproject.toml`: the uv blocks removed, `requires-python = ">=3.12"`, pgserver moved to the `dev` extra |
+| PyTorch | Installed first, CPU or CUDA build (the `requirements.txt` header). Docker: `TORCH=cpu` by default (EKS, office laptop; several GB smaller), `compose.gpu.yaml` passes `TORCH=cu128` |
+| Dockerfile | Plain `python -m venv` + pip; code used in place (`PYTHONPATH=/app`). Not built here (Docker Desktop not running) |
+| Tests | Never use `DATABASE_URL` any more. `TEST_DATABASE_URL` (a `..._test` database, dropped and recreated each run), else a throwaway pgserver. On Python 3.14 (office) set `TEST_DATABASE_URL`. **432 pass** with plain Python (pgserver path); the `TEST_DATABASE_URL` path is not run yet (needs Docker Postgres) |
+| Docs | `uv run …` → `python …` in every doc; setup steps rewritten for pip |
+
 ## Latest change: 25 Nov, EKS UAT and the handoff (code + docs; brain restart)
 
 | What | Change |

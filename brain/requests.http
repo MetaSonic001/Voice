@@ -159,7 +159,7 @@ POST {{base}}/api/v1/documents/DOCUMENT_ID/reindex
 ### Soft delete (kept for audit) - add ?purge=true to remove permanently
 DELETE {{base}}/api/v1/documents/DOCUMENT_ID
 
-### Evaluation: run from the command line (uv run python -m evals.golden_run / evals.smoke), not over the API
+### Evaluation: run from the command line (python -m evals.golden_run / evals.smoke), not over the API
 
 ### ───────── Metrics (Prometheus) ─────────
 GET {{base}}/metrics

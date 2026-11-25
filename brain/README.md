@@ -49,8 +49,12 @@ Three ways to run the same code. All of them use Postgres with pgvector; the fir
 
 ### First time (both laptops)
 
-1. Python packages. Owner's laptop: `uv sync` (Python 3.12). Company laptop: the conda environment with `pip install -e .`
-   (Python 3.14 works so far; AWS runs 3.12). PyTorch is the CUDA 12.8 build; it runs on a CPU too.
+1. Python packages (pip only; no uv). PyTorch first, then the rest:
+   - **Company laptop** (Anaconda's Python 3.14): `pip install torch` (PyPI's Windows build is CPU-only), then
+     `pip install -e ".[dev]"` (the ranges in `pyproject.toml`; exact pins are for 3.12).
+   - **Owner's laptop** (Python 3.12 venv): `pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cu128`,
+     then `pip install -r requirements-dev.txt` (exact versions).
+   - Tests need their own database: on Python 3.14 set `TEST_DATABASE_URL` (see "Tests"); pgserver has no 3.14 build.
 2. Settings: `cp .env.example .env`, then fill in:
    - **the LLM:** Groq key (owner's laptop), or the Bedrock block (company laptop: `LLM_PROVIDER=bedrock`,
      `AWS_BEARER_TOKEN_BEDROCK`, `in.openai.gpt-5.6-luna` for the three models);
@@ -101,17 +105,17 @@ Three ways to run the same code. All of them use Postgres with pgvector; the fir
 
 ### 1. Upload the knowledge base
 ```bash
-uv run brain upload "../Sample Questions/Knowledge Base/"*.docx "../Sample Questions/Knowledge Base/"*.pdf
-uv run brain upload "../Sample Questions/Inbound_Voice_Agent_Dummy_Data.xlsx" --sheets "Acct Debit card Mapping"
-uv run brain status
+python -m brain upload "../Sample Questions/Knowledge Base/"*.docx "../Sample Questions/Knowledge Base/"*.pdf
+python -m brain upload "../Sample Questions/Inbound_Voice_Agent_Dummy_Data.xlsx" --sheets "Acct Debit card Mapping"
+python -m brain status
 ```
 The second command ingests only the non-personal account → debit card sheet. Customer sheets are never indexed.
 
 ### 2. Ask
 ```bash
-uv run brain ask "What is the annual fee for the Zenith+ credit card?"
-uv run brain ask "मैं senior citizen हूँ। एक साल की FD पर सबसे अच्छा rate कितना है?"
-uv run brain chat            # interactive, with follow-up questions
+python -m brain ask "What is the annual fee for the Zenith+ credit card?"
+python -m brain ask "मैं senior citizen हूँ। एक साल की FD पर सबसे अच्छा rate कितना है?"
+python -m brain chat            # interactive, with follow-up questions
 ```
 Each answer prints its outcome, citations, per-step timings and the trace URL.
 
@@ -163,8 +167,8 @@ curl -X POST localhost:8000/api/v1/auth/verify -H "content-type: application/jso
 
 ### 5. Check accuracy (evaluations)
 ```bash
-uv run python -m evals.golden_run        # runs evals/golden/v1.yaml (105 questions), paced and replay-cached; prints the summary
-uv run python -m evals.golden_run mine   # another set: evals/golden/mine.yaml
+python -m evals.golden_run        # runs evals/golden/v1.yaml (105 questions), paced and replay-cached; prints the summary
+python -m evals.golden_run mine   # another set: evals/golden/mine.yaml
 ```
 - **Where results go:** a Markdown report in `evals/reports/` (the path is printed at the end).
 - **Not over the API:** the `/api/v1/evals` endpoints and `brain eval` were removed on 18 Nov 2026. They had no pacing or replay cache, so one run could use up the day's Groq requests, and a live endpoint that spends LLM quota does not belong in the deployed app.
@@ -191,8 +195,8 @@ uv run python -m evals.golden_run mine   # another set: evals/golden/mine.yaml
 
 ```bash
 # Make test audio, then play it into the live call at real-time speed; prints every event with a timestamp
-uv run brain say "सीनियर सिटीजन के लिए तेरह महीने की एफडी पर ब्याज दर क्या है?" --lang hi -o data/audio/q.wav
-uv run brain voice data/audio/q.wav --out data/audio/reply.wav
+python -m brain say "सीनियर सिटीजन के लिए तेरह महीने की एफडी पर ब्याज दर क्या है?" --lang hi -o data/audio/q.wav
+python -m brain voice data/audio/q.wav --out data/audio/reply.wav
 
 # One turn over REST (any audio file; also in requests.http and /docs)
 curl -F file=@data/audio/q.wav http://127.0.0.1:8000/api/v1/voice/turn
@@ -298,12 +302,19 @@ The same AI agent handles every call; what changes is what it may do and who it 
 
 ### 10. Tests
 ```bash
-uv run pytest                 # 395 tests: fake models/voice + throwaway Postgres, ~100 s, no network, no Groq calls (T0)
-uv run python -m evals.smoke  # T2: 24 items on the real LLM, deterministic checks, per-class report, replay-cached
-uv run python -m evals.smoke --pack regression --keep  # whole conversations from the PM's test plans (33), kept on /calls
-uv run python -m evals.golden_run  # T3, rarely: the 105-question golden set (paced; about an hour the first time)
-brain clean-slate [--yes]     # delete every recorded call, ticket and handoff; the KB is kept; the mock bank is re-seeded
+python -m pytest                 # 432 tests: fake models/voice + their own Postgres, ~100 s, no network, no LLM calls (T0)
+python -m evals.smoke  # T2: 24 items on the real LLM, deterministic checks, per-class report, replay-cached
+python -m evals.smoke --pack regression --keep  # whole conversations from the PM's test plans (33), kept on /calls
+python -m evals.golden_run  # T3, rarely: the 105-question golden set (paced; about an hour the first time)
+python -m app.cli clean-slate [--yes]   # delete every recorded call, ticket and handoff; the KB is kept; the mock bank is re-seeded
 ```
+
+**The tests' database.** The tests never use `DATABASE_URL` (they upload documents, delete calls and re-seed the bank).
+- With `TEST_DATABASE_URL` set (environment or `brain/.env`), they use that database. Its name must end in `_test`;
+  it is dropped and created empty at the start of each run. With Docker Postgres:
+  `TEST_DATABASE_URL=postgresql://au:<password>@127.0.0.1:5432/au_voice_test` (the `au` user may create databases).
+- Not set: a throwaway pgserver Postgres in a temp folder. Python 3.12 / 3.13 only: pgserver has no 3.14 build, so on
+  the company laptop set `TEST_DATABASE_URL`.
 
 **Eval tiers (`reference/PROJECT-GUIDE.md` §20).** T0 = the offline tests (every change). T1 = a replay cache: with `LLM_REPLAY_DIR` set (the
 smoke runner does this, into `evals/cache/`), each real LLM response is stored keyed by the exact request (model, prompts,
@@ -444,7 +455,7 @@ tests/             unit, API end-to-end, voice scenarios, live Groq checks (test
 | STT | Groq Whisper | Sarvam saaras | `STT_PROVIDER=sarvam`, `SARVAM_API_KEY`, `SARVAM_STT_MODEL` (saaras:v4), `SARVAM_STT_MODE` (codemix) |
 | TTS | Edge | Sarvam bulbul | `TTS_PROVIDER=sarvam`, `SARVAM_API_KEY`, `SARVAM_TTS_MODEL` (bulbul:v4-flash), `SARVAM_V4_SPEAKERS` (or `SARVAM_SPEAKER` for v3), `SARVAM_PACE` |
 
-**Sarvam on trial credits.** Check the key with `uv run python -m app.cli sarvam-check --out-dir sarvam-check`
+**Sarvam on trial credits.** Check the key with `python -m app.cli sarvam-check --out-dir sarvam-check`
 (about ₹2): it compares bulbul:v4-flash with v3 on one short reply per language, packed with the words most often
 said wrong (AU, Zenith+, Laksya, BSBDA, 0101, KYC, OTP, UPI, NEFT, EMI, an amount and a rate) and rewritten exactly as a
 live call rewrites them (first-audio time over warm connections,

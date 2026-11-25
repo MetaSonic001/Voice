@@ -6,7 +6,7 @@
 
 # ── brain ──
 !brain/pyproject.toml
-!brain/uv.lock
+!brain/requirements.txt
 !brain/app/
 !brain/scripts/
 !brain/seed/

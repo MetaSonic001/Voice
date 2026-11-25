@@ -365,7 +365,7 @@ and no made-up figures.
 
 Eight short calls. Each line is something that was wrong on 16-17 Nov; "Expect" is what it says now. Type or say them;
 type the code from the simulated SMS when asked. The same conversations run automatically with
-`uv run python -m evals.smoke --pack regression --keep --only <id>` (ids in brackets).
+`python -m evals.smoke --pack regression --keep --only <id>` (ids in brackets).
 
 **In every call, also check:** the screen text has no brackets, semicolons or "6-digit"; the code prompt says why
 ("Before I share your …, I need to verify it's you. I've sent an OTP …"); Hindi sentences say "4512 वाले अकाउंट", not
@@ -472,6 +472,6 @@ trace has no `rerank_ms`. A KB turn shows **Where the answer came from**.
 After the call:
 - `/desk`: the handover is waiting, with the summary of the whole call (balance, ATM complaint, EMI, card block, the loan question).
 - `/calls`: the quality review, and the per-turn sources and bank systems as described above.
-- Run it again only after `uv run python -m app.cli clean-slate` (or a brain restart the next day): the card stays blocked
+- Run it again only after `python -m app.cli clean-slate` (or a brain restart the next day): the card stays blocked
   and the complaint stays raised until the mock bank is re-seeded.
 

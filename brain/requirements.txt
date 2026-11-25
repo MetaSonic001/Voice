@@ -1,0 +1,102 @@
+# Exact versions for Python 3.12: the Docker image (EKS) and any 3.12 machine. Generated on 25 Nov 2026 from the
+# old uv.lock, so versions are unchanged. PyTorch is NOT here: install it first, from the build that fits the machine
+# (brain/README "Setup"):
+#   CPU (office laptop, EKS):  pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cpu
+#   NVIDIA GPU (owner):        pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cu128
+#   Windows, plain PyPI:       pip install torch==2.11.0   (PyPI's Windows build is the CPU one)
+# Then: pip install -r requirements.txt && pip install --no-deps -e .
+# On another Python (the office laptop's 3.14), use the ranges in pyproject.toml instead: pip install -e ".[dev]"
+aiohappyeyeballs==2.7.1
+aiohttp==3.14.5
+aiosignal==1.4.0
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.16.0
+attrs==26.1.0
+av==19.0.2
+boto3==1.43.123
+botocore==1.43.123
+certifi==2026.10.23
+cffi==2.1.1 ; platform_python_implementation != 'PyPy'
+charset-normalizer==3.5.2
+click==8.5.0
+colorama==0.4.6 ; sys_platform == 'win32'
+cryptography==50.0.2
+edge-tts==7.3.1
+et-xmlfile==2.0.0
+fastapi==0.162.0
+fasteners==0.20
+filelock==4.2.7
+flatbuffers==25.12.19
+frozenlist==1.8.0
+fsspec==2026.9.0
+h11==0.16.0
+hf-xet==1.8.0 ; platform_machine == 'AMD64' or platform_machine == 'ARM64' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'arm64' or platform_machine == 'x86_64'
+httpcore==1.0.9
+httpcore2==2.16.0 ; sys_platform != 'emscripten'
+httptools==0.9.0
+httpx==0.28.1
+httpx2==2.16.0
+httpx2-jsfetch==1.0 ; sys_platform == 'emscripten'
+huggingface-hub==2.4.0
+idna==3.20
+jinja2==3.1.6
+jmespath==1.1.0
+markdown-it-py==4.2.0
+markupsafe==3.0.4
+mdurl==0.1.2
+mpmath==1.3.0
+multidict==7.2.1
+networkx==3.7
+numpy==2.5.4
+onnxruntime==1.32.0
+openpyxl==3.1.5
+opentelemetry-api==1.45.2
+packaging==26.3
+pdfminer-six==20260107
+pdfplumber==0.11.10
+pgvector==0.5.1
+pillow==13.0.0
+platformdirs==4.14.3
+prometheus-client==0.26.0
+propcache==0.5.4
+protobuf==7.36.2
+psutil==7.2.2
+psycopg==3.3.7
+psycopg-binary==3.3.7 ; implementation_name != 'pypy'
+psycopg-pool==3.3.3
+pycparser==3.12 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
+pydantic==2.14.2
+pydantic-core==2.50.2
+pydantic-settings==2.16.2
+pygments==2.21.0
+pypdfium2==5.14.0
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.4
+python-multipart==0.0.33
+pyyaml==6.0.3
+regex==2026.9.29
+rich==15.0.0
+s3transfer==0.19.3
+safetensors==0.8.0
+setuptools==81.0.0
+shellingham==1.5.4
+silero-vad==6.2.3
+six==1.17.0
+starlette==1.10.0
+sympy==1.14.0
+tabulate==0.10.0
+tokenizers==0.23.3
+tqdm==4.70.1
+transformers==5.22.1
+truststore==0.10.5
+typer==0.27.3
+typing-extensions==4.16.0
+typing-inspection==0.4.4
+tzdata==2026.6 ; sys_platform == 'win32'
+urllib3==2.8.0
+uvicorn==0.54.0
+uvloop==0.23.0 ; platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32'
+watchfiles==1.3.0
+websockets==17.4
+yarl==1.25.1

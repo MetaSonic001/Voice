@@ -106,7 +106,7 @@ def _onnx_load(folder: Path):
     from transformers import AutoTokenizer
 
     if not (folder / "onnx" / "model.onnx").exists():
-        raise FileNotFoundError(f"{folder}/onnx/model.onnx not found: run `uv run python scripts/download_models.py --onnx`")
+        raise FileNotFoundError(f"{folder}/onnx/model.onnx not found: run `python scripts/download_models.py --onnx`")
     tok_dir = folder / "onnx" if (folder / "onnx" / "tokenizer.json").exists() else folder
     opts = ort.SessionOptions()
     opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL

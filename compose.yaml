@@ -9,7 +9,7 @@
 # Before the first start: the search models in brain/models (brain/README "Setup with Docker Desktop").
 #
 # The same database serves both ways of running: the brain in Docker reaches it as db:5432, the brain run normally
-# (uv run python app.py) as 127.0.0.1:5432 (DATABASE_URL in brain/.env). Run one brain at a time: both use port 8000.
+# (python app.py) as 127.0.0.1:5432 (DATABASE_URL in brain/.env). Run one brain at a time: both use port 8000.
 # Both share brain/data (uploaded files, recordings and their key, call records) and brain/models (the search models,
 # not copied into the image), so either one sees the same knowledge base, calls and recordings.
 

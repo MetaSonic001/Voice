@@ -92,10 +92,10 @@ multi-part cases fixed on 17–18 Nov). The judge is uncalibrated until about 50
 
 | Part | Command (in `brain/`) | Groq requests |
 |---|---|---|
-| Offline tests | `uv run pytest` | none |
-| Smoke set | `uv run python -m evals.smoke` | only items whose understanding changed (replay cache) |
-| Regression pack (33) | `uv run python -m evals.smoke --pack regression --keep` | only changed turns |
-| Golden set (per language) | `uv run python -m evals.golden_run` | about 200, paced; about an hour on a cold cache |
+| Offline tests | `python -m pytest` | none |
+| Smoke set | `python -m evals.smoke` | only items whose understanding changed (replay cache) |
+| Regression pack (33) | `python -m evals.smoke --pack regression --keep` | only changed turns |
+| Golden set (per language) | `python -m evals.golden_run` | about 200, paced; about an hour on a cold cache |
 | Judge averages | from `/calls` ("Quality across calls") or `GET /v1/reviews/summary?days=30` | none |
 
 After a run, update the matching rows of sections 1–5 with the new date.

@@ -54,7 +54,7 @@ growing into a production proof of concept for the bank. The owner builds it; AU
 | LLM | Groq free tier (few tokens left: **don't run the smoke or golden sets here**) | Bedrock, `in.openai.gpt-5.6-luna` (API key in `brain/.env` as `AWS_BEARER_TOKEN_BEDROCK`) |
 | GPU | NVIDIA RTX 3050 → reranker on (`RERANK=auto`) | none → reranker off |
 | Database | Docker Postgres (pgvector) or the old private one in `brain/data/pg` | Docker Postgres (pgvector) |
-| Python | 3.12 with `uv` | conda (3.14), `pip install -e .`; proxy needs `USE_SYSTEM_CERTS=true` |
+| Python | 3.12 venv, `pip install -r requirements-dev.txt` | Anaconda's 3.14 (no other Python allowed), `pip install -e ".[dev]"`; proxy needs `USE_SYSTEM_CERTS=true` |
 
 Don't compare speed numbers between the two. Real-LLM accuracy runs happen on the company laptop.
 
@@ -103,7 +103,7 @@ docker compose up -d db                # (repo root) Postgres 16 + pgvector; DAT
 docker compose up -d --build           # (repo root) database + brain + UI (add -f compose.gpu.yaml with a GPU)
 ```
 
-With `uv` (owner's laptop), prefix the Python ones with `uv run`. Demo callers (mock bank): mobiles `9000000101`–`9000000107`
+No uv: plain `python` and `pip` everywhere (the office laptop blocks uv). Demo callers (mock bank): mobiles `9000000101`–`9000000107`
 (Ravi `…101`, Imran `…105`; stories in `brain/app/adapters/mock_corebank.py`).
 
 ## How to work

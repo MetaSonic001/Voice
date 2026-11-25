@@ -1,8 +1,11 @@
-# Adds the laptop's NVIDIA GPU to the brain (search models on the GPU, so the reranker is on: RERANK=auto).
-# Needs Docker Desktop with the WSL 2 backend and a current NVIDIA driver.
+# Adds the laptop's NVIDIA GPU to the brain: the CUDA build of PyTorch, and the GPU passed through, so the search
+# models run on the GPU and the reranker is on (RERANK=auto). Needs Docker Desktop (WSL 2) and a current NVIDIA driver.
 #   docker compose -f compose.yaml -f compose.gpu.yaml up -d --build
 services:
   brain:
+    build:
+      args:
+        TORCH: cu128
     deploy:
       resources:
         reservations:

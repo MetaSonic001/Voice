@@ -394,8 +394,8 @@ Voice/
 | Path | What it is |
 |---|---|
 | `app.py` | Three lines: `from app.cli import main; main()`. So `python app.py` = `brain serve` |
-| `pyproject.toml` | The Python project file: name, Python version (`>=3.12,<3.13`), the 22 runtime libraries, the `brain` command (`[project.scripts] brain = "app.cli:main"`), pytest settings (`asyncio_mode = "auto"`, one event loop for the whole test session), and the CUDA 12.8 build of torch (`[tool.uv.sources]`) |
-| `uv.lock` | Exact versions of every library and sub-library, so every machine installs the same thing. Made by **uv** (a fast Python package manager) |
+| `pyproject.toml` | The Python project file: name, Python version (`>=3.12`), the 22 runtime libraries, the `brain` command (`[project.scripts] brain = "app.cli:main"`), pytest settings (`asyncio_mode = "auto"`, one event loop for the whole test session), and the CUDA 12.8 build of torch (`[tool.uv.sources]`) |
+| `requirements.txt`, `requirements-dev.txt` | Exact versions of every library and sub-library for Python 3.12 (the Docker image), so every build installs the same thing. PyTorch is installed first, CPU or CUDA build (the file's header). Plain pip; uv was dropped on 25 Nov 2026 |
 | `.env` / `.env.example` | Settings as environment variables. `.env` holds secrets (Groq key) and is git-ignored; `.env.example` documents every setting |
 | `Dockerfile` | Builds the container image (Part K) |
 | `README.md` | How to run, configure and test the brain |
@@ -1144,7 +1144,7 @@ A **cache** keeps the result of slow work so the next time is fast. Each one her
 | **`get_settings()`** | `@lru_cache` in `config.py` | The parsed `Settings` | Read once per process; restart to change |
 | **Hold music** | `@cache` on `hold_music()` | The generated PCM | Pure function of its arguments |
 | **Postgres's own caches** | shared buffers, OS page cache | Hot table and index pages in memory | Managed by Postgres |
-| **Docker build layers / uv cache** | `Dockerfile` | Dependencies and models aren't rebuilt when only code changes | Layers ordered from least to most often changed |
+| **Docker build layers / pip cache** | `Dockerfile` | Dependencies and models aren't rebuilt when only code changes | Layers ordered from least to most often changed |
 
 **What is NOT cached, on purpose**: answers. Every question is searched and answered fresh, because documents and the caller's context change, and a cached answer would skip the checks. Bank data is not cached beyond one turn (8 s), because balances change.
 
@@ -1273,15 +1273,15 @@ Every piece of call data is owned by that call's objects:
 ## K3. Tests and evaluations (tiered, to protect the 1,000-requests-a-day Groq budget)
 | Tier | What | Command |
 |---|---|---|
-| Offline tests | 395 tests pass (tracker, 17 Nov; about 260 test functions, some run with several inputs): the full app with **fakes** (`FakeLLM` keyword rules, `FakeEmbedder` hashed bag-of-words, `FakeReranker` word overlap, `FakeSTT` scripted, `FakeTTS`, `FakeVAD`) and a throwaway Postgres. No network | `uv run pytest` (about 1.5 min) |
-| Smoke set | 24 single questions, real LLM, **replay-cached** (a re-run with nothing changed makes 0 requests), paced under 8k tokens/min | `uv run python -m evals.smoke` |
-| Regression pack | 33 whole conversations | `uv run python -m evals.smoke --pack regression --keep` |
-| Golden set | 105 product questions with expected facts and sources | `uv run python -m evals.golden_run` (rarely: about an hour on a cold cache) |
+| Offline tests | 395 tests pass (tracker, 17 Nov; about 260 test functions, some run with several inputs): the full app with **fakes** (`FakeLLM` keyword rules, `FakeEmbedder` hashed bag-of-words, `FakeReranker` word overlap, `FakeSTT` scripted, `FakeTTS`, `FakeVAD`) and a throwaway Postgres. No network | `python -m pytest` (about 1.5 min) |
+| Smoke set | 24 single questions, real LLM, **replay-cached** (a re-run with nothing changed makes 0 requests), paced under 8k tokens/min | `python -m evals.smoke` |
+| Regression pack | 33 whole conversations | `python -m evals.smoke --pack regression --keep` |
+| Golden set | 105 product questions with expected facts and sources | `python -m evals.golden_run` (rarely: about an hour on a cold cache) |
 
 How the fakes plug in: `tests/conftest.py` calls `build(settings, overrides={"embedder": FakeEmbedder(), "llm": FakeLLM(), "voice": VoiceRuntime(FakeSTT(...), ...)})` and `create_app(container)`. Because services depend on ports, nothing else changes. `pytest-asyncio` with `asyncio_mode = "auto"` runs `async def` tests.
 
 ## K4. Deployment
-- **Brain image** (`brain/Dockerfile`): multi-stage. Stage 1 (`build`) installs exact packages from `uv.lock`, downloads the models (optional, `SEARCH_MODELS=0` to skip), copies code. Stage 2 (`runtime`) copies the result, creates a non-root user (uid 10001), makes code and models read-only, sets `HF_HUB_OFFLINE=1`, `LOG_CONSOLE=json`, and runs `python -m app serve --host 0.0.0.0 --port 8000`. One image, three uses: brain with search inside (GPU), the search server (`python -m app search`), brain without models (`SEARCH_PROVIDER=http`).
+- **Brain image** (`brain/Dockerfile`): multi-stage. Stage 1 (`build`) installs PyTorch (CPU build by default, `TORCH=cu128` for a GPU) and the exact packages from `requirements.txt`, downloads the models (optional, `SEARCH_MODELS=0` to skip), copies code. Stage 2 (`runtime`) copies the result, creates a non-root user (uid 10001), makes code and models read-only, sets `HF_HUB_OFFLINE=1`, `LOG_CONSOLE=json`, and runs `python -m app serve --host 0.0.0.0 --port 8000`. One image, three uses: brain with search inside (GPU), the search server (`python -m app search`), brain without models (`SEARCH_PROVIDER=http`).
 - **UI image**: static files from `next build` (`output: "export"`) served by nginx.
 - **AWS plan** (proposed): callers → AU's Cisco → (media gateway) → ALB → ECS containers in Mumbai, each one brain process with ≤ 9 calls; Aurora/RDS Postgres with pgvector; S3 for files and recordings; a GPU search server; Sarvam for speech; gpt-oss-120b on Bedrock (India-only profile). Health: `/health` (process up), `/health/ready` (database reachable). Details: `docs/deployment-options-and-costs.md`, `deploy/README.md`, PROJECT-GUIDE §26.
 - **Switches** that change the deployment without code changes: `LLM_PROVIDER`, `STT_PROVIDER`, `TTS_PROVIDER`, `SEARCH_PROVIDER`, `BANK_PROVIDER`/`BANK_BASE_URL`, `DATABASE_URL`, `FILE_STORE`.
@@ -1658,7 +1658,7 @@ Laptop measurement (silent calls, Measured): 10 calls 40% of a core, 20 calls 89
 ### P3.1 Four tiers (ADR 0019), so most checks cost no LLM quota
 | Tier | What | LLM calls | Command |
 |---|---|---|---|
-| T0 offline | **395 tests pass** (tracker, 17 Nov): journeys, state, redaction, status mapping, variant gate, mock bank contracts, voice turn-taking, recordings, Sarvam adapters (faked with `httpx.MockTransport`), every template read as spoken | 0 | `uv run pytest` |
+| T0 offline | **395 tests pass** (tracker, 17 Nov): journeys, state, redaction, status mapping, variant gate, mock bank contracts, voice turn-taking, recordings, Sarvam adapters (faked with `httpx.MockTransport`), every template read as spoken | 0 | `python -m pytest` |
 | T1 replay | Every real LLM response saved under SHA-256 of the exact request; any change is a miss | Only what changed | (inside T2/T3) |
 | T2 smoke | 24 single questions, each failure class, en/hi/Hinglish | A few dozen | `python -m evals.smoke` |
 | T2b regression | 33 whole conversations from the PM's test plans (cards, fraud, loans, transactions, language, LLM down) | Only what changed | `python -m evals.smoke --pack regression --keep` |

@@ -45,6 +45,6 @@ bun run dev
 ```
 Open http://localhost:3000. First-time setup: [brain/README.md](brain/README.md), [ui/README.md](ui/README.md).
 
-Tests: `cd brain && uv run pytest` (offline, no LLM calls; 432 pass on 25 Nov). Real-LLM checks are rare and replay-cached: see "Tests" in brain/README.md.
+Tests: `cd brain && python -m pytest` (offline, no LLM calls; 432 pass on 25 Nov). Real-LLM checks are rare and replay-cached: see "Tests" in brain/README.md.
 
 Open questions and production research still to act on: [reference/PROJECT-GUIDE.md](reference/PROJECT-GUIDE.md) sections 29 and 30.

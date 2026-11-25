@@ -2,7 +2,7 @@
 name = "au-brain"
 version = "0.1.0"
 description = "AU SFB voice agent - knowledge service (Phase A: general Q&A, text)"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.12"  # Docker / AWS run 3.12 (exact versions: requirements.txt); the office laptop runs 3.14
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
@@ -10,11 +10,10 @@ dependencies = [
     "python-multipart>=0.0.17",
     "psycopg[binary,pool]>=3.2",
     "pgvector>=0.3",
-    "pgserver>=0.1.4",
     "httpx>=0.27",
     "prometheus-client>=0.21",
     "pyyaml>=6.0",
-    "torch>=2.5",
+    "torch>=2.5",  # install the CPU or CUDA build first (requirements.txt header)
     "pdfplumber>=0.11",
     "edge-tts>=7.3.1",
     "silero-vad>=6.2.3",
@@ -33,19 +32,9 @@ dependencies = [
 [project.scripts]
 brain = "app.cli:main"
 
-[dependency-groups]
-dev = ["pytest>=8.3", "pytest-asyncio>=0.24"]
-
-[tool.uv]
-package = true
-
-[tool.uv.sources]
-torch = { index = "pytorch-cu128" }
-
-[[tool.uv.index]]
-name = "pytorch-cu128"
-url = "https://download.pytorch.org/whl/cu128"
-explicit = true
+[project.optional-dependencies]
+# pip install -e ".[dev]": tests. pgserver = the tests' throwaway Postgres when TEST_DATABASE_URL is not set (no 3.14 build).
+dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "pgserver>=0.1.4; python_version < '3.14'"]
 
 [build-system]
 requires = ["hatchling"]
