@@ -52,3 +52,33 @@ def task_for(r: Request) -> Task:
     if kind == "fraud":
         return Task("workflow.fraud", "workflow", "verified")
     return Task("fixed.out_of_scope", "fixed", "open")
+
+
+# The rules code enforces, in plain words, for the read-only Guardrails tab on /journeys. Each names the file that
+# enforces it; changing a rule is a code change (and a test), never an edit on the page.
+GUARDRAILS = [
+    ("Who may ask what", "Product questions: anyone. The caller's own accounts, cards and loans: only after the keypad "
+     "code sent to their registered mobile.", "services/registry.py, services/auth.py"),
+    ("Card actions need a yes", "Blocking, unblocking or changing a card's settings: only for a verified caller, and only "
+     "after an explicit yes to a read-back of exactly what will change.", "services/registry.py, services/confirm.py"),
+    ("Some things always go to a person", "Address or mobile changes, refunds, limits, closing an FD and payments are "
+     "never done by the agent: it offers the right team.", "services/registry.py"),
+    ("Secrets stay on the keypad", "OTP and PIN are typed on the keypad only. They never go through speech recognition, the "
+     "AI or the logs, and are masked everywhere.", "services/privacy.py, voice/session.py"),
+    ("Personal details are masked", "Account numbers, phone numbers and other personal details are masked before anything "
+     "is sent to the AI and in every log.", "services/privacy.py"),
+    ("Never asks for a secret, never sends a strange link", "No sentence may ask for an OTP, PIN, CVV or password, or give a "
+     "web link that isn't in the bank's own documents.", "services/guard.py"),
+    ("Figures are never invented", "Every number in an answer must come from the bank's documents or the caller's bank "
+     "data; a sentence with an unsupported figure is not said. A fixed sentence can't add a new figure.",
+     "services/numbers.py, services/releases.py"),
+    ("Fraud first", "Words about fraud, a stolen card or a shared OTP start the fraud journey: protect the account first, "
+     "then offer the 24x7 fraud team.", "services/guard.py, services/journeys.py"),
+    ("Stays on purpose", "A caller who tries to change the agent's instructions, or asks about something the bank doesn't "
+     "do, gets a short polite line and nothing else.", "services/guard.py, services/conversation.py"),
+    ("Short answers on a phone", "An answer stops after 6 sentences or 110 words (unless the caller asked for everything).",
+     "services/dialogue.py"),
+    ("Edits are checked before they go live", "A changed sentence must keep its blanks ({ref}, {dept}...), add no figure, "
+     "be sayable by a voice and pass the secret and link checks; prompt changes start on a small share of calls.",
+     "services/releases.py"),
+]

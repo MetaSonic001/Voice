@@ -27,6 +27,7 @@ from app.services.documents import DocumentService
 from app.services.evals import EvalRunner
 from app.services.journeys import Journeys
 from app.services.recordings import RecordingStore
+from app.services.releases import Releases
 from app.services.review import ReviewService
 from app.services.summary import Summariser
 from app.services.retrieval import Retriever
@@ -77,9 +78,12 @@ class Container:
     reviews: ReviewService | None = None
     summariser: Summariser | None = None
     call_records: CallRecords | None = None
+    releases: Releases | None = None  # the journey catalogue's releases (what /journeys edits)
 
     async def close(self) -> None:
         self.worker.stop()
+        if self.releases:
+            self.releases.stop()
         if self.call_records:
             self.call_records.stop()
         if hasattr(self.llm, "close"):
@@ -331,6 +335,11 @@ def build(settings: Settings, *, start_worker: bool = True, overrides: dict | No
     reviews = ReviewService(db, audit, llm, settings)
     summariser = Summariser(llm, settings.understand_model, audit, handoffs)
     conversation.summariser = summariser
+    releases = Releases(db, llm, settings)
+    try:  # what the product manager made live; without the database the catalogue as shipped in git is used
+        releases.load()
+    except Exception:
+        logger.exception("content releases not loaded: using brain/content as shipped")
     evals = EvalRunner(db, conversation, traces, settings, golden_dir or ROOT / "evals" / "golden",
                        reports_dir or ROOT / "evals" / "reports")
     if settings.policy_pack and start_worker:
@@ -338,7 +347,9 @@ def build(settings: Settings, *, start_worker: bool = True, overrides: dict | No
     if start_worker:
         worker.start()
         call_records.start()
+        releases.start()
     log(logger, "container ready", llm=settings.llm_provider, voice=bool(voice), device=getattr(embedder, "device", "-"),
         startup_ms=round((time.perf_counter() - t) * 1000))
     return Container(settings, db, embedder, reranker, llm, documents, worker, traces, retriever, conversation, evals, voice,
-                     bank, auth, audit, recordings, service_desk, handoffs, bank_server, reviews, summariser, call_records)
+                     bank, auth, audit, recordings, service_desk, handoffs, bank_server, reviews, summariser, call_records,
+                     releases)

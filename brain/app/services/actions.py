@@ -16,6 +16,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 
 from app.domain import Customer
+from app.services.content import Table
 from app.services.personal import fill
 from app.ports import Bank, BankError, BankUnconfirmed
 
@@ -36,70 +37,7 @@ class CardAction:
         return asdict(self)
 
 
-W = {
-    "debit": {"en": "debit card", "hi": "डेबिट कार्ड", "hinglish": "debit card"},
-    "credit": {"en": "{v} credit card", "hi": "{v} क्रेडिट कार्ड", "hinglish": "{v} credit card"},
-    "ending": {"en": "{card} ending {l4}", "hi": "{l4} वाला {card}", "hinglish": "{card} ending {l4}"},
-    "which": {"en": "Sure, I can do that. Which card is it: {list}?", "hi": "ज़रूर। कौन सा कार्ड: {list}?",
-              "hinglish": "Zaroor. Kaunsa card: {list}?"},
-    "none_match": {"en": "I can't find a card ending {l4}. Your cards are: {list}.", "hi": "आख़िरी अंक {l4} वाला कोई कार्ड नहीं मिला। आपके कार्ड: {list}।",
-                   "hinglish": "Ending {l4} wala koi card nahi mila. Aapke cards: {list}."},
-    "no_cards": {"en": "I don't see any card in your name.", "hi": "आपके नाम पर कोई कार्ड नहीं दिख रहा।",
-                 "hinglish": "Aapke naam par koi card nahi dikh raha."},
-    "confirm_temp_block": {"en": "Just to confirm, I'll temporarily block your {card}. You can unblock it any time, and if you'd rather block it permanently, just say so. Shall I go ahead?",
-                           "hi": "बस कन्फ़र्म कर लूँ: मैं आपका {card} टेम्पररी ब्लॉक करूँगी। आप इसे कभी भी फिर से चालू कर सकते हैं। अगर परमानेंट ब्लॉक चाहिए तो बताइए। क्या मैं आगे बढ़ूँ?",
-                           "hinglish": "Confirm kar doon: main aapka {card} temporarily block karungi. Aap ise kabhi bhi unblock kar sakte hain. Agar permanent block chahiye toh bataiye. Kya main aage badhun?"},
-    # The caller asked for a temporary block: confirm just that, without offering a permanent one they didn't ask about
-    "confirm_temp_block_asked": {"en": "Just to confirm, I'll temporarily block your {card}. You can unblock it any time. Shall I go ahead?",
-                                 "hi": "बस कन्फ़र्म कर लूँ: मैं आपका {card} टेम्पररी ब्लॉक करूँगी। आप इसे कभी भी फिर से चालू कर सकते हैं। क्या मैं आगे बढ़ूँ?",
-                                 "hinglish": "Confirm kar doon: main aapka {card} temporarily block karungi. Aap ise kabhi bhi unblock kar sakte hain. Kya main aage badhun?"},
-    "confirm_block": {"en": "Just to confirm, I'll permanently block your {card}. This can't be undone, and we'll send you a new card. Shall I go ahead?",
-                      "hi": "बस कन्फ़र्म कर लूँ: मैं आपका {card} परमानेंट ब्लॉक करूँगी। यह वापस नहीं हो सकता, और हम आपको नया कार्ड भेजेंगे। क्या मैं आगे बढ़ूँ?",
-                      "hinglish": "Confirm kar doon: main aapka {card} permanently block karungi. Yeh wapas nahi ho sakta, aur hum aapko naya card bhejenge. Kya main aage badhun?"},
-    "confirm_unblock": {"en": "Just to confirm, I'll unblock your {card} so you can use it again. Shall I go ahead?",
-                        "hi": "बस कन्फ़र्म कर लूँ: मैं आपका {card} फिर से चालू करूँगी। क्या मैं आगे बढ़ूँ?",
-                        "hinglish": "Confirm kar doon: main aapka {card} unblock karungi taaki aap use phir se use kar sakein. Kya main aage badhun?"},
-    "confirm_controls": {"en": "Just to confirm, on your {card} I'll {changes}. Shall I go ahead?",
-                         "hi": "बस कन्फ़र्म कर लूँ: आपके {card} पर मैं {changes}। क्या मैं आगे बढ़ूँ?",
-                         "hinglish": "Confirm kar doon: aapke {card} par main {changes}. Kya main aage badhun?"},
-    "turn_on": {"en": "switch on {what}", "hi": "{what} चालू करूँगी", "hinglish": "{what} chalu karungi"},
-    "turn_off": {"en": "switch off {what}", "hi": "{what} बंद करूँगी", "hinglish": "{what} band karungi"},
-    "and": {"en": " and ", "hi": " और ", "hinglish": " aur "},
-    "done_temp_block": {"en": "Done. Your {card} is now temporarily blocked.", "hi": "हो गया। आपका {card} अब टेम्पररी ब्लॉक है।",
-                        "hinglish": "Ho gaya. Aapka {card} ab temporarily blocked hai."},
-    "done_block": {"en": "Done. Your {card} is now permanently blocked, and a replacement card will be sent to your registered address.",
-                   "hi": "हो गया। आपका {card} अब परमानेंट ब्लॉक है, और नया कार्ड आपके रजिस्टर्ड पते पर भेजा जाएगा।",
-                   "hinglish": "Ho gaya. Aapka {card} ab permanently blocked hai, aur naya card aapke registered address par bheja jayega."},
-    "done_unblock": {"en": "Done. Your {card} is active again.", "hi": "हो गया। आपका {card} फिर से चालू है।",
-                     "hinglish": "Ho gaya. Aapka {card} phir se active hai."},
-    "done_controls": {"en": "Done. On your {card}, {state}.", "hi": "हो गया। आपके {card} पर {state}।", "hinglish": "Ho gaya. Aapke {card} par {state}."},
-    "reference": {"en": "Your reference number is {ref}, and you'll get an SMS confirming it.",
-                  "hi": "आपका रेफ़रेंस नंबर {ref} है, और आपको इसका SMS भी आएगा।",
-                  "hinglish": "Aapka reference number {ref} hai, aur aapko iska SMS bhi aayega."},
-    # Already blocked: say what that means for the caller (it can't be used), not "nothing to change" (PM review, 17 Nov)
-    "already_blocked": {"en": "Your {card} is already {state}, so it can't be used for any payment.",
-                        "hi": "आपका {card} पहले से {state} है, इसलिए उससे कोई पेमेंट नहीं हो सकता।",
-                        "hinglish": "Aapka {card} pehle se {state} hai, isliye usse koi payment nahi ho sakta."},
-    "already": {"en": "Your {card} is already {state}, so there's nothing to change.", "hi": "आपका {card} पहले से {state} है, कुछ बदलने की ज़रूरत नहीं।",
-                "hinglish": "Aapka {card} pehle se {state} hai, kuch change karne ki zaroorat nahi."},
-    "not_blocked": {"en": "Your {card} isn't blocked. It's working normally.", "hi": "आपका {card} ब्लॉक नहीं है। यह ठीक से चल रहा है।",
-                    "hinglish": "Aapka {card} block nahi hai. Yeh normally chal raha hai."},
-    "perm_blocked": {"en": "Your {card} was permanently blocked, so it can't be switched back on. Our cards team can arrange a replacement.",
-                     "hi": "आपका {card} परमानेंट ब्लॉक है, इसलिए इसे फिर से चालू नहीं किया जा सकता। हमारी कार्ड टीम नया कार्ड भिजवा सकती है।",
-                     "hinglish": "Aapka {card} permanently blocked hai, isliye ise phir se chalu nahi kiya ja sakta. Hamari cards team replacement arrange kar sakti hai."},
-    "blocked_first": {"en": "Your {card} is blocked right now, so I'd need to unblock it before changing its settings. Shall I unblock it?",
-                      "hi": "आपका {card} अभी ब्लॉक है, इसलिए सेटिंग बदलने से पहले इसे चालू करना होगा। क्या मैं इसे चालू करूँ?",
-                      "hinglish": "Aapka {card} abhi blocked hai, isliye settings change karne se pehle ise unblock karna hoga. Kya main unblock karun?"},
-    "debit_only": {"en": "Those settings are only on debit cards. For your credit card I can switch international use on or off.",
-                   "hi": "ये सेटिंग सिर्फ़ डेबिट कार्ड पर हैं। क्रेडिट कार्ड पर मैं इंटरनेशनल इस्तेमाल चालू या बंद कर सकती हूँ।",
-                   "hinglish": "Yeh settings sirf debit card par hain. Credit card par main international use on ya off kar sakti hoon."},
-    "failed": {"en": "I'm sorry, I couldn't complete that just now, and nothing has been changed on your card. I can connect you to our cards team to do it for you. Shall I?",
-               "hi": "माफ़ कीजिए, अभी यह पूरा नहीं हो पाया, और आपके कार्ड में कुछ नहीं बदला। मैं आपको हमारी कार्ड टीम से जोड़ सकती हूँ। जोड़ दूँ?",
-               "hinglish": "Sorry, abhi yeh complete nahi ho paaya, aur aapke card mein kuch change nahi hua. Main aapko hamari cards team se connect kar sakti hoon. Kar doon?"},
-    "unconfirmed": {"en": "I sent the request, but I couldn't confirm it went through, so please don't rely on it yet. Let me connect you to our cards team to check. Shall I?",
-                    "hi": "मैंने रिक्वेस्ट भेजी, लेकिन कन्फ़र्मेशन नहीं आया, इसलिए अभी इस पर भरोसा न करें। जाँच के लिए मैं आपको कार्ड टीम से जोड़ दूँ?",
-                    "hinglish": "Maine request bheji, lekin confirm nahi ho paaya, isliye abhi is par bharosa mat kijiye. Check karne ke liye main aapko cards team se connect kar doon?"},
-}
+W = Table("card")  # brain/content/catalog.json, "card.*"
 WHAT = {
     "atm": {"en": "ATM withdrawals", "hi": "ATM से पैसे निकालना", "hinglish": "ATM withdrawals"},
     "pos": {"en": "shop payments", "hi": "दुकान पर पेमेंट", "hinglish": "shop payments"},

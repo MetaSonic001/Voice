@@ -13,35 +13,21 @@ import uuid
 from datetime import date, datetime, time, timedelta
 
 from app.db import Database
+from app.services.content import Departments, Setting, current
 from app.logs import log
 
 logger = logging.getLogger(__name__)
 
 # key: (name, priority 1 = critical .. 3 = normal, open 24x7?, what they handle)
-DEPARTMENTS = {
-    "fraud": ("Fraud & Risk", 1, True, "unauthorised transactions, lost or stolen cards, shared OTP or PIN, phishing"),
-    "credit_cards": ("Credit Cards", 2, False, "bills, payments, limits, fees, statements, rewards, replacement"),
-    "debit_cards": ("Debit Cards", 3, False, "replacement, PIN, declines, card services"),
-    "payments": ("Payments & Disputes", 2, False, "failed or pending UPI / IMPS / NEFT, ATM cash not dispensed, double charges"),
-    "loans": ("Loans", 3, False, "EMIs, foreclosure, statements, rate changes, bounce charges, closure letters"),
-    "deposits": ("Accounts & Deposits", 3, False, "FD / RD servicing and closure, account maintenance, KYC, charges"),
-    "digital": ("Digital Banking", 3, False, "AU 0101 app, net banking, UPI registration"),
-    "sales": ("New Accounts & Sales", 3, False, "opening accounts, new loans, cards and deposits"),
-    "priority": ("Priority Banking", 2, False, "Royale customers and their relationship managers"),
-    "general": ("Customer Care", 3, False, "complaints, escalations and anything else"),
-}
-NAMES_HI = {"fraud": "फ्रॉड और रिस्क", "credit_cards": "क्रेडिट कार्ड", "debit_cards": "डेबिट कार्ड", "payments": "पेमेंट्स",
-            "loans": "लोन", "deposits": "अकाउंट्स और डिपॉज़िट", "digital": "डिजिटल बैंकिंग", "sales": "नए अकाउंट",
-            "priority": "प्रायोरिटी बैंकिंग", "general": "कस्टमर केयर"}
+DEPARTMENTS = Departments()  # brain/content/catalog.json: names "dept.*", the rest under settings.departments
 # Turnaround promised on tickets (working days). Synthetic policy pack; payments follow RBI's harmonised TAT.
-TAT_DAYS = {"atm_cash_not_dispensed": 5, "payment_failed_debited": 5, "transfer_not_received": 1, "double_charge": 7,
-            "unrecognised_transaction": 10, "charge_review": 7, "service_complaint": 7, "callback": 1, "lead": 1}
+TAT_DAYS = Setting("tat_days")
 
 
 def department_name(key: str, lang: str = "en") -> str:
     """The team's name as the agent says it: "and", never "&" (call 3eab4732 spoke "Payments & Disputes")."""
     if lang == "hi":
-        return NAMES_HI.get(key, NAMES_HI["general"])
+        return current().text(f"dept.{key if key in DEPARTMENTS else 'general'}")["hi"]
     return DEPARTMENTS.get(key, DEPARTMENTS["general"])[0].replace(" & ", " and ")
 
 

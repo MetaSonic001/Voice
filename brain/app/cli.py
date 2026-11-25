@@ -303,6 +303,24 @@ def clean_slate(args) -> None:
         db.close()
 
 
+def content_export(args) -> None:
+    """Write the live release of the journey catalogue (or --release N) into brain/content/, to commit it to git."""
+    from app.config import get_settings
+    from app.db import Database
+    from app.services.content import write_seed
+    from app.services.releases import Releases
+
+    settings = get_settings()
+    db = Database(settings.database_url, settings.data_dir, settings.vector_store)
+    try:
+        releases = Releases(db)
+        release = args.release if args.release is not None else releases.rollout()["stable_id"]
+        changed = write_seed(releases.catalog(release))
+        print(f"release {release or 0} written to brain/content/: {changed} file(s) changed. Review with git diff, then commit.")
+    finally:
+        db.close()
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="brain", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd")
@@ -350,6 +368,9 @@ def main() -> None:
     s = sub.add_parser("clean-slate")
     s.add_argument("--yes", action="store_true", help="do not ask for the DELETE confirmation")
     s.set_defaults(fn=clean_slate)
+    s = sub.add_parser("content-export", help="write the live journey-catalogue release into brain/content/ (for git)")
+    s.add_argument("--release", type=int, help="a published release id (default: the one live for most calls)")
+    s.set_defaults(fn=content_export)
     args = p.parse_args()
     if args.cmd is None:  # `python -m app` with no command = start the API
         args = p.parse_args(["serve"])

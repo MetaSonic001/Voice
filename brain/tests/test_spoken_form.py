@@ -2,25 +2,16 @@
 "6-digit" or markdown. The voice layer smooths these for speech, but the transcript, the screen and the review read the
 written text too. A new template with a written-only mark fails here, before it reaches a call."""
 
-import importlib
-
+from app.services.content import SEED
 from app.services.numbers import screen_marks
-
-MODULES = ["app.services.personal", "app.services.conversation", "app.services.journeys", "app.services.actions",
-           "app.services.smalltalk", "app.voice.phrases"]
 
 
 def _templates():
-    for name in MODULES:
-        module = importlib.import_module(name)
-        for var, value in vars(module).items():
-            if not isinstance(value, dict):
-                continue
-            for key, entry in value.items():
-                if isinstance(entry, dict) and "en" in entry:
-                    for lang, text in entry.items():
-                        if isinstance(text, str):
-                            yield f"{name}.{var}[{key}][{lang}]", text
+    """Every sentence in the journey catalogue (brain/content/catalog.json), in every language it has."""
+    for mid, entry in SEED.messages.items():
+        for lang, text in entry["text"].items():
+            if isinstance(text, str):
+                yield f"{mid}[{lang}]", text
 
 
 def test_templates_are_found():
@@ -28,7 +19,9 @@ def test_templates_are_found():
 
 
 def test_templates_read_as_spoken():
-    bad = [f"{where}: {marks}" for where, text in _templates() if (marks := screen_marks(text))]
+    # team names keep their "&" for the desk screen; desk.department_name says it as "and"
+    bad = [f"{where}: {marks}" for where, text in _templates()
+           if (marks := [m for m in screen_marks(text) if not (where.startswith("dept.") and m == "ampersand")])]
     assert not bad, "\n".join(bad)
 
 

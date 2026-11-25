@@ -45,6 +45,7 @@ RUN case "$SEARCH_MODELS" in \
 
 # Then the code, used in place (PYTHONPATH=/app; app/config.py finds models/, seed/ and evals/ next to app/).
 COPY brain/app ./app
+COPY brain/content ./content
 COPY brain/seed ./seed
 COPY brain/evals ./evals
 COPY ["Sample Questions/Inbound_Voice_Agent_Dummy_Data.xlsx", "./seed/Inbound_Voice_Agent_Dummy_Data.xlsx"]

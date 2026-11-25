@@ -23,6 +23,7 @@ so nothing grows in the brain's memory between turns. This module is pure: no da
 import re
 
 from app.domain import Request
+from app.services.content import Table
 
 MAX_NEW = 8  # separate things taken from one turn
 MAX_KEPT = 20  # items kept per call (settled ones are pruned first)
@@ -33,27 +34,7 @@ SHORT_KINDS = ("personal", "general", "new_customer", "smalltalk", "out_of_scope
 DONE_OUTCOMES = ("answered", "action_done", "ticket", "callback", "smalltalk", "out_of_scope")
 FAILED_OUTCOMES = ("refused", "error", "action_failed", "needs_verification")
 
-TEMPLATES = {
-    "intro3": {"en": "You've asked about three things: {a}, {b} and {c}. Let me take them one by one.",
-               "hi": "आपने तीन चीज़ों के बारे में पूछा है: {a}, {b} और {c}। मैं एक-एक करके बताती हूँ।",
-               "hinglish": "Aapne teen cheezon ke baare mein poocha hai: {a}, {b} aur {c}. Main ek-ek karke batati hoon."},
-    "intro_many": {"en": "You've asked about {n} things. Let me take them one at a time, starting with {a}.",
-                   "hi": "आपने {n} चीज़ों के बारे में पूछा है। मैं एक-एक करके बताती हूँ, पहले {a}।",
-                   "hinglish": "Aapne {n} cheezon ke baare mein poocha hai. Main ek-ek karke batati hoon, pehle {a}."},
-    "next": {"en": "Shall I go on to {a}?", "hi": "क्या अब {a} के बारे में बताऊँ?", "hinglish": "Kya ab {a} ke baare mein bataun?"},
-    "back": {"en": "Shall I go back to {a}?", "hi": "क्या अब आपके पहले सवाल, {a}, पर लौटूँ?",
-             "hinglish": "Kya ab aapke pehle sawaal, {a}, par lautoon?"},
-    "followup_unrecognised_debit": {
-        "en": "You also said money got deducted. Is there a payment you don't recognise that I should look into?",
-        "hi": "आपने बताया कि पैसे कटे हैं। क्या कोई ऐसा पेमेंट है जो आपने नहीं किया, जिसे मैं देखूँ?",
-        "hinglish": "Aapne bataya ki paise kate hain. Kya koi aisa payment hai jo aapne nahi kiya, jise main dekhoon?"},
-    "stopped": {"en": "Okay, I'll leave those. Is there anything else I can help with?",
-                "hi": "ठीक है, उन्हें छोड़ देते हैं। क्या मैं और कुछ मदद कर सकती हूँ?",
-                "hinglish": "Theek hai, unhe chhod dete hain. Kya main aur kuch madad kar sakti hoon?"},
-    "bye": {"en": "Before you go, you'd also asked about {a}. Shall I cover that?",
-            "hi": "जाने से पहले: आपने {a} के बारे में भी पूछा था। क्या वह बता दूँ?",
-            "hinglish": "Jaane se pehle: aapne {a} ke baare mein bhi poocha tha. Kya woh bata doon?"},
-}
+TEMPLATES = Table("agenda")  # brain/content/catalog.json, "agenda.*"
 _COUNT = {"en": {4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight"},
           "hi": {4: "चार", 5: "पाँच", 6: "छह", 7: "सात", 8: "आठ"},
           "hinglish": {4: "chaar", 5: "paanch", 6: "chhe", 7: "saat", 8: "aath"}}

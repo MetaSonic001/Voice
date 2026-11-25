@@ -337,3 +337,63 @@ export const bench = {
   pin: (setupId?: string, label = "") => post<{ setup_id: string; label: string }>("/v1/bench/baseline", { setup_id: setupId ?? null, label }),
   unpin: () => call<{ baseline_from: string }>("/v1/bench/baseline", { method: "DELETE", headers: headers(false) }),
 };
+
+// ── Journeys: the catalogue of fixed sentences, prompts and settings (brain/content/), edited as a draft and released ──
+export type Lang = string; // "en" (the source), "hi", "hinglish", or a language a release added
+export type Texts = Record<Lang, string>;
+export type TextChanges = Record<Lang, string | null>; // null: remove a translation (added languages only)
+export type Language = { code: string; name: string; style: string; script?: string; spoken?: boolean; source?: boolean;
+  added?: boolean; changed?: boolean; missing?: number };
+export type Step = { name: string; messages: string[] };
+export type Journey = { id: string; name: string; steps: Step[] };
+export type Domain = { id: string; name: string; journeys: Journey[] };
+export type Message = {
+  text: Texts; note: string; placeholders: string[];
+  locked?: string; // why it can't be edited here (a grammar word list, an internal question)
+  live?: Texts; // the live wording, when the draft differs
+  auto?: Lang[]; // languages the AI wrote
+};
+export type Prompt = { text: string | Record<string, string>; about: string; locked: boolean; live?: string | Record<string, string> };
+export type Department = { priority: number; always_open: boolean; handles: string };
+export type Issue = { department: string; ticket: string; category: string; search: string };
+export type Settings = { departments: Record<string, Department>; tat_days: Record<string, number>; issues: Record<string, Issue> };
+export type Problem = { level: "error" | "warning"; area: "message" | "prompt" | "setting" | "tree" | "language"; id: string; text: string };
+export type Change = { area: "message" | "prompt" | "setting" | "tree" | "language"; id: string; before?: unknown; after?: unknown; translation_only?: boolean };
+export type RolloutState = { stable: number; canary: number | null; share: number; since: string | null; changed_at: string; changed_by: string };
+export type Editor = {
+  draft: { id: number; rev: number; author: string; updated_at: string };
+  changes: Change[]; problems: Problem[]; needs_translation: string[];
+  tree: Domain[]; messages: Record<string, Message>; aliases: Record<string, string>;
+  prompts: Record<string, Prompt>; settings: Settings; live_settings: Settings; team_names: Record<string, string>;
+  rollout: RolloutState; canary_shares: number[]; languages: Language[]; max_translate: number;
+};
+export type DraftChanges = {
+  messages?: Record<string, TextChanges | null>; prompts?: Record<string, string | Record<string, string> | null>;
+  settings?: Record<string, Record<string, unknown>>; tree?: Domain[] | null;
+  languages?: Record<string, { name?: string; style: string } | null>;
+};
+export type ArmStats = { turns: number; calls: number; p50_ms: number | null; done: number; failed: number; handoff: number;
+  judged: number; score: number | null };
+export type ReleaseInfo = { id: number; notes: string; author: string; published_at: string; changes: number };
+export type RolloutEvent = { id: number; at: string; action: string; stable_id: number | null; canary_id: number | null;
+  canary_pct: number; who: string; notes: string };
+export type Releases = { releases: ReleaseInfo[]; log: RolloutEvent[]; rollout: RolloutState;
+  stats: { since: string; share: number; stable: ArmStats; canary: ArmStats } | null };
+export type TestCase = { id: string; group: string; caller: string | null;
+  turns: { say: string; outcome?: string[]; has?: string[]; has_any?: string[]; lacks?: string[]; max_words?: number }[] };
+export type Reference = { guardrails: { name: string; what: string; where: string }[];
+  tests: { smoke: TestCase[]; regression: TestCase[]; golden_count: number } };
+
+export const journeys = {
+  get: () => call<Editor>("/v1/content", { headers: headers(false) }),
+  save: (rev: number, author: string, changes: DraftChanges) => send<Editor>("PATCH", "/v1/content/draft", { rev, author, changes }),
+  /** No ids: every changed sentence still missing a language. Ids: translate those now, into `languages` (default all). */
+  translate: (author: string, opts: { ids?: string[]; languages?: string[]; hint?: string; fill_missing?: boolean } = {}) =>
+    post<{ translated: number; failed: { id: string; text: string }[]; remaining: number; editor: Editor }>("/v1/content/draft/translate", { author, ...opts }),
+  discard: () => send<Editor>("DELETE", "/v1/content/draft?confirm=true"),
+  publish: (share: number, notes: string, author: string) => post<Editor>("/v1/content/publish", { share, notes, author }),
+  rollout: (action: "promote" | "share" | "stop" | "live", author: string, extra: { share?: number; release?: number } = {}) =>
+    post<Releases>("/v1/content/rollout", { action, author, ...extra }),
+  releases: () => call<Releases>("/v1/content/releases", { headers: headers(false) }),
+  reference: () => call<Reference>("/v1/content/reference", { headers: headers(false) }),
+};

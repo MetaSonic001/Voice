@@ -23,7 +23,8 @@ growing into a production proof of concept for the bank. The owner builds it; AU
 | Part | What |
 |---|---|
 | `brain/` | Python 3.12 FastAPI service: text and voice agent, RAG (bge-m3 embeddings, pgvector + Postgres full-text, RRF; reranker only with a GPU), mock bank, call audit, evals. All API routes under `/api/v1/...` |
-| `ui/` | Next.js + shadcn test console, built as static files served by nginx: `/` console, `/kb`, `/calls`, `/desk`, `/fixes`, `/bench` |
+| `brain/content/` | The journey catalogue: every fixed sentence (domain > journey > step), prompts, team settings. Edited by the PM on `/journeys` as releases (ADR 0032) |
+| `ui/` | Next.js + shadcn test console, built as static files served by nginx: `/` console, `/kb`, `/calls`, `/desk`, `/fixes`, `/bench`, `/journeys` |
 | `deploy/` | `eks/` (Kubernetes files), `database/` (RDS SQL), `README.md` (UAT steps, IAM role, updates) |
 | `compose.yaml` | Laptop: Postgres + pgvector, brain and UI in Docker (`compose.gpu.yaml` adds an NVIDIA GPU) |
 
@@ -96,6 +97,7 @@ python -m evals.smoke                  # real LLM, 24 items, replay-cached (comp
 python -m evals.smoke --pack regression --keep   # 33 whole conversations, real LLM, cached
 python -m evals.golden_run             # rarely: 105 questions, paced, cached
 python -m app.cli clean-slate          # delete all recorded calls (KB kept, mock bank re-seeded); asks for DELETE
+python -m app.cli content-export       # write the live /journeys release into brain/content/ (then review and commit)
 python scripts/download_models.py      # the search models (--embed-only without a GPU)
 bun run dev                            # UI on http://localhost:3000
 bun run build                          # UI production build; must pass after UI changes
@@ -119,6 +121,7 @@ No uv: plain `python` and `pip` everywhere (the office laptop blocks uv). Demo c
 - **Protected:**
   - `Sample Questions/` is never edited (corrected copies go under `brain/seed/`);
   - `ui/components/ui/*` comes from the shadcn CLI;
+  - fixed sentences, prompts and team settings live in `brain/content/`, not in Python files (see its README);
   - migrations only add, and old migration files are never edited.
 
 ## Code standards

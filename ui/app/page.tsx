@@ -2,7 +2,7 @@
 
 // Test console: talk to the agent by typing, a voice note, or a live call, as one of the test customers.
 // Every conversation is saved and can be reviewed (with recording, reasons and checks) under Call audit.
-import { Mic, MicOff, Phone, PhoneOff, Plus, Send, ShieldCheck, Square, Trash2 } from "lucide-react";
+import { KeyRound, Loader2, Mic, MicOff, PanelRight, Phone, PhoneOff, Plus, Send, ShieldCheck, Square, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -14,8 +14,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Textarea } from "@/components/ui/textarea";
 import { api, type Auth, type Caller, type Citation, desk, type Doc, type HandoffRef, kb } from "@/lib/api";
 import { type CallEvent, LiveCall } from "@/lib/live-call";
 import { cn } from "@/lib/utils";
@@ -337,73 +338,125 @@ export default function Console() {
   const changeCaller = (v: string) => { setCaller(v); void newSession(v, language); };
   const changeLanguage = (v: string) => { setLanguage(v); void newSession(caller, v); };
 
+  const sidePanel = (
+    <>
+      <Card className="gap-3">
+        <CardHeader>
+          <CardTitle className="text-sm">Caller</CardTitle>
+          <CardDescription>
+            {verifiedAs ? <span className="text-success">Verified as <b>{verifiedAs}</b></span> : "Not verified yet"}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          {callerInfo ? (
+            <p className="text-xs text-muted-foreground">
+              Test customer: {callerInfo.accounts} account{callerInfo.accounts > 1 ? "s" : ""}
+              {callerInfo.fd && ", FD"}{callerInfo.loan && ", loan"}{callerInfo.debit_card && ", debit card"}
+              {callerInfo.credit_card && ", credit card"}
+            </p>
+          ) : <p className="text-xs text-muted-foreground">Not one of the test customers.</p>}
+          {callerInfo?.scenario && <p className="text-xs break-words text-muted-foreground">Demo data: {callerInfo.scenario}</p>}
+          {auth?.status === "locked" && <p className="text-sm text-destructive">Verification locked for this call.</p>}
+        </CardContent>
+      </Card>
+      <KnowledgeUsed docs={docs} messages={messages} />
+      <Card className="gap-3">
+        <CardHeader><CardTitle className="text-sm">Live call</CardTitle></CardHeader>
+        <CardContent>
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-1 accent-primary" checked={focus}
+                   onChange={(e) => { setFocus(e.target.checked); call.current?.setFocus(e.target.checked); }} />
+            <span>Focus on my voice
+              <span className="block text-xs text-muted-foreground">Ignores quieter voices and sounds in the background (people talking, TV).</span>
+            </span>
+          </label>
+        </CardContent>
+      </Card>
+    </>
+  );
+
   return (
-    <main className="mx-auto flex h-[calc(100vh-3.5rem)] max-w-[1400px] flex-col gap-4 p-4">
-      {/* call setup */}
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground">Calling from</Label>
-          <Select value={caller} onValueChange={changeCaller} disabled={live}>
-            <SelectTrigger className="w-72 bg-background"><SelectValue placeholder="Choose a test caller" /></SelectTrigger>
-            <SelectContent>
-              {callers.map((c) => <SelectItem key={c.mobile} value={c.mobile}>{c.name} · {c.mobile}</SelectItem>)}
-              <SelectItem value={OTHER_NUMBER}>Unregistered number · {OTHER_NUMBER}</SelectItem>
-              <SelectItem value={WITHHELD}>Number withheld</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground">Greeting</Label>
-          <Select value={language} onValueChange={changeLanguage} disabled={live}>
-            <SelectTrigger className="w-36 bg-background"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="en">English</SelectItem>
-              <SelectItem value="hi">Hindi</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+    <main className="mx-auto flex h-[calc(100dvh-3.5rem)] max-w-[1400px] flex-col gap-3 p-3 sm:p-4">
+      {/* call setup: who is calling, greeting language, a new call; status on the right */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Select value={caller} onValueChange={changeCaller} disabled={live}>
+          <SelectTrigger className="w-full bg-background sm:w-64" aria-label="Calling from"><SelectValue placeholder="Choose a test caller" /></SelectTrigger>
+          <SelectContent>
+            {callers.map((c) => <SelectItem key={c.mobile} value={c.mobile}>{c.name} · {c.mobile}</SelectItem>)}
+            <SelectItem value={OTHER_NUMBER}>Unregistered number · {OTHER_NUMBER}</SelectItem>
+            <SelectItem value={WITHHELD}>Number withheld</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={language} onValueChange={changeLanguage} disabled={live}>
+          <SelectTrigger className="w-32 bg-background" aria-label="Greeting language"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="en">English</SelectItem>
+            <SelectItem value="hi">Hindi</SelectItem>
+          </SelectContent>
+        </Select>
         <Button variant="outline" className="bg-background" onClick={() => void newSession(caller, language)}><Plus /> New call</Button>
-        {callerInfo?.scenario && <p className="max-w-md self-center text-xs text-muted-foreground">Demo data: {callerInfo.scenario}</p>}
-        <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+        <div className="ml-auto flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
           {live && <Badge className="gap-1.5 bg-destructive text-white"><span className="size-1.5 animate-pulse rounded-full bg-white" /> Live</Badge>}
-          {verifiedAs && <Badge variant="outline" className="border-success/40 text-success"><ShieldCheck /> {verifiedAs}</Badge>}
+          {verifiedAs && <Badge variant="outline" className="border-success/40 text-success"><ShieldCheck /> <span className="max-w-32 truncate">{verifiedAs}</span></Badge>}
           {sessionId && (
-            <Link href={`/calls?id=${sessionId}`} className="hover:text-foreground hover:underline">
-              Call {sessionId.slice(0, 8)} · open in audit →
+            <Link href={`/calls?id=${sessionId}`} className="hidden whitespace-nowrap hover:text-foreground hover:underline md:inline">
+              Call {sessionId.slice(0, 8)} · audit →
             </Link>
           )}
+          <Sheet>
+            <SheetTrigger asChild>
+              <Button variant="outline" size="sm" className="bg-background lg:hidden"><PanelRight /> Details</Button>
+            </SheetTrigger>
+            <SheetContent className="w-[min(22rem,100vw)] gap-0 overflow-y-auto">
+              <SheetHeader className="border-b">
+                <SheetTitle>Call details</SheetTitle>
+                <SheetDescription>
+                  {sessionId ? <Link href={`/calls?id=${sessionId}`} className="underline">Call {sessionId.slice(0, 8)} · open in audit →</Link> : "No call yet"}
+                </SheetDescription>
+              </SheetHeader>
+              <div className="space-y-3 p-3">{sidePanel}</div>
+            </SheetContent>
+          </Sheet>
         </div>
       </div>
 
       {error && (
         <Alert variant="destructive">
-          <AlertDescription className="flex items-center gap-2">
-            <span className="mr-auto">{error}</span>
+          <AlertDescription className="flex flex-wrap items-center gap-2">
+            <span className="mr-auto min-w-0 break-words">{error}</span>
             <Button size="sm" variant="ghost" onClick={() => setError("")}>Dismiss</Button>
           </AlertDescription>
         </Alert>
       )}
 
-      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[1fr_320px]">
+      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
         {/* conversation */}
-        <Card className="flex min-h-0 flex-col gap-0 py-0">
-          <div className="flex items-center gap-3 border-b px-4 py-3">
-            <p className="text-sm font-medium">Conversation</p>
+        <Card className="flex min-h-0 min-w-0 flex-col gap-0 overflow-hidden py-0">
+          <div className="flex min-w-0 items-center gap-3 border-b px-4 py-2.5">
+            <p className="shrink-0 text-sm font-medium">Conversation</p>
             <CallSummary messages={messages} />
           </div>
-          <ScrollArea className="min-h-0 flex-1">
-            <div className="space-y-4 p-4">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            <div className="mx-auto max-w-3xl space-y-4 p-3 sm:p-4">
               <p className="mx-auto max-w-md rounded-md bg-muted px-3 py-2 text-center text-xs text-muted-foreground">
                 You are talking to AU Small Finance Bank&apos;s virtual assistant. Conversations are recorded for quality and security.
               </p>
               {messages.length === 0 && (
-                <div className="mx-auto max-w-lg space-y-2 py-6 text-center text-sm text-muted-foreground">
-                  <p>Ask about products, e.g. <span className="text-foreground">&quot;What is the FD rate for senior citizens for 13 months?&quot;</span>,
-                    or your own accounts, e.g. <span className="text-foreground">&quot;What is my balance?&quot;</span> (you will be asked to verify).</p>
-                  <p>Type, record a voice note, or start a live call. Open <b>Details</b> under any answer for its sources, checks and timings.</p>
+                <div className="mx-auto max-w-lg space-y-3 py-6 text-center text-sm text-muted-foreground">
+                  <p>Try a product question, or one about your own accounts (you&apos;ll be asked to verify).</p>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    {["What is the FD rate for senior citizens for 13 months?", "What is my balance?", "My card is lost"].map((q) => (
+                      <Button key={q} size="sm" variant="outline" className="h-auto max-w-full py-1.5 whitespace-normal" disabled={!sessionId || busy}
+                              onClick={() => void send(q)}>{q}</Button>
+                    ))}
+                  </div>
+                  <p className="text-xs">Type, record a voice note, or start a live call. Open <b>Details</b> under an answer for its sources, checks and timings.</p>
                 </div>
               )}
               {messages.map((m, i) => <Bubble key={i} m={m} />)}
+              {busy && !live && (
+                <div className="flex items-center gap-2 pl-1 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" /> The agent is answering…</div>
+              )}
               {!live && messages.at(-1)?.outcome === "confirm" && !busy && (
                 <div className="flex justify-start gap-2 pl-1">
                   <Button size="sm" variant="outline" onClick={() => void send("Yes")}>Yes</Button>
@@ -412,107 +465,70 @@ export default function Console() {
               )}
               <div ref={bottom} />
             </div>
-          </ScrollArea>
-          <div className="space-y-2 border-t p-3">
+          </div>
+
+          {/* composer: what waits on the caller first (code, transfer, voice note), then the message box */}
+          <div className="space-y-2 border-t bg-card p-2 sm:p-3">
+            {needsCode && (
+              <form className="flex flex-wrap items-center gap-2 rounded-md border border-primary/30 bg-secondary/60 p-2 text-sm"
+                    onSubmit={(e) => { e.preventDefault(); void submitCode(); }}>
+                <KeyRound className="size-4 shrink-0" />
+                <Label htmlFor="otp" className="block min-w-0 flex-1 basis-48 text-xs font-normal">
+                  Keypad: enter the code sent to {auth?.masked_mobile}
+                  {auth?.attempts_left !== undefined && ` · ${auth.attempts_left} tries left`}
+                  {auth?.simulated_sms && !verifiedAs && <span className="block font-mono break-words text-muted-foreground">Test phone (simulated SMS): {auth.simulated_sms}</span>}
+                </Label>
+                <Input id="otp" value={code} inputMode="numeric" autoComplete="one-time-code" maxLength={6} type="password"
+                       placeholder="6 digits" className="h-8 w-28 bg-background" onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} />
+                <Button type="submit" size="sm" disabled={code.length !== 6 || busy}>Enter</Button>
+                <Button type="button" variant="link" size="sm" className="h-auto px-1 text-xs" onClick={() => void resend()}>New code</Button>
+              </form>
+            )}
             {transfer && ["waiting", "active"].includes(transfer.status) && !live && (
-              <div className="flex items-center gap-2 rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-sm">
-                <span className="size-2 animate-pulse rounded-full bg-warning" />
+              <div className="flex flex-wrap items-center gap-2 rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-sm">
+                <span className="size-2 shrink-0 animate-pulse rounded-full bg-warning" />
                 {transfer.status === "waiting"
-                  ? <span>Waiting for the <b>{transfer.name}</b> team{transfer.position ? ` · you're number ${transfer.position}` : ""}. Messages you type go to them.</span>
-                  : <span>Chatting with <b>{transfer.agent}</b> ({transfer.name}).</span>}
+                  ? <span className="min-w-0">Waiting for the <b>{transfer.name}</b> team{transfer.position ? ` · you're number ${transfer.position}` : ""}. Messages you type go to them.</span>
+                  : <span className="min-w-0">Chatting with <b>{transfer.agent}</b> ({transfer.name}).</span>}
                 <Link href="/desk" className="ml-auto text-xs underline">Open the agent desk →</Link>
               </div>
             )}
             {draft && (
               <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/50 p-2 text-sm">
                 <span className="text-xs font-medium">Voice note</span>
-                <audio controls src={draft.url} className="h-8 max-w-full" />
+                <audio controls src={draft.url} className="h-8 max-w-full min-w-0 flex-1" />
                 <Button size="sm" onClick={() => void sendDraft()} disabled={busy}><Send /> Send</Button>
                 <Button size="sm" variant="ghost" onClick={discardDraft}><Trash2 /> Discard</Button>
               </div>
             )}
-            <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); void send(); }}>
-              <Input value={text} onChange={(e) => setText(e.target.value)} placeholder={live ? "Type during the call…" : "Type a question…"}
-                     disabled={!sessionId} aria-label="Question" />
-              <Button type="submit" disabled={busy || !text.trim()}><Send /> Send</Button>
-              <Button type="button" variant={recording ? "destructive" : "outline"} onClick={() => void toggleRecording()}
+            <form className="flex items-end gap-2" onSubmit={(e) => { e.preventDefault(); void send(); }}>
+              <Textarea value={text} onChange={(e) => setText(e.target.value)} rows={1} disabled={!sessionId} aria-label="Question"
+                        placeholder={live ? "Type during the call…" : "Type a question…"}
+                        className="max-h-40 min-h-9 flex-1 resize-none py-2"
+                        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }} />
+              <Button type="submit" size="icon" disabled={busy || !text.trim()} aria-label="Send"><Send /></Button>
+            </form>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" size="sm" variant={recording ? "destructive" : "outline"} onClick={() => void toggleRecording()}
                       disabled={busy || live || !sessionId || !!draft} aria-pressed={recording}>
-                {recording ? <><Square /> Stop</> : <><Mic /> Record</>}
+                {recording ? <><Square /> Stop</> : <><Mic /> Voice note</>}
+              </Button>
+              <Button type="button" size="sm" variant={live ? "destructive" : "outline"} onClick={() => void toggleLive()} disabled={!sessionId}>
+                {live ? <><PhoneOff /> End call</> : <><Phone /> Live call</>}
               </Button>
               {live && (
-                <Button type="button" variant={muted ? "secondary" : "outline"} onClick={toggleMute} aria-pressed={muted}
+                <Button type="button" size="sm" variant={muted ? "secondary" : "outline"} onClick={toggleMute} aria-pressed={muted}
                         title={muted ? "Unmute your microphone" : "Mute your microphone: no sound goes to the agent"}>
                   {muted ? <><MicOff /> Unmute</> : <><Mic /> Mute</>}
                 </Button>
               )}
-              <Button type="button" variant={live ? "destructive" : "outline"} onClick={() => void toggleLive()} disabled={!sessionId}>
-                {live ? <><PhoneOff /> End call</> : <><Phone /> Live call</>}
-              </Button>
-            </form>
-            {busy && <p className="text-xs text-muted-foreground">Working…</p>}
+              <span className="ml-auto hidden text-[11px] text-muted-foreground sm:inline">Enter to send · Shift+Enter for a new line</span>
+            </div>
           </div>
         </Card>
 
-        {/* verification, knowledge, call settings */}
-        <div className="flex min-h-0 flex-col gap-4 overflow-y-auto">
-          <Card className="gap-3">
-            <CardHeader>
-              <CardTitle className="text-sm">Verification</CardTitle>
-              <CardDescription>
-                {verifiedAs ? <span className="text-success">Verified as <b>{verifiedAs}</b></span> : "Not verified"}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              {callerInfo && (
-                <p className="text-xs text-muted-foreground">
-                  Test customer: {callerInfo.accounts} account{callerInfo.accounts > 1 ? "s" : ""}
-                  {callerInfo.fd && ", FD"}{callerInfo.loan && ", loan"}{callerInfo.debit_card && ", debit card"}
-                  {callerInfo.credit_card && ", credit card"}
-                </p>
-              )}
-              {auth?.status === "locked" && <p className="text-sm text-destructive">Verification locked for this call.</p>}
-              {needsCode && (
-                <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); void submitCode(); }}>
-                  <Label htmlFor="otp" className="text-xs font-normal text-muted-foreground">
-                    Keypad: code sent to {auth?.masked_mobile}
-                    {auth?.attempts_left !== undefined && ` · ${auth.attempts_left} tries left`}
-                  </Label>
-                  <div className="flex gap-2">
-                    <Input id="otp" value={code} inputMode="numeric" autoComplete="one-time-code" maxLength={6}
-                           type="password" placeholder="6 digits" onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} />
-                    <Button type="submit" disabled={code.length !== 6 || busy}>Enter</Button>
-                  </div>
-                  <Button type="button" variant="link" className="h-auto p-0 text-xs" onClick={() => void resend()}>Send a new code</Button>
-                </form>
-              )}
-            </CardContent>
-          </Card>
-
-          {auth?.simulated_sms && !verifiedAs && (
-            <Card className="gap-3 border-dashed">
-              <CardHeader>
-                <CardTitle className="text-sm">Phone (simulated SMS)</CardTitle>
-                <CardDescription>Development only. In production the code goes to the customer&apos;s phone.</CardDescription>
-              </CardHeader>
-              <CardContent><p className="rounded-md bg-muted p-2 font-mono text-sm">{auth.simulated_sms}</p></CardContent>
-            </Card>
-          )}
-
-          <KnowledgeUsed docs={docs} messages={messages} />
-
-          <Card className="gap-3">
-            <CardHeader><CardTitle className="text-sm">Live call</CardTitle></CardHeader>
-            <CardContent>
-              <label className="flex items-start gap-2 text-sm">
-                <input type="checkbox" className="mt-1 accent-primary" checked={focus}
-                       onChange={(e) => { setFocus(e.target.checked); call.current?.setFocus(e.target.checked); }} />
-                <span>Focus on my voice
-                  <span className="block text-xs text-muted-foreground">Ignores quieter voices and sounds in the background (people talking, TV).</span>
-                </span>
-              </label>
-            </CardContent>
-          </Card>
-        </div>
+        {/* caller, knowledge and call settings: beside the chat on wide screens, in the Details sheet otherwise */}
+        <aside className="hidden min-h-0 flex-col gap-4 overflow-y-auto lg:flex">{sidePanel}</aside>
       </div>
     </main>
   );
@@ -520,13 +536,13 @@ export default function Console() {
 
 function Bubble({ m }: { m: Message }) {
   const [open, setOpen] = useState(false);
-  if (m.role === "note") return <p className="text-center text-xs text-muted-foreground">{m.text}</p>;
+  if (m.role === "note") return <p className="mx-auto max-w-xl text-center text-xs break-words text-muted-foreground">{m.text}</p>;
   if (m.role === "person") {
     return (
       <div className="flex justify-start">
-        <div className="max-w-[80%] space-y-1">
+        <div className="max-w-[88%] min-w-0 space-y-1 sm:max-w-[75%]">
           <p className="text-[11px] text-muted-foreground">{m.via} · bank team</p>
-          <div className="rounded-2xl rounded-bl-sm border border-primary/30 bg-secondary px-4 py-2.5 text-sm leading-relaxed">{m.text}</div>
+          <div className="rounded-2xl rounded-bl-sm border border-primary/30 bg-secondary px-4 py-2.5 text-sm leading-relaxed break-words">{m.text}</div>
         </div>
       </div>
     );
@@ -537,18 +553,18 @@ function Bubble({ m }: { m: Message }) {
   const answer = !mine && m.outcome && !PHRASES.has(m.outcome);
   return (
     <div className={cn("flex", mine ? "justify-end" : "justify-start")}>
-      <div className={cn("max-w-[80%] space-y-1", mine && "items-end")}>
-        {mine && m.via && <p className="text-right text-[11px] text-muted-foreground">{m.via}</p>}
-        <div className={cn("rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
-                           mine ? "rounded-br-sm bg-primary text-primary-foreground" : "rounded-bl-sm border bg-card")}>
+      <div className={cn("min-w-0 space-y-1", open ? "w-full" : "max-w-[88%] sm:max-w-[75%]")}>
+        {mine && m.via && <p className="text-right text-[11px] break-words text-muted-foreground">{m.via}</p>}
+        <div className={cn("w-fit max-w-full rounded-2xl px-4 py-2.5 text-sm leading-relaxed [overflow-wrap:anywhere]",
+                           mine ? "ml-auto rounded-br-sm bg-primary text-primary-foreground" : "rounded-bl-sm border bg-card")}>
           <p className="whitespace-pre-wrap">{m.text}</p>
         </div>
         {!mine && (answer || m.traceId) && (
-          <div className="flex flex-wrap items-center gap-1.5 px-1 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 px-1 text-xs text-muted-foreground">
             {answer && <OutcomeBadge outcome={m.outcome!} />}
             {headline != null && <span>{fmtMs(headline)}{t.voice_to_voice_ms != null ? " voice-to-voice" : ""}</span>}
             {m.citations?.map((c, i) => (
-              <span key={i} className="truncate">· {c.marker ? `[${c.marker}] ` : ""}{c.section ?? c.source}{c.fields ? ` (${c.fields.join(", ")})` : ""}</span>
+              <span key={i} className="max-w-full min-w-0 break-words">· {c.marker ? `[${c.marker}] ` : ""}{c.section ?? c.source}{c.fields ? ` (${c.fields.join(", ")})` : ""}</span>
             ))}
             {m.traceId && (
               <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => setOpen(!open)}>
@@ -570,7 +586,7 @@ function CallSummary({ messages }: { messages: Message[] }) {
   const median = times.length ? times[Math.floor(times.length / 2)] : null;
   const outcomes = answers.reduce<Record<string, number>>((acc, m) => ({ ...acc, [m.outcome!]: (acc[m.outcome!] ?? 0) + 1 }), {});
   return (
-    <p className="ml-auto text-xs text-muted-foreground">
+    <p className="ml-auto min-w-0 truncate text-xs text-muted-foreground" title="Answers in this call, median time in the brain, outcomes">
       {answers.length} answer{answers.length > 1 ? "s" : ""}
       {median != null && ` · median ${fmtMs(median)} (brain)`}
       {" · "}{Object.entries(outcomes).map(([k, v]) => `${k} ${v}`).join(", ")}

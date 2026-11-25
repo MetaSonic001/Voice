@@ -11,11 +11,12 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import auth, calls, conversation, desk, documents, ops
+from app.api import auth, calls, content, conversation, desk, documents, ops
 from app.config import get_settings
 from app.container import Container, build
 from app.logs import log, request_id, setup_logging
 from app.metrics import REQUEST_SECONDS, REQUESTS
+from app.services import content as catalogue
 from app.services.documents import DocumentError
 
 logger = logging.getLogger("app.http")
@@ -29,8 +30,15 @@ def create_app(container: Container | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         app.state.container = container or build(settings)
         warm = None
-        if app.state.container.voice:  # synthesise the greeting and fixed lines in the background so they play instantly
-            warm = asyncio.create_task(app.state.container.voice.phrases.warm())
+        c = app.state.container
+        if c.voice:  # synthesise the greeting and fixed lines in the background so they play instantly
+            warm = asyncio.create_task(c.voice.phrases.warm())
+            if c.releases:  # a release that goes live later (or a canary live now) gets its own fixed lines ready too
+                loop = asyncio.get_running_loop()
+                c.releases.on_live = lambda catalogs: [asyncio.run_coroutine_threadsafe(c.voice.phrases.warm(cat), loop)
+                                                       for cat in catalogs]
+                if catalogue.live()["canary"]:
+                    asyncio.create_task(c.voice.phrases.warm(catalogue.live()["canary"]))
         yield
         if warm and not warm.done():
             warm.cancel()
@@ -77,7 +85,7 @@ def create_app(container: Container | None = None) -> FastAPI:
 
     # Every API route is under /api (/api/v1/...), so one load balancer rule (/api/*) sends the API to the brain and
     # everything else to the UI. Health checks and metrics stay at the root: probes reach the pod directly.
-    for module in (documents, conversation, auth, calls, desk):
+    for module in (documents, conversation, auth, calls, desk, content):
         app.include_router(module.router, prefix=API_PREFIX)
     app.include_router(ops.api_router, prefix=API_PREFIX)
     app.include_router(ops.router)

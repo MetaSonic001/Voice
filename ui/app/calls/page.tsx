@@ -99,7 +99,7 @@ function Calls() {
   }
 
   return (
-    <main className="mx-auto grid max-w-[1400px] grid-cols-[minmax(0,1fr)] gap-4 p-4 lg:h-[calc(100vh-3.5rem)] lg:grid-cols-[340px_minmax(0,1fr)]">
+    <main className="mx-auto grid max-w-[1400px] grid-cols-[minmax(0,1fr)] gap-4 p-4 lg:h-[calc(100dvh-3.5rem)] lg:grid-cols-[340px_minmax(0,1fr)]">
       <Card className="no-print flex max-h-[60vh] min-h-0 flex-col gap-0 py-0 lg:max-h-none">
         <div className="space-y-3 border-b p-3">
           <div className="flex items-center gap-2">

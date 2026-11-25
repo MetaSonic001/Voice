@@ -14,6 +14,7 @@ Caller facts
 
 import re
 
+from app.services.content import phrase
 from app.services.privacy import redact
 
 CALL_FACTS = ("senior_citizen", "occupation")
@@ -118,63 +119,19 @@ def strategy(kind: str, goal: str, product: str, question: str, scope: str = "",
             "smalltalk": "smalltalk"}.get(kind, "unsupported")
 
 
-# What the answer model is told to do, per strategy, and the length each one aims at (words). The target is what the
+# What the answer model is told to do, per strategy (brain/content/catalog.json prompts.strategy), and the length each
+# one aims at (words). The target is what the
 # prompt asks for; going over it is flagged for review (`long_reply`). A much longer safety limit in code stops a runaway
 # answer at a sentence boundary; it never applies to "full".
-STRATEGY_LINES = {
-    "direct": "Answer exactly the detail asked, in one to three short sentences.",
-    "product_overview": "Broad question about one product: in 40 to 65 words say what it is and who it suits, its two or three "
-                        "most useful benefits and its main fee. Leave the rest out, then offer to go into one part (for a "
-                        "card: rewards, fees or eligibility).",
-    "full": "The caller asked for the full details: cover every point they asked for in short spoken sentences, in a "
-            "natural order, without skipping conditions.",
-    "compare": "Compare the products the caller named, side by side on the points that matter most to them (fee, main "
-               "benefit, who it suits), in short spoken sentences. Cover every named product that has a source; never "
-               "describe one that has no source.",
-    "overview": "The caller wants the whole picture: give a short spoken overview - the range from lowest to highest and at "
-                "most three examples - then ask which one they are interested in.",
-    "recommend": "Recommend one or two products from the sources that fit the caller's needs, each with one short reason, and "
-                 "mention the main eligibility condition if the sources give one. Do not list every option. End by asking "
-                 "if they'd like to know more about one of them.",
-}
 TARGET_WORDS = {"direct": 50, "product_overview": 65, "overview": 70, "recommend": 80, "compare": 90}
-# A comparison where one named product has no supporting passage: said by code, never left to the model.
-COMPARE_MISSING = {"en": "I don't have the details for {names} to hand, so I can't compare that side properly.",
-                   "hi": "{names} की जानकारी अभी मेरे पास नहीं है, इसलिए उसकी ठीक से तुलना नहीं कर सकती।",
-                   "hinglish": "{names} ki details abhi mere paas nahi hain, isliye uski theek se comparison nahi kar sakti."}
 SAFETY_LIMIT = {"sentences": 6, "words": 110}  # per answer; "full" has none
 
 # ───────── guided "help me choose" flows ─────────
 # Each flow asks only questions that change the recommendation, one per turn, and skips any whose answer is known.
 
-FLOWS = {
-    "credit_card": [
-        ("monthly_spend", {"en": "Roughly how much do you spend on a card in a month, and on what mostly: shopping, fuel or travel?",
-                           "hi": "आप महीने में कार्ड पर लगभग कितना खर्च करते हैं, और ज़्यादातर किस पर: शॉपिंग, फ्यूल या ट्रैवल?",
-                           "hinglish": "Aap mahine mein card par lagbhag kitna kharch karte hain, aur zyada kis par: shopping, fuel ya travel?"}),
-        ("travel", {"en": "And do you travel often, or does airport lounge access matter to you?",
-                    "hi": "और क्या आप अक्सर यात्रा करते हैं, या एयरपोर्ट लाउंज की सुविधा आपके लिए ज़रूरी है?",
-                    "hinglish": "Aur kya aap aksar travel karte hain, ya airport lounge access aapke liye zaroori hai?"}),
-    ],
-    "savings_account": [
-        ("purpose", {"en": "What will you mainly use the account for: your salary, everyday savings, or something else?",
-                     "hi": "आप यह अकाउंट मुख्य रूप से किसके लिए इस्तेमाल करेंगे: सैलरी, रोज़ की बचत, या कुछ और?",
-                     "hinglish": "Aap yeh account mainly kis liye use karenge: salary, roz ki savings, ya kuch aur?"}),
-        ("balance_preference", {"en": "And would you prefer a zero-balance account, or can you keep some balance in it? Roughly how much?",
-                                "hi": "और क्या आप ज़ीरो बैलेंस अकाउंट चाहेंगे, या उसमें कुछ बैलेंस रख सकते हैं? लगभग कितना?",
-                                "hinglish": "Aur kya aap zero balance account chahenge, ya usmein kuch balance rakh sakte hain? Lagbhag kitna?"}),
-    ],
-    "fd": [
-        ("tenure", {"en": "For how long would you like to keep the money in the FD?",
-                    "hi": "आप FD में पैसा कितने समय के लिए रखना चाहेंगे?",
-                    "hinglish": "Aap FD mein paisa kitne time ke liye rakhna chahenge?"}),
-        ("senior_citizen", {"en": "And are you 60 or older? Senior citizens get a higher rate.",
-                            "hi": "और क्या आपकी उम्र 60 साल या उससे ज़्यादा है? वरिष्ठ नागरिकों को ज़्यादा ब्याज मिलता है।",
-                            "hinglish": "Aur kya aapki umar 60 ya usse zyada hai? Senior citizens ko zyada rate milta hai."}),
-    ],
-}
-_FIRST = {"en": "Happy to help you pick one. ", "hi": "ज़रूर, मैं सही विकल्प चुनने में मदद करती हूँ। ",
-          "hinglish": "Zaroor, main sahi option chunne mein madad karti hoon. "}
+# The questions of each flow, in order (wording: brain/content/catalog.json, "choose.<flow>.<key>").
+FLOWS = {"credit_card": ("monthly_spend", "travel"), "savings_account": ("purpose", "balance_preference"),
+         "fd": ("tenure", "senior_citizen")}
 # An occupation already tells us what the account is for (students, farmers, salaried people have their own accounts).
 _IMPLIES = {"purpose": ("occupation",)}
 _LABEL_EN = {"credit_card": "credit card", "savings_account": "savings account", "fd": "fixed deposit (FD)"}
@@ -190,11 +147,11 @@ def _known(facts: dict, key: str) -> bool:
 
 def next_question(name: str, facts: dict, asked: list[str], lang: str) -> tuple[str, str] | None:
     """(fact key, question to ask) for the next unanswered question of a flow, or None when it is time to recommend."""
-    for key, texts in FLOWS[name]:
+    for key in FLOWS[name]:
         if key in asked or _known(facts, key):
             continue
-        text = texts.get(lang, texts["en"])
-        return key, (_FIRST.get(lang, _FIRST["en"]) + text) if not asked else text
+        text = phrase(f"choose.{name}.{key}", lang)
+        return key, (phrase("choose.first", lang) + text) if not asked else text
     return None
 
 
@@ -214,14 +171,6 @@ _THING = {"fd": {"en": "FD", "hi": "FD", "hinglish": "FD"},
           "current_account": {"en": "account", "hi": "अकाउंट", "hinglish": "account"}}
 _TOPIC = {"fd": "fd", "loan": "loan", "credit_card": "credit_card", "debit_card": "debit_card",
           "savings_account": "charges", "current_account": "charges"}
-OFFER = {
-    "unverified": {"en": "Would you like me to check this for your own {thing}? I'll just need to verify you quickly.",
-                   "hi": "क्या आप चाहेंगे कि मैं आपके अपने {thing} के लिए यह देख दूँ? इसके लिए पहले आपकी पहचान वेरिफ़ाई करनी होगी।",
-                   "hinglish": "Kya main aapke apne {thing} ke liye yeh check kar doon? Uske liye pehle aapko jaldi se verify karna hoga."},
-    "verified": {"en": "Would you like me to check your own {thing}?", "hi": "क्या मैं आपके अपने {thing} के लिए देख दूँ?",
-                 "hinglish": "Kya main aapke apne {thing} ke liye check kar doon?"},
-}
-_OWN = {"en": "For my own {thing}: {q}", "hi": "मेरे अपने {thing} के लिए: {q}", "hinglish": "Mere apne {thing} ke liye: {q}"}
 
 
 def can_offer_own(product: str) -> bool:
@@ -246,8 +195,8 @@ def _detail(product: str, text: str) -> str:
 def own_offer(product: str, question: str, lang: str, verified: bool) -> tuple[str, dict]:
     """What to say and the pending question to store, after a general answer the caller may want checked for themselves."""
     thing = _THING[product].get(lang, _THING[product]["en"])
-    text = OFFER["verified" if verified else "unverified"].get(lang, OFFER["unverified"]["en"]).format(thing=thing)
-    own_q = _OWN.get(lang, _OWN["en"]).format(thing=thing, q=question)
+    text = phrase("offer.verified" if verified else "offer.unverified", lang).format(thing=thing)
+    own_q = phrase("offer.own_question", lang).format(thing=thing, q=question)
     personal = {"topic": _TOPIC[product], "detail": _detail(product, question), "account": "", "item": "", "card": "",
                 "amount": 0, "direction": "any", "period": "", "count": 0, "min_amount": 0, "keyword": "", "total": False}
     return text, {"question": own_q, "personal": personal, "product": product}

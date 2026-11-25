@@ -1,0 +1,2120 @@
+{
+ "about": "The journey catalogue: every fixed sentence the agent says in English (the source), grouped domain > journey > step, plus languages, business settings and short prompt parts. Other languages: languages/<code>.json. Long prompts: prompts/*.md. See README.md.",
+ "languages": [
+  {
+   "code": "en",
+   "name": "English",
+   "source": true,
+   "spoken": true,
+   "script": "latin",
+   "style": "Plain spoken English: short sentences, everyday words."
+  },
+  {
+   "code": "hi",
+   "name": "Hindi",
+   "spoken": true,
+   "script": "devanagari",
+   "style": "Everyday spoken Hindi in Devanagari, the way people talk today. Keep common banking words in English as people say them (अकाउंट, बैलेंस, चार्ज, मिनिमम बैलेंस, डेबिट कार्ड, पेमेंट, ट्रांज़ैक्शन, EMI, FD, OTP), never bookish words (not शुल्क, रख-रखाव, आवश्यकता, न्यूनतम, लेनदेन, भुगतान)."
+  },
+  {
+   "code": "hinglish",
+   "name": "Hinglish",
+   "spoken": true,
+   "script": "latin",
+   "style": "Conversational Hindi written in Latin letters, mixed with English words the way callers speak."
+  }
+ ],
+ "tree": [
+  {
+   "id": "identity",
+   "name": "Identity and verification",
+   "journeys": [
+    {
+     "id": "verify",
+     "name": "Verify the caller",
+     "steps": [
+      {
+       "name": "Explain why",
+       "messages": [
+        "core.auth_ack",
+        "core.needs_verification",
+        "core.action_unavailable"
+       ]
+      },
+      {
+       "name": "Ask for the registered mobile",
+       "messages": [
+        "core.need_mobile",
+        "core.not_registered"
+       ]
+      },
+      {
+       "name": "Send the code",
+       "messages": [
+        "core.otp_sent",
+        "core.otp_code",
+        "core.code_by_keypad",
+        "voice.code_reminder"
+       ]
+      },
+      {
+       "name": "Check the code",
+       "messages": [
+        "core.verified",
+        "core.otp_invalid",
+        "core.otp_expired",
+        "core.no_code",
+        "core.already_verified",
+        "core.locked"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "account",
+   "name": "Account information",
+   "journeys": [
+    {
+     "id": "balance",
+     "name": "Balance and money on hold",
+     "steps": [
+      {
+       "name": "Answer",
+       "messages": [
+        "bank.acct",
+        "bank.acct_salary",
+        "bank.balance",
+        "bank.balance_hold",
+        "bank.avail_line",
+        "bank.avail_hold",
+        "bank.hold_not_debit",
+        "bank.hold_what",
+        "bank.hold_pending",
+        "bank.avail_after_hold",
+        "bank.avail_inactive",
+        "bank.pending_still",
+        "bank.pending_reversed"
+       ]
+      },
+      {
+       "name": "When there is nothing to show",
+       "messages": [
+        "bank.no_hold_any",
+        "bank.pending_none",
+        "bank.no_hold"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "transactions",
+     "name": "Transactions",
+     "steps": [
+      {
+       "name": "Answer",
+       "messages": [
+        "bank.total_scope",
+        "bank.txn_each_overview",
+        "bank.txn_each_intro",
+        "bank.txn_each_only",
+        "bank.txn_intro",
+        "bank.txn_intro_salary",
+        "bank.txn_found",
+        "bank.txn_merged_intro",
+        "bank.txn_merged_found",
+        "bank.txn_only",
+        "bank.txn_only_one",
+        "bank.txn_merged_only",
+        "bank.txn_tail",
+        "bank.txn_total",
+        "bank.note_atm_not_dispensed",
+        "bank.note_upi_pending",
+        "bank.note_emi_insufficient",
+        "bank.note_declined_blocked",
+        "bank.reason_insufficient_balance",
+        "bank.dup_found"
+       ]
+      },
+      {
+       "name": "Ask which one or offer more",
+       "messages": [
+        "bank.more_offer",
+        "bank.dispute_offer"
+       ]
+      },
+      {
+       "name": "When there is nothing to show",
+       "messages": [
+        "bank.txn_empty",
+        "bank.txn_none",
+        "bank.dup_none"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "charges",
+     "name": "Charges on the account",
+     "steps": [
+      {
+       "name": "Answer",
+       "messages": [
+        "core.charges_which",
+        "bank.amb_rule",
+        "bank.amb_now_ok",
+        "bank.amb_now_short",
+        "bank.charge_line",
+        "bank.amb_charge_why",
+        "bank.charge_dispute"
+       ]
+      },
+      {
+       "name": "When there is nothing to show",
+       "messages": [
+        "bank.amb_none",
+        "bank.no_charges"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "fd",
+     "name": "Fixed deposits",
+     "steps": [
+      {
+       "name": "Answer",
+       "messages": [
+        "bank.fd",
+        "bank.fd_verb",
+        "bank.fd_count",
+        "bank.fd_first",
+        "bank.fd_amount_then",
+        "bank.fd_amount",
+        "bank.fd_payout",
+        "bank.fd_rate",
+        "bank.fd_renew",
+        "bank.fd_no_renew",
+        "bank.fd_break",
+        "bank.fd_break_how"
+       ]
+      },
+      {
+       "name": "When there is nothing to show",
+       "messages": [
+        "bank.no_fd"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "loans",
+     "name": "Loans and EMIs",
+     "steps": [
+      {
+       "name": "Answer",
+       "messages": [
+        "bank.loan",
+        "bank.emi_next",
+        "bank.loan_count_one",
+        "bank.loan_count",
+        "bank.emi_next_of",
+        "bank.emi_count",
+        "bank.emi_paid",
+        "bank.emi_last_debit",
+        "bank.emi_paid_due_only",
+        "bank.emi_last_failed",
+        "bank.emi_not_recovered",
+        "bank.repaid_of",
+        "bank.repaid_across",
+        "bank.emi_paid_day",
+        "bank.emi_paid_on",
+        "bank.emis_across",
+        "bank.emi_paid_of",
+        "bank.emi_count_of",
+        "bank.emi_bounced",
+        "bank.emi_bounce_charge",
+        "bank.emi_bounce_time",
+        "bank.emi_up",
+        "bank.emi_same",
+        "bank.foreclose",
+        "bank.foreclose_team"
+       ]
+      },
+      {
+       "name": "When there is nothing to show",
+       "messages": [
+        "bank.emi_no_history",
+        "bank.no_payment_made",
+        "bank.no_loan"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "credit_card",
+     "name": "Credit card details",
+     "steps": [
+      {
+       "name": "Answer",
+       "messages": [
+        "bank.cc_due",
+        "bank.cc_paid_up",
+        "bank.cc_limit",
+        "bank.cc_pay_processing",
+        "bank.cc_pay_posted",
+        "bank.cc_statement",
+        "bank.paid_words",
+        "bank.cc_lounge",
+        "bank.cc_no_lounge",
+        "bank.cc_fee",
+        "bank.cc_no_fee",
+        "bank.cc_intl_on",
+        "bank.cc_intl_off",
+        "bank.cc_txns",
+        "bank.cc_txn",
+        "bank.cc_intl"
+       ]
+      },
+      {
+       "name": "When there is nothing to show",
+       "messages": [
+        "bank.no_cc"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "debit_card",
+     "name": "Debit card details",
+     "steps": [
+      {
+       "name": "Answer",
+       "messages": [
+        "bank.dc_state",
+        "bank.dc_controls",
+        "bank.on_off",
+        "bank.dc_declines",
+        "bank.dc_blocked_why",
+        "bank.dc_pos_off_why",
+        "bank.dc_cause",
+        "bank.dc_unknown_why",
+        "bank.dc_pos_also_off",
+        "bank.dc_no_declines"
+       ]
+      },
+      {
+       "name": "Ask which one or offer more",
+       "messages": [
+        "bank.dc_offer_unblock",
+        "bank.dc_offer_pos",
+        "bank.offer_change"
+       ]
+      },
+      {
+       "name": "When there is nothing to show",
+       "messages": [
+        "bank.no_dc"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "summary",
+     "name": "Everything I hold, and what is due",
+     "steps": [
+      {
+       "name": "Answer",
+       "messages": [
+        "bank.sum_accounts",
+        "bank.sum_fd",
+        "bank.sum_loan",
+        "bank.sum_cc",
+        "bank.sum_total",
+        "bank.sum_loans_total",
+        "bank.highest",
+        "bank.highest_loan",
+        "bank.upcoming"
+       ]
+      },
+      {
+       "name": "When there is nothing to show",
+       "messages": [
+        "bank.upcoming_none"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "account",
+     "name": "Accounts, status and which one",
+     "steps": [
+      {
+       "name": "Answer",
+       "messages": [
+        "bank.cards_have",
+        "bank.salary_is",
+        "bank.linked_dc",
+        "bank.acct_status",
+        "bank.inactive_note",
+        "bank.acct_inactive_note",
+        "bank.status_words",
+        "bank.inactive",
+        "bank.cannot_see"
+       ]
+      },
+      {
+       "name": "Ask which one or offer more",
+       "messages": [
+        "bank.which",
+        "bank.which_item",
+        "bank.variant"
+       ]
+      },
+      {
+       "name": "When there is nothing to show",
+       "messages": [
+        "bank.no_match",
+        "bank.no_salary",
+        "bank.no_dc_on",
+        "bank.no_bounce",
+        "bank.inactive_none"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "cards",
+   "name": "Card services",
+   "journeys": [
+    {
+     "id": "pick_card",
+     "name": "Which card",
+     "steps": [
+      {
+       "name": "Name the card",
+       "messages": [
+        "card.debit",
+        "card.credit",
+        "card.ending",
+        "card.and"
+       ]
+      },
+      {
+       "name": "Ask which one",
+       "messages": [
+        "card.which",
+        "card.none_match",
+        "card.no_cards",
+        "card.debit_only"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "block",
+     "name": "Block or unblock a card",
+     "steps": [
+      {
+       "name": "Ask how",
+       "messages": [
+        "journey.block_type_q",
+        "journey.block_type_again",
+        "journey.replacement_yes",
+        "journey.replacement_temp"
+       ]
+      },
+      {
+       "name": "Confirm first",
+       "messages": [
+        "card.confirm_temp_block",
+        "card.confirm_temp_block_asked",
+        "card.confirm_block",
+        "card.confirm_unblock"
+       ]
+      },
+      {
+       "name": "Done",
+       "messages": [
+        "card.done_temp_block",
+        "card.done_block",
+        "card.done_unblock",
+        "card.reference"
+       ]
+      },
+      {
+       "name": "Can't be done",
+       "messages": [
+        "card.already_blocked",
+        "card.already",
+        "card.not_blocked",
+        "card.perm_blocked",
+        "card.blocked_first",
+        "card.failed",
+        "card.unconfirmed",
+        "journey.already_blocked",
+        "journey.action_scheduled_no",
+        "journey.action_later_unblock",
+        "journey.action_later"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "controls",
+     "name": "Card settings (online, shop, ATM, international)",
+     "steps": [
+      {
+       "name": "Ask which setting",
+       "messages": [
+        "journey.which_setting",
+        "journey.pos_still_off"
+       ]
+      },
+      {
+       "name": "Confirm and do it",
+       "messages": [
+        "card.turn_on",
+        "card.turn_off",
+        "card.confirm_controls",
+        "card.done_controls"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "cancelled",
+     "name": "Caller says no",
+     "steps": [
+      {
+       "name": "Nothing done",
+       "messages": [
+        "journey.cancelled"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "fraud",
+   "name": "Fraud and security",
+   "journeys": [
+    {
+     "id": "fraud_start",
+     "name": "First response",
+     "steps": [
+      {
+       "name": "Opening line",
+       "messages": [
+        "core.fraud_first",
+        "core.fraud_open_otp_shared",
+        "core.fraud_open_unrecognised_debit",
+        "core.fraud_open_lost_card"
+       ]
+      },
+      {
+       "name": "Options and advice",
+       "messages": [
+        "core.fraud_team_option",
+        "journey.fraud_advice",
+        "journey.fraud_bank_down"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "unknown_payment",
+     "name": "Payment the caller doesn't recognise",
+     "steps": [
+      {
+       "name": "Find the payment",
+       "messages": [
+        "journey.fraud_recent",
+        "journey.fraud_no_recent",
+        "journey.fraud_none",
+        "journey.fraud_many",
+        "journey.fraud_pick_more",
+        "agenda.followup_unrecognised_debit"
+       ]
+      },
+      {
+       "name": "Say what was found",
+       "messages": [
+        "journey.fraud_seen",
+        "journey.fraud_txn",
+        "journey.fraud_pending",
+        "journey.fraud_reversed"
+       ]
+      },
+      {
+       "name": "Offer the fraud team",
+       "messages": [
+        "journey.fraud_followup",
+        "journey.fraud_followup_generic",
+        "journey.fraud_upi_followup"
+       ]
+      },
+      {
+       "name": "While the offer waits",
+       "messages": [
+        "journey.fraud_side_q",
+        "journey.fraud_safe_q",
+        "journey.fraud_context",
+        "journey.fraud_noted",
+        "journey.fraud_restate_ticket",
+        "journey.fraud_restate"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "otp_shared",
+     "name": "Caller shared an OTP or PIN",
+     "steps": [
+      {
+       "name": "Check and secure",
+       "messages": [
+        "journey.otp_recent",
+        "journey.otp_none",
+        "journey.otp_next"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "lost_card",
+     "name": "Lost or stolen card",
+     "steps": [
+      {
+       "name": "Check recent use",
+       "messages": [
+        "journey.lost_recent",
+        "journey.lost_none",
+        "journey.lost_no_block"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "complaints",
+   "name": "Complaints and disputes",
+   "journeys": [
+    {
+     "id": "raise_ticket",
+     "name": "Raise a complaint or dispute",
+     "steps": [
+      {
+       "name": "Say sorry and ask",
+       "messages": [
+        "journey.sorry",
+        "journey.issue_details",
+        "journey.txn_not_found",
+        "core.issue"
+       ]
+      },
+      {
+       "name": "Offer a ticket",
+       "messages": [
+        "journey.offer_ticket",
+        "journey.kind_complaint",
+        "journey.kind_dispute",
+        "journey.kind_review"
+       ]
+      },
+      {
+       "name": "Ticket raised",
+       "messages": [
+        "journey.ticket_done",
+        "core.ticket_status"
+       ]
+      },
+      {
+       "name": "Already open",
+       "messages": [
+        "journey.open_request"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "products",
+   "name": "Product information",
+   "journeys": [
+    {
+     "id": "kb_answer",
+     "name": "Answer from the knowledge base",
+     "steps": [
+      {
+       "name": "Needs more detail",
+       "messages": [
+        "core.variant_clarify",
+        "core.more_kb"
+       ]
+      },
+      {
+       "name": "Can't answer safely",
+       "messages": [
+        "core.refuse",
+        "core.partial",
+        "core.partial_refer",
+        "core.conflict",
+        "answer.compare_missing"
+       ]
+      },
+      {
+       "name": "Check the caller's own",
+       "messages": [
+        "offer.unverified",
+        "offer.verified",
+        "offer.own_question"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "choose",
+     "name": "Help me choose",
+     "steps": [
+      {
+       "name": "First line",
+       "messages": [
+        "choose.first"
+       ]
+      },
+      {
+       "name": "Credit card questions",
+       "messages": [
+        "choose.credit_card.monthly_spend",
+        "choose.credit_card.travel"
+       ]
+      },
+      {
+       "name": "Savings account questions",
+       "messages": [
+        "choose.savings_account.purpose",
+        "choose.savings_account.balance_preference"
+       ]
+      },
+      {
+       "name": "FD questions",
+       "messages": [
+        "choose.fd.tenure",
+        "choose.fd.senior_citizen"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "sales",
+   "name": "New customers and sales",
+   "journeys": [
+    {
+     "id": "lead",
+     "name": "Callback to open or apply",
+     "steps": [
+      {
+       "name": "Offer",
+       "messages": [
+        "journey.lead_offer",
+        "journey.lead_offer_apply"
+       ]
+      },
+      {
+       "name": "Booked",
+       "messages": [
+        "journey.lead_done",
+        "journey.lead_no_number"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "handover",
+   "name": "Handover to people",
+   "journeys": [
+    {
+     "id": "transfer",
+     "name": "Connect to a team",
+     "steps": [
+      {
+       "name": "Offer or ask",
+       "messages": [
+        "journey.offer_transfer",
+        "journey.ask_transfer",
+        "journey.ask_transfer_rm",
+        "journey.restate_transfer",
+        "journey.not_allowed"
+       ]
+      },
+      {
+       "name": "Connecting",
+       "messages": [
+        "journey.connecting",
+        "core.handoff",
+        "core.context_passed",
+        "voice.hold"
+       ]
+      },
+      {
+       "name": "Team closed or busy",
+       "messages": [
+        "journey.after_hours",
+        "journey.busy_callback"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "teams",
+     "name": "Team names",
+     "steps": [
+      {
+       "name": "As said to the caller",
+       "messages": [
+        "dept.fraud",
+        "dept.credit_cards",
+        "dept.debit_cards",
+        "dept.payments",
+        "dept.loans",
+        "dept.deposits",
+        "dept.digital",
+        "dept.sales",
+        "dept.priority",
+        "dept.general"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "basics",
+   "name": "Conversation basics",
+   "journeys": [
+    {
+     "id": "greeting",
+     "name": "Greeting and small talk",
+     "steps": [
+      {
+       "name": "Start of the call",
+       "messages": [
+        "voice.greeting",
+        "core.smalltalk"
+       ]
+      },
+      {
+       "name": "Small talk",
+       "messages": [
+        "smalltalk.thanks",
+        "smalltalk.bye",
+        "smalltalk.waiting",
+        "smalltalk.ack",
+        "smalltalk.hello_again"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "several",
+     "name": "Several questions at once",
+     "steps": [
+      {
+       "name": "Take them one by one",
+       "messages": [
+        "agenda.intro3",
+        "agenda.intro_many",
+        "agenda.next",
+        "agenda.back",
+        "agenda.stopped",
+        "agenda.bye"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "cant_help",
+     "name": "Can't help or didn't understand",
+     "steps": [
+      {
+       "name": "Outside what we do",
+       "messages": [
+        "core.out_of_scope",
+        "core.unavailable",
+        "core.bare_yes"
+       ]
+      },
+      {
+       "name": "Silence and hearing",
+       "messages": [
+        "voice.reprompt",
+        "voice.unclear",
+        "voice.unclear_twice",
+        "voice.goodbye"
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "messages": {
+  "core.refuse": {
+   "text": "I'm sorry, I don't have the details on that one. I can connect you to a colleague who can help. Shall I?"
+  },
+  "core.partial": {
+   "text": "I'd rather not guess the rest without checking, so I'll leave it there. Is there something specific you'd like to know?",
+   "note": "a later sentence failed its check: what was said stands, the rest is not guessed"
+  },
+  "core.more_kb": {
+   "text": "That's the main part. Would you like more detail on any of it?",
+   "note": "a long answer is stopped after a few sentences"
+  },
+  "core.partial_refer": {
+   "text": "I can't confirm the rest of that, so I'd rather not guess. I can connect you to a specialist. Shall I?",
+   "note": "nothing usable was said before the check failed"
+  },
+  "core.conflict": {
+   "text": "I'm seeing two different figures for that, and I don't want to give you a wrong number. A specialist can confirm the right one for you. Shall I connect you?",
+   "note": "two approved figures for exactly the same thing: never pick one"
+  },
+  "core.needs_verification": {
+   "text": "That needs your account details, so I'll first need to verify it's you. Please call from your registered mobile number, or I can connect you to our team."
+  },
+  "core.handoff": {
+   "text": "Sure, I'll connect you to someone from our team."
+  },
+  "core.smalltalk": {
+   "text": "Hi! I'm AU Bank's assistant, happy to help. You can ask me about your accounts, cards, deposits or loans."
+  },
+  "core.charges_which": {
+   "text": "Sure. Would you like me to check the charges taken from your account, or would you like to know our general charges, like minimum balance, debit card or ATM charges?",
+   "note": "decided in code: a charges question that names no charge type, product or reason"
+  },
+  "core.variant_clarify": {
+   "text": "That depends on which one. We have {n} {family}, like {list}. Do you already have one with us, or are you thinking of getting one?",
+   "note": "decided in code: a generic question whose best passages belong to particular variants"
+  },
+  "core.out_of_scope": {
+   "text": "I can only help with AU Small Finance Bank's products and services."
+  },
+  "core.code_by_keypad": {
+   "text": "Please enter the code on your keypad instead of saying it, and I won't hear it."
+  },
+  "core.context_passed": {
+   "text": "No, I've passed on everything we discussed, so you won't need to repeat it. Please stay on the line."
+  },
+  "core.ticket_status": {
+   "text": "Yes, it's registered. Your reference number is {ref}."
+  },
+  "core.bare_yes": {
+   "text": "Sorry, which one do you mean? Please tell me in a few words."
+  },
+  "core.auth_ack": {
+   "text": "Sure. Before I share your {what}, I need to verify it's you.",
+   "note": "Said before the code when the caller asked about their own data: why verification is needed (PM review, 17 Nov)."
+  },
+  "core.otp_sent": {
+   "text": "For your security, I need to verify it's you. I've sent an OTP to your registered mobile number ending {last4}. Please enter it on your keypad.",
+   "note": "\"OTP\", not \"6-digit code\": a voice read \"6-digit\" as \"six dash digit\" (Sarvam, 16 Nov)."
+  },
+  "core.otp_code": {
+   "text": "I've sent an OTP to your registered mobile number ending {last4}. Please enter it on your keypad."
+  },
+  "core.need_mobile": {
+   "text": "For your security I need to verify you first. Please tell me your registered mobile number."
+  },
+  "core.not_registered": {
+   "text": "That number isn't registered with us. Please tell me the mobile number registered with your account."
+  },
+  "core.locked": {
+   "text": "I'm sorry, I'm not able to verify you on this call. Our team can help you another way. Shall I connect you?"
+  },
+  "core.verified": {
+   "text": "Thank you, you're verified."
+  },
+  "core.fraud_first": {
+   "text": "Thanks for telling me. Let's make sure your account is safe.",
+   "note": "The first line of a fraud report fits what happened (said once per call; the journey does not repeat it)."
+  },
+  "core.fraud_open_otp_shared": {
+   "text": "Okay, let's secure your account first."
+  },
+  "core.fraud_open_unrecognised_debit": {
+   "text": "Let's look into that payment right away."
+  },
+  "core.fraud_open_lost_card": {
+   "text": "Okay, let's make sure nobody can use that card."
+  },
+  "core.fraud_team_option": {
+   "text": "If you'd rather speak to our fraud team straight away, just say so."
+  },
+  "core.otp_invalid": {
+   "text": "That code didn't match. Please try again. You have {left} more {tries}."
+  },
+  "core.unavailable": {
+   "text": "Sorry, I'm having trouble getting that right now. Please try again in a moment, or I can connect you to our team."
+  },
+  "core.already_verified": {
+   "text": "You're already verified. Go ahead with your question."
+  },
+  "core.no_code": {
+   "text": "There's no code waiting right now. Ask me your question and I'll send one if it's needed."
+  },
+  "core.otp_expired": {
+   "text": "That code has expired. Ask me to send a new one."
+  },
+  "core.action_unavailable": {
+   "text": "To make changes on your account I first need to verify it's you. Please call from your registered mobile number, or I can connect you to our team."
+  },
+  "core.issue": {
+   "text": "I'm sorry about that. I'll connect you to our team so they can look into it right away."
+  },
+  "journey.which_setting": {
+   "text": "Which setting would you like me to change on your card: online, shop, tap-to-pay, ATM or international payments?"
+  },
+  "journey.pos_still_off": {
+   "text": "And about the card not working at shops: shop payments are still switched off on it."
+  },
+  "journey.cancelled": {
+   "text": "No problem, I won't. Is there anything else I can help you with?"
+  },
+  "journey.offer_transfer": {
+   "text": "I can connect you to our {dept} team. Shall I?"
+  },
+  "journey.ask_transfer": {
+   "text": "Of course. I'll connect you to our {dept} team. Is that okay?"
+  },
+  "journey.ask_transfer_rm": {
+   "text": "Of course. I'll connect you to our Priority Banking team, where your relationship manager {rm} sits. Is that okay?"
+  },
+  "journey.connecting": {
+   "text": "Connecting you to our {dept} team now. I've shared what we discussed, so you won't need to repeat it. Please stay on the line."
+  },
+  "journey.after_hours": {
+   "text": "Our {dept} team is available from {hours}, so I've booked a callback for you instead. Your reference is {ref}, and they'll call you on your registered number."
+  },
+  "journey.not_allowed": {
+   "text": "That's not something I can do on this call, but our {dept} team can help you with it. Shall I connect you?"
+  },
+  "journey.sorry": {
+   "text": "I'm sorry about that."
+  },
+  "journey.fraud_recent": {
+   "text": "These are your latest debits: {list}. Is it one of these?"
+  },
+  "journey.fraud_no_recent": {
+   "text": "I don't see any debits in the last seven days. Roughly when did it happen, and how much was it? If you feel your account isn't safe, I can connect you to our fraud team right away.",
+   "note": "PM review, 17 Nov: no recent debit must not sound like \"all is well\"; a person is offered at once"
+  },
+  "journey.otp_recent": {
+   "text": "Here's what went out in the last two days: {list}."
+  },
+  "journey.otp_none": {
+   "text": "I don't see any payments from your account in the last two days, but a shared code can also be used to log in or add a payee, so your account needs to be secured now.",
+   "note": "A shared code is used for more than payments (logins, new payees, UPI set-up): no payment is not \"good news\""
+  },
+  "journey.otp_next": {
+   "text": "Please don't share it with anyone again. The bank never asks for it. To be safe, I'd like to connect you to our fraud team now so they can secure your net banking, UPI and cards. Shall I?"
+  },
+  "journey.lead_offer_apply": {
+   "text": "Would you like someone from our team to call you and help you apply?"
+  },
+  "journey.fraud_seen": {
+   "text": "I can see {what}."
+  },
+  "journey.fraud_txn": {
+   "text": "a payment of ₹{amt} at {who} on {date} on your {card}"
+  },
+  "journey.fraud_followup": {
+   "text": "Shall I also raise a dispute for {what} and connect you to our fraud team, so they can take it forward?"
+  },
+  "journey.fraud_followup_generic": {
+   "text": "Shall I connect you to our fraud team now, so they can check your recent transactions with you?"
+  },
+  "journey.replacement_yes": {
+   "text": "Yes. With a permanent block, a replacement card is sent to your registered address."
+  },
+  "journey.replacement_temp": {
+   "text": "No. A temporary block keeps the same card, so you can unblock it later. A new card comes only with a permanent block."
+  },
+  "journey.action_scheduled_no": {
+   "text": "I can't schedule that for later. I can unblock it right now, or you can call us tomorrow and it will be done on the call. Would you like me to unblock it now?",
+   "note": "\"unblock it tomorrow at 10\": a later unblock cannot be booked; said plainly, nothing is scheduled or done"
+  },
+  "journey.block_type_q": {
+   "text": "Would you like to block your card temporarily, so you can unblock it later, or permanently, with a replacement card sent to you?"
+  },
+  "journey.block_type_again": {
+   "text": "Sorry, should I block it temporarily or permanently?"
+  },
+  "journey.open_request": {
+   "text": "By the way, I can see you have an open {kind} with us about {topic}. Is today's call about that?"
+  },
+  "journey.fraud_none": {
+   "text": "I couldn't find a payment like that in your recent activity. Could you tell me roughly when it happened, which account or card, and who it was paid to?"
+  },
+  "journey.fraud_many": {
+   "text": "I can see {n} payments that could be it: {list}. Which one is it?"
+  },
+  "journey.fraud_pending": {
+   "text": "It's still showing as processing. Since you don't recognise it, it's best to report it now.",
+   "note": "The status as the bank shows it, never a guess about how it ends (\"may be reversed by itself\" invited waiting)"
+  },
+  "journey.fraud_reversed": {
+   "text": "That payment was reversed, so the money is back in your account. If there's another one you don't recognise, tell me."
+  },
+  "journey.fraud_upi_followup": {
+   "text": "Shall I raise a fraud complaint for it and connect you to our fraud team? You can also report it on the cyber crime helpline, 1930."
+  },
+  "journey.fraud_bank_down": {
+   "text": "I'm sorry, I can't check your account right now, and I don't want you to wait. I can connect you to our fraud team straight away. Shall I?"
+  },
+  "journey.lost_recent": {
+   "text": "I can see {n} recent payments on that card, the latest ₹{amt} at {who}. If any of them isn't yours, I can raise a dispute and connect you to our fraud team. Shall I?"
+  },
+  "journey.lost_none": {
+   "text": "I don't see any recent payments on that card. Shall I connect you to our fraud team, in case you want them to check anything else?"
+  },
+  "journey.fraud_advice": {
+   "text": "Please don't share your OTP, PIN or CVV with anyone. You can also report it to the cyber crime helpline on 1930."
+  },
+  "journey.already_blocked": {
+   "text": "Your {card} is already blocked, so it can't be used."
+  },
+  "journey.issue_details": {
+   "text": "I'm sorry about that. Let me look into it. Roughly how much was it, and when did it happen?"
+  },
+  "journey.offer_ticket": {
+   "text": "Would you like me to raise a {kind} with our {dept} team? They'll get back to you by {date}."
+  },
+  "journey.kind_complaint": {
+   "text": "complaint"
+  },
+  "journey.kind_dispute": {
+   "text": "dispute"
+  },
+  "journey.kind_review": {
+   "text": "request to review the charge"
+  },
+  "journey.ticket_done": {
+   "text": "Done. I've raised it, and your reference number is {ref}. Our {dept} team will get back to you by {date}."
+  },
+  "journey.txn_not_found": {
+   "text": "I couldn't find a transaction like that in your recent activity."
+  },
+  "journey.lead_offer": {
+   "text": "Would you like someone from our team to call you to help you open it?"
+  },
+  "journey.lead_done": {
+   "text": "Lovely. Someone from our team will call you on this number by {date}. Your reference is {ref}. You can also open a Digital account yourself in the AU 0101 app with a quick video KYC."
+  },
+  "journey.lead_no_number": {
+   "text": "You can open a Digital account yourself in the AU 0101 app with a quick video KYC, or visit any AU branch."
+  },
+  "journey.busy_callback": {
+   "text": "I'm sorry for the wait. Everyone in our {dept} team is busy right now. I've booked a callback for you, reference {ref}, and they'll call you on your registered number by {date}. Thank you for calling AU Bank."
+  },
+  "journey.fraud_side_q": {
+   "text": "I can't confirm that from here. The fraud team can check it with you.",
+   "note": "Regression pack, 17 Nov: a side question or a detail while a fraud offer waits keeps the offer (it used to be dropped, the payment forgotten, and \"yes, raise a complaint\" re-listed debits). Answers never promise an outcome."
+  },
+  "journey.fraud_context": {
+   "text": "No, I'll pass on everything we've discussed, so you won't need to repeat it."
+  },
+  "journey.fraud_noted": {
+   "text": "Thank you, I'll pass that on to the fraud team."
+  },
+  "journey.fraud_restate_ticket": {
+   "text": "Shall I raise the complaint and connect you to them now?"
+  },
+  "journey.fraud_restate": {
+   "text": "Shall I connect you to them now?"
+  },
+  "journey.fraud_pick_more": {
+   "text": "That's okay. Do you remember roughly how much it was, or whether it was by UPI, card or ATM? If you'd rather, I can connect you to our fraud team now."
+  },
+  "journey.fraud_safe_q": {
+   "text": "I can't confirm that from the transactions alone. If you think someone has used your account, I can connect you to our fraud team right away. Shall I?"
+  },
+  "journey.lost_no_block": {
+   "text": "All right, I won't block it. While the card is out of your hands, someone could still use it, so our fraud team should look at other ways to protect you. Shall I connect you to them now?",
+   "note": "\"my card is stolen, but don't block it\": no block is offered; the risk is said and the fraud team offered"
+  },
+  "journey.action_later_unblock": {
+   "text": "Yes. It stays blocked until you ask us to unblock it. Just call us when you're ready and it can be done on the call.",
+   "note": "\"can I unblock it tomorrow?\" is a question about later, not an order to do it now"
+  },
+  "journey.action_later": {
+   "text": "Yes, you can. Just call us when you're ready and it can be done on the call."
+  },
+  "journey.restate_transfer": {
+   "text": "I'd connect you to our {dept} team, who handle {what}. Shall I go ahead?"
+  },
+  "bank.acct": {
+   "text": "your {type} account ending {l4}"
+  },
+  "bank.acct_salary": {
+   "text": "your salary account, the {type} account ending {l4}",
+   "note": "the caller said \"salary account\": said back, with which account it is (call fbe5b9aa heard only \"your Value account\")"
+  },
+  "bank.balance": {
+   "text": "You have ₹{amt} in {acct}."
+  },
+  "bank.balance_hold": {
+   "text": "Of that, ₹{hold} is on hold for {reason}, so you can use ₹{avail} right now."
+  },
+  "bank.avail_line": {
+   "text": "You can use ₹{avail} from {acct} right now.",
+   "note": "\"how much can I use right now?\": the usable amount per account, not the whole balance again"
+  },
+  "bank.avail_hold": {
+   "text": "₹{hold} of it is on hold for {reason}."
+  },
+  "bank.hold_not_debit": {
+   "text": "No. The ₹{hold} is on hold for {reason}. It hasn't been taken from your account as a completed payment yet. Until it clears, you can use ₹{avail}.",
+   "note": "\"has that 2,500 been deducted?\" about a hold: a hold is not a completed payment"
+  },
+  "bank.hold_what": {
+   "text": "The ₹{hold} is on hold on {acct}, for {reason}. The payment hasn't been settled yet, so the money hasn't left your account. Until it clears, you can use ₹{avail}."
+  },
+  "bank.total_scope": {
+   "text": "No. That total is only money you paid out. Money people sent you isn't included.",
+   "note": "\"does that include money people sent me?\" after a total: totals are money paid out only (successful debits)"
+  },
+  "bank.txn_empty": {
+   "text": "I don't see any transactions on your account ending {l4}."
+  },
+  "bank.hold_pending": {
+   "text": "The ₹{hold} on {acct}, for {reason}, is still on hold. I don't see a reversal recorded yet."
+  },
+  "bank.no_hold_any": {
+   "text": "I don't see any amount on hold on your accounts."
+  },
+  "bank.avail_after_hold": {
+   "text": "{Acct} has ₹{bal}. ₹{hold} of it is on hold for {reason}, so after the hold you can use ₹{avail}."
+  },
+  "bank.avail_inactive": {
+   "text": "{Acct} shows ₹{avail}, but the account is inactive, so payments from it may not go through until it's active again."
+  },
+  "bank.pending_still": {
+   "text": "The ₹{amt} payment to {who} on {date} is still processing. It hasn't been reversed or completed yet."
+  },
+  "bank.pending_reversed": {
+   "text": "Yes. The ₹{amt} payment to {who} on {date} was reversed, so the money came back to your account."
+  },
+  "bank.pending_none": {
+   "text": "I don't see any pending payment on your accounts right now."
+  },
+  "bank.txn_each_overview": {
+   "text": "I'll go through your {n} accounts one at a time, starting with the account ending {l4}."
+  },
+  "bank.txn_each_intro": {
+   "text": "On your account ending {l4}, here are the last {k}."
+  },
+  "bank.txn_each_only": {
+   "text": "I found only {k} transaction{s} on your account ending {l4}."
+  },
+  "bank.no_hold": {
+   "text": "There's nothing on hold, so all of it is available."
+  },
+  "bank.which": {
+   "text": "You have {n} accounts. {list}. Which one would you like me to check?"
+  },
+  "bank.cards_have": {
+   "text": "You have {n} {what}. {list}."
+  },
+  "bank.which_item": {
+   "text": "You have {n} {what}. {list}. Which one do you mean?"
+  },
+  "bank.no_match": {
+   "text": "I couldn't find one that matches. {list}. Which one did you mean?"
+  },
+  "bank.salary_is": {
+   "text": "Your salary comes into {acct}{employer}."
+  },
+  "bank.no_salary": {
+   "text": "I don't see salary credits on any of your accounts, so I can't tell which one is your salary account."
+  },
+  "bank.linked_dc": {
+   "text": "{Acct} has a {variant} debit card ending {l4}, and it's {status}."
+  },
+  "bank.no_dc_on": {
+   "text": "There's no debit card on {acct}."
+  },
+  "bank.variant": {
+   "text": "That's your {type} savings account, ending {l4}."
+  },
+  "bank.acct_status": {
+   "text": "{Acct} is {status}.",
+   "note": "Hindi: the account as the subject is \"आपका ... वाला ... अकाउंट\" (\"{acct}\" is the \"of / in\" form, आपके ... वाले); call a6545287 heard \"आपके 4521 वाले Value अकाउंट चालू है\""
+  },
+  "bank.inactive_note": {
+   "text": "It's been inactive for a while. A quick visit to the app or a branch makes it active again."
+  },
+  "bank.amb_rule": {
+   "text": "{Acct} needs an average monthly balance of ₹{req}{branch}."
+  },
+  "bank.amb_none": {
+   "text": "Good news: {acct} has no minimum balance requirement."
+  },
+  "bank.amb_now_ok": {
+   "text": "This month your average so far is ₹{mtd}, so you're above it."
+  },
+  "bank.amb_now_short": {
+   "text": "This month your average so far is ₹{mtd}, which is ₹{gap} short, so a charge may apply if it stays that way."
+  },
+  "bank.charge_line": {
+   "text": "₹{amt} was charged on {date} for {what}{rev}."
+  },
+  "bank.amb_charge_why": {
+   "text": "That's because last month's average balance was ₹{last}, below the ₹{req} needed."
+  },
+  "bank.no_charges": {
+   "text": "I don't see any charges on {acct} recently."
+  },
+  "bank.charge_dispute": {
+   "text": "If you think a charge is wrong, I can raise a request to review it."
+  },
+  "bank.txn_intro": {
+   "text": "Here are the last {k} transactions on your account ending {l4}.",
+   "note": "transactions"
+  },
+  "bank.txn_intro_salary": {
+   "text": "Here are the last {k} transactions on your salary account ending {l4}."
+  },
+  "bank.txn_found": {
+   "text": "I found {k} on your account ending {l4}."
+  },
+  "bank.txn_merged_intro": {
+   "text": "Here are your latest {k} transactions across your accounts."
+  },
+  "bank.txn_merged_found": {
+   "text": "I found {k} across your accounts."
+  },
+  "bank.txn_only": {
+   "text": "There are only {k} transactions on your account ending {l4}.",
+   "note": "fewer transactions than the caller asked for: say so, so it never sounds like the request was ignored"
+  },
+  "bank.txn_only_one": {
+   "text": "There's only one transaction on your account ending {l4}."
+  },
+  "bank.txn_merged_only": {
+   "text": "There are only {k} transactions across your accounts."
+  },
+  "bank.acct_inactive_note": {
+   "text": "That account is inactive, which is why there's so little on it."
+  },
+  "bank.more_offer": {
+   "text": "Want the other {k}?"
+  },
+  "bank.txn_tail": {
+   "text": {
+    "success": {
+     "Debit": "",
+     "Credit": ""
+    },
+    "pending": {
+     "Debit": ", and it's still processing",
+     "Credit": ", and it's still processing"
+    },
+    "failed": {
+     "Debit": ". It was unsuccessful, so no money was deducted",
+     "Credit": ", but it didn't come through"
+    },
+    "returned": {
+     "Debit": ". It was returned, so the payment wasn't completed",
+     "Credit": ", but it was returned"
+    },
+    "reversed": {
+     "Debit": ", and it was reversed, so the money came back to you",
+     "Credit": ", but it was later reversed"
+    },
+    "unknown": {
+     "Debit": ", but I can't confirm whether it went through",
+     "Credit": ", but I can't confirm whether it came through"
+    }
+   },
+   "locked": "Word list the code uses to build sentences (grammar), not a sentence to edit.",
+   "note": "one transaction as a spoken sentence (built in _txn_line): when, what, how much, to or from whom, and its status. \"Nothing extra\" for a completed one; the other statuses say plainly what happened to the money."
+  },
+  "bank.txn_total": {
+   "text": "That adds up to ₹{amt} across {k} payments from the account ending {l4}."
+  },
+  "bank.txn_none": {
+   "text": "I don't see a matching transaction on the account ending {l4}."
+  },
+  "bank.note_atm_not_dispensed": {
+   "text": "The ATM recorded that the cash wasn't dispensed, so the ₹{amt} will come back to your account automatically by {due}. If it's later than that, the bank pays you ₹100 for every day of delay.",
+   "note": "what the bank's records say about a transaction (structured note keys from the core banking system)"
+  },
+  "bank.note_upi_pending": {
+   "text": "It's waiting for confirmation from the other person's bank. If it doesn't go through, the money comes back to you automatically by the next working day."
+  },
+  "bank.note_emi_insufficient": {
+   "text": "the EMI was presented at {time}, when the balance was ₹{balance}, and your salary came in at {credit_time}"
+  },
+  "bank.note_declined_blocked": {
+   "text": "It was declined because the card was temporarily blocked, so no money was taken."
+  },
+  "bank.reason_insufficient_balance": {
+   "text": "the account didn't have enough balance when it was presented"
+  },
+  "bank.dup_found": {
+   "text": "Yes, it looks like a double charge: ₹{amt} at {who} went through twice on {date}, a minute apart."
+  },
+  "bank.dup_none": {
+   "text": "I don't see any duplicate payments recently."
+  },
+  "bank.dispute_offer": {
+   "text": "I can raise a dispute for it right away if you'd like."
+  },
+  "bank.fd": {
+   "text": "Your FD ending {l4} has ₹{p} at {rate}%. It {verb} on {date} for ₹{mat}.",
+   "note": "FD"
+  },
+  "bank.fd_verb": {
+   "text": [
+    "matures",
+    "matured"
+   ],
+   "locked": "Word list the code uses to build sentences (grammar), not a sentence to edit."
+  },
+  "bank.fd_count": {
+   "text": "You have {n} fixed deposits."
+  },
+  "bank.fd_first": {
+   "text": "The first to mature is your FD ending {l4}, on {date}."
+  },
+  "bank.fd_amount_then": {
+   "text": "You'll receive about ₹{mat} then."
+  },
+  "bank.fd_amount": {
+   "text": "On maturity you'll receive about ₹{mat} from your FD ending {l4}, on {date}."
+  },
+  "bank.fd_payout": {
+   "text": "It pays interest every quarter, so the ₹{p} principal comes back on maturity."
+  },
+  "bank.fd_rate": {
+   "text": "Your FD ending {l4} earns {rate}% a year."
+  },
+  "bank.fd_renew": {
+   "text": "Yes, your FD ending {l4} is set to renew automatically when it matures."
+  },
+  "bank.fd_no_renew": {
+   "text": "No, your FD ending {l4} won't renew on its own. The money goes to your savings account on maturity."
+  },
+  "bank.fd_break": {
+   "text": "If you closed your FD ending {l4} today, you'd get roughly ₹{amt}. That's an estimate with the 1% early-closure penalty. The exact amount is confirmed when it's closed."
+  },
+  "bank.fd_break_how": {
+   "text": "I can't close it on this call, but you can do it in the AU 0101 app or at a branch."
+  },
+  "bank.no_fd": {
+   "text": "I don't see any fixed deposit in your name."
+  },
+  "bank.loan": {
+   "text": "Your {type} loan ending {l4} has ₹{out} outstanding.",
+   "note": "loans"
+  },
+  "bank.emi_next": {
+   "text": "Your next EMI of ₹{emi} is due on {date}."
+  },
+  "bank.loan_count_one": {
+   "text": "You have one active loan, your {type} loan ending {l4}."
+  },
+  "bank.loan_count": {
+   "text": "You have {n} active loans: {list}."
+  },
+  "bank.emi_next_of": {
+   "text": "The EMI on your {type} loan{ending} is ₹{emi}, due on {date}."
+  },
+  "bank.emi_count": {
+   "text": "You've paid {paid} EMIs and {left} are left."
+  },
+  "bank.emi_paid": {
+   "text": "Your EMI of ₹{emi} due on {date} was paid successfully."
+  },
+  "bank.emi_last_debit": {
+   "text": "The last EMI taken from your account for your {type} loan{ending} was ₹{emi}, on {date}."
+  },
+  "bank.emi_paid_due_only": {
+   "text": "The last EMI paid on your {type} loan{ending} was ₹{emi}, due on {date}. I can't see the exact day it was debited."
+  },
+  "bank.emi_last_failed": {
+   "text": "The ₹{emi} EMI presented on {date} was unsuccessful, so no money was deducted for it."
+  },
+  "bank.emi_not_recovered": {
+   "text": "No, the ₹{emi} EMI on your {type} loan{ending}, due on {date}, hasn't been paid yet. It was returned because {reason}."
+  },
+  "bank.repaid_of": {
+   "text": "On your {type} loan{ending}, you've paid {paid} EMIs. Of the ₹{total} loan amount, ₹{repaid} has been repaid and ₹{out} is still outstanding."
+  },
+  "bank.repaid_across": {
+   "text": "Across your {n} loans, ₹{amt} has been repaid so far."
+  },
+  "bank.emi_paid_day": {
+   "text": "Your last EMI on your {type} loan{ending}, ₹{emi}, was paid on {paid}."
+  },
+  "bank.emi_paid_on": {
+   "text": "The EMI on your {type} loan{ending}, ₹{emi} due on {date}, was paid. It was taken from your account on {paid}."
+  },
+  "bank.emis_across": {
+   "text": "Across your {n} loans, you've paid {total} EMIs so far: {parts}."
+  },
+  "bank.emi_paid_of": {
+   "text": "The EMI on your {type} loan{ending}, ₹{emi} due on {date}, was paid successfully."
+  },
+  "bank.emi_count_of": {
+   "text": "On your {type} loan{ending}, you've paid {paid} EMIs and {left} are left."
+  },
+  "bank.emi_no_history": {
+   "text": "I can't see any EMI paid yet on your {type} loan."
+  },
+  "bank.emi_bounced": {
+   "text": "The EMI on your {type} loan{ending}, ₹{emi} due on {date}, didn't go through: {reason}."
+  },
+  "bank.emi_bounce_charge": {
+   "text": "A bounce charge of ₹{amt} was added for it."
+  },
+  "bank.emi_bounce_time": {
+   "text": "Looking at your account, {note}."
+  },
+  "bank.no_bounce": {
+   "text": "Good news: no bounce or late-payment charges on your {type} loan."
+  },
+  "bank.emi_up": {
+   "text": "Your EMI went up from ₹{old} to ₹{new} because the {type} loan is on a floating rate, and the rate moved from {r0}% to {r1}% on {date}."
+  },
+  "bank.emi_same": {
+   "text": "Your {type} loan EMI hasn't changed. It's ₹{emi}."
+  },
+  "bank.foreclose": {
+   "text": "To close your {type} loan today you'd need about ₹{amt}: ₹{out} outstanding{charge}. That's an estimate. The loan team gives the exact figure."
+  },
+  "bank.foreclose_team": {
+   "text": "The exact amount to close it, including any charge, comes from our loan team as a foreclosure letter. I can connect you to them."
+  },
+  "bank.no_payment_made": {
+   "text": "I haven't made any payment."
+  },
+  "bank.no_loan": {
+   "text": "I don't see any loan in your name."
+  },
+  "bank.cc_due": {
+   "text": "On your {variant} card ending {l4}, the total due is ₹{total} and the minimum due is ₹{min}, by {date}.",
+   "note": "credit cards"
+  },
+  "bank.cc_paid_up": {
+   "text": "Your {variant} card ending {l4} has nothing due right now."
+  },
+  "bank.cc_limit": {
+   "text": "Your {variant} card ending {l4} has ₹{avail} available out of a ₹{limit} limit."
+  },
+  "bank.cc_pay_processing": {
+   "text": "I can see your payment of ₹{amt} from {date}. It's still being processed, which is why the outstanding hasn't changed yet. It usually shows within 1 to 2 working days."
+  },
+  "bank.cc_pay_posted": {
+   "text": "Your last payment of ₹{amt} on {date} has gone through."
+  },
+  "bank.cc_statement": {
+   "text": "Your latest statement for the card ending {l4} was generated on {date}, and the previous bill was {paid}."
+  },
+  "bank.paid_words": {
+   "text": [
+    "paid in full",
+    "not fully paid"
+   ],
+   "locked": "Word list the code uses to build sentences (grammar), not a sentence to edit."
+  },
+  "bank.cc_lounge": {
+   "text": "Your {variant} card has {total} lounge visits a quarter. You've used {used}, so {left} are left."
+  },
+  "bank.cc_no_lounge": {
+   "text": "Your {variant} card doesn't include complimentary lounge visits."
+  },
+  "bank.cc_fee": {
+   "text": "The ₹{fee} annual fee on your {variant} card was charged on {date}. It's waived only when the previous year's spend reaches ₹{waiver}. Your spend was ₹{spend}."
+  },
+  "bank.cc_no_fee": {
+   "text": "Your {variant} card has no annual fee charged."
+  },
+  "bank.cc_intl_on": {
+   "text": "International use is switched on for your card ending {l4}, and you have ₹{avail} available, so a payment of about ₹{amt} would fit."
+  },
+  "bank.cc_intl_off": {
+   "text": "International use is switched off on your card ending {l4}. I can switch it on for you if you'd like."
+  },
+  "bank.cc_txns": {
+   "text": "Here are the recent spends on your card ending {l4}."
+  },
+  "bank.cc_txn": {
+   "text": "{when}, you spent ₹{amt} at {who}{intl}."
+  },
+  "bank.cc_intl": {
+   "text": ", an international payment"
+  },
+  "bank.no_cc": {
+   "text": "I don't see a credit card in your name."
+  },
+  "bank.dc_state": {
+   "text": "Your debit card ending {l4} is {status}. {controls}",
+   "note": "debit cards"
+  },
+  "bank.dc_controls": {
+   "text": "Online payments are {ecom}, shop payments {pos}, tap-to-pay {contactless}, ATM withdrawals {atm}, and international use {international}."
+  },
+  "bank.on_off": {
+   "text": [
+    "on",
+    "off"
+   ],
+   "locked": "Word list the code uses to build sentences (grammar), not a sentence to edit."
+  },
+  "bank.status_words": {
+   "text": {
+    "active": "active",
+    "temp_blocked": "temporarily blocked",
+    "blocked": "permanently blocked",
+    "inactive": "inactive"
+   },
+   "locked": "Word list the code uses to build sentences (grammar), not a sentence to edit."
+  },
+  "bank.dc_declines": {
+   "text": "I can see {n} declined payments of ₹{amt} at {who} on {date}. They were declined because {why}, so no money was taken."
+  },
+  "bank.dc_blocked_why": {
+   "text": "your card is temporarily blocked"
+  },
+  "bank.dc_pos_off_why": {
+   "text": "shop payments are switched off on your card"
+  },
+  "bank.dc_cause": {
+   "text": "Your debit card ending {l4} won't work at shops right now because {why}."
+  },
+  "bank.dc_unknown_why": {
+   "text": "of the card's settings"
+  },
+  "bank.dc_offer_unblock": {
+   "text": "Would you like me to unblock your card ending {l4}?"
+  },
+  "bank.dc_pos_also_off": {
+   "text": "Shop payments are also switched off on it. We can switch those on next."
+  },
+  "bank.dc_offer_pos": {
+   "text": "Would you like me to switch shop payments on for your card ending {l4}?"
+  },
+  "bank.dc_no_declines": {
+   "text": "I don't see any declined payments on your debit card recently."
+  },
+  "bank.no_dc": {
+   "text": "I don't see a debit card in your name."
+  },
+  "bank.offer_change": {
+   "text": "Would you like me to change anything?"
+  },
+  "bank.sum_accounts": {
+   "text": "You have {n} savings {word} with ₹{amt} in total.",
+   "note": "summary"
+  },
+  "bank.sum_fd": {
+   "text": "{n} active {word} worth ₹{amt}."
+  },
+  "bank.sum_loan": {
+   "text": "{n} {word} with ₹{amt} outstanding."
+  },
+  "bank.sum_cc": {
+   "text": "{n} credit {word} with ₹{amt} outstanding."
+  },
+  "bank.sum_total": {
+   "text": "Your total deposits come to ₹{dep}{loans}."
+  },
+  "bank.sum_loans_total": {
+   "text": ", and total loans outstanding are ₹{amt}"
+  },
+  "bank.highest": {
+   "text": "Your highest balance is in {acct}, with ₹{amt}."
+  },
+  "bank.highest_loan": {
+   "text": "The loan with the most outstanding is your {type} loan, at ₹{amt}."
+  },
+  "bank.upcoming": {
+   "text": "In the next 7 days: {items}."
+  },
+  "bank.upcoming_none": {
+   "text": "Nothing is due in the next 7 days: no EMI, card bill or FD maturity."
+  },
+  "bank.inactive": {
+   "text": "Yes, {items} {verb} inactive."
+  },
+  "bank.inactive_none": {
+   "text": "No, everything you hold is active."
+  },
+  "bank.cannot_see": {
+   "text": "I'm not able to see that detail, but someone from our team can help with it."
+  },
+  "card.debit": {
+   "text": "debit card"
+  },
+  "card.credit": {
+   "text": "{v} credit card"
+  },
+  "card.ending": {
+   "text": "{card} ending {l4}"
+  },
+  "card.which": {
+   "text": "Sure, I can do that. Which card is it: {list}?"
+  },
+  "card.none_match": {
+   "text": "I can't find a card ending {l4}. Your cards are: {list}."
+  },
+  "card.no_cards": {
+   "text": "I don't see any card in your name."
+  },
+  "card.confirm_temp_block": {
+   "text": "Just to confirm, I'll temporarily block your {card}. You can unblock it any time, and if you'd rather block it permanently, just say so. Shall I go ahead?"
+  },
+  "card.confirm_temp_block_asked": {
+   "text": "Just to confirm, I'll temporarily block your {card}. You can unblock it any time. Shall I go ahead?",
+   "note": "The caller asked for a temporary block: confirm just that, without offering a permanent one they didn't ask about"
+  },
+  "card.confirm_block": {
+   "text": "Just to confirm, I'll permanently block your {card}. This can't be undone, and we'll send you a new card. Shall I go ahead?"
+  },
+  "card.confirm_unblock": {
+   "text": "Just to confirm, I'll unblock your {card} so you can use it again. Shall I go ahead?"
+  },
+  "card.confirm_controls": {
+   "text": "Just to confirm, on your {card} I'll {changes}. Shall I go ahead?"
+  },
+  "card.turn_on": {
+   "text": "switch on {what}"
+  },
+  "card.turn_off": {
+   "text": "switch off {what}"
+  },
+  "card.and": {
+   "text": " and "
+  },
+  "card.done_temp_block": {
+   "text": "Done. Your {card} is now temporarily blocked."
+  },
+  "card.done_block": {
+   "text": "Done. Your {card} is now permanently blocked, and a replacement card will be sent to your registered address."
+  },
+  "card.done_unblock": {
+   "text": "Done. Your {card} is active again."
+  },
+  "card.done_controls": {
+   "text": "Done. On your {card}, {state}."
+  },
+  "card.reference": {
+   "text": "Your reference number is {ref}, and you'll get an SMS confirming it."
+  },
+  "card.already_blocked": {
+   "text": "Your {card} is already {state}, so it can't be used for any payment.",
+   "note": "Already blocked: say what that means for the caller (it can't be used), not \"nothing to change\" (PM review, 17 Nov)"
+  },
+  "card.already": {
+   "text": "Your {card} is already {state}, so there's nothing to change."
+  },
+  "card.not_blocked": {
+   "text": "Your {card} isn't blocked. It's working normally."
+  },
+  "card.perm_blocked": {
+   "text": "Your {card} was permanently blocked, so it can't be switched back on. Our cards team can arrange a replacement."
+  },
+  "card.blocked_first": {
+   "text": "Your {card} is blocked right now, so I'd need to unblock it before changing its settings. Shall I unblock it?"
+  },
+  "card.debit_only": {
+   "text": "Those settings are only on debit cards. For your credit card I can switch international use on or off."
+  },
+  "card.failed": {
+   "text": "I'm sorry, I couldn't complete that just now, and nothing has been changed on your card. I can connect you to our cards team to do it for you. Shall I?"
+  },
+  "card.unconfirmed": {
+   "text": "I sent the request, but I couldn't confirm it went through, so please don't rely on it yet. Let me connect you to our cards team to check. Shall I?"
+  },
+  "smalltalk.thanks": {
+   "text": "You're welcome!"
+  },
+  "smalltalk.bye": {
+   "text": "Thank you for calling AU Bank. Have a good day!"
+  },
+  "smalltalk.waiting": {
+   "text": "Yes, I'm here. Go ahead."
+  },
+  "smalltalk.ack": {
+   "text": "Is there anything else I can check for you?"
+  },
+  "smalltalk.hello_again": {
+   "text": "I'm here. How can I help?"
+  },
+  "agenda.intro3": {
+   "text": "You've asked about three things: {a}, {b} and {c}. Let me take them one by one."
+  },
+  "agenda.intro_many": {
+   "text": "You've asked about {n} things. Let me take them one at a time, starting with {a}."
+  },
+  "agenda.next": {
+   "text": "Shall I go on to {a}?"
+  },
+  "agenda.back": {
+   "text": "Shall I go back to {a}?"
+  },
+  "agenda.followup_unrecognised_debit": {
+   "text": "You also said money got deducted. Is there a payment you don't recognise that I should look into?"
+  },
+  "agenda.stopped": {
+   "text": "Okay, I'll leave those. Is there anything else I can help with?"
+  },
+  "agenda.bye": {
+   "text": "Before you go, you'd also asked about {a}. Shall I cover that?"
+  },
+  "voice.greeting": {
+   "text": "Hello! This is AU Small Finance Bank's virtual assistant. This call is recorded for quality and security. You can ask me in English or Hindi.",
+   "note": "The first line is the disclosure every call must start with: an AI assistant, and the call is recorded. Check any change with compliance."
+  },
+  "voice.reprompt": {
+   "text": "Are you still there? You can ask me about our accounts, deposits, cards or loans.",
+   "note": "The first line is the disclosure every call must start with: an AI assistant, and the call is recorded."
+  },
+  "voice.code_reminder": {
+   "text": "Please type the six-digit code sent to your mobile on the keypad. Take your time.",
+   "note": "Silence while a keypad code is awaited: a reminder about the code, not the general \"are you still there?\"."
+  },
+  "voice.goodbye": {
+   "text": "I haven't heard anything, so I'll end the call now. Thank you for calling AU Bank."
+  },
+  "voice.hold": {
+   "text": "Thank you for waiting. Someone from our team will be with you shortly."
+  },
+  "voice.unclear_twice": {
+   "text": "I'm sorry, I'm still having trouble hearing you. You can say \"agent\" and I'll connect you to a colleague, or try again from a quieter place."
+  },
+  "voice.unclear": {
+   "text": "Sorry, I didn't catch that. Could you say it again?"
+  },
+  "choose.credit_card.monthly_spend": {
+   "text": "Roughly how much do you spend on a card in a month, and on what mostly: shopping, fuel or travel?"
+  },
+  "choose.credit_card.travel": {
+   "text": "And do you travel often, or does airport lounge access matter to you?"
+  },
+  "choose.savings_account.purpose": {
+   "text": "What will you mainly use the account for: your salary, everyday savings, or something else?"
+  },
+  "choose.savings_account.balance_preference": {
+   "text": "And would you prefer a zero-balance account, or can you keep some balance in it? Roughly how much?"
+  },
+  "choose.fd.tenure": {
+   "text": "For how long would you like to keep the money in the FD?"
+  },
+  "choose.fd.senior_citizen": {
+   "text": "And are you 60 or older? Senior citizens get a higher rate."
+  },
+  "choose.first": {
+   "text": "Happy to help you pick one. ",
+   "note": "Said before the first question of a guided flow."
+  },
+  "offer.unverified": {
+   "text": "Would you like me to check this for your own {thing}? I'll just need to verify you quickly."
+  },
+  "offer.verified": {
+   "text": "Would you like me to check your own {thing}?"
+  },
+  "offer.own_question": {
+   "text": "For my own {thing}: {q}",
+   "locked": "Not said to the caller: the question the agent asks itself when the caller says yes."
+  },
+  "answer.compare_missing": {
+   "text": "I don't have the details for {names} to hand, so I can't compare that side properly.",
+   "note": "A comparison where one named product has no supporting passage: said by code, never left to the model."
+  },
+  "dept.fraud": {
+   "text": "Fraud & Risk",
+   "note": "The team's name as the agent says it (\"&\" is said as \"and\")."
+  },
+  "dept.credit_cards": {
+   "text": "Credit Cards",
+   "note": "The team's name as the agent says it (\"&\" is said as \"and\")."
+  },
+  "dept.debit_cards": {
+   "text": "Debit Cards",
+   "note": "The team's name as the agent says it (\"&\" is said as \"and\")."
+  },
+  "dept.payments": {
+   "text": "Payments & Disputes",
+   "note": "The team's name as the agent says it (\"&\" is said as \"and\")."
+  },
+  "dept.loans": {
+   "text": "Loans",
+   "note": "The team's name as the agent says it (\"&\" is said as \"and\")."
+  },
+  "dept.deposits": {
+   "text": "Accounts & Deposits",
+   "note": "The team's name as the agent says it (\"&\" is said as \"and\")."
+  },
+  "dept.digital": {
+   "text": "Digital Banking",
+   "note": "The team's name as the agent says it (\"&\" is said as \"and\")."
+  },
+  "dept.sales": {
+   "text": "New Accounts & Sales",
+   "note": "The team's name as the agent says it (\"&\" is said as \"and\")."
+  },
+  "dept.priority": {
+   "text": "Priority Banking",
+   "note": "The team's name as the agent says it (\"&\" is said as \"and\")."
+  },
+  "dept.general": {
+   "text": "Customer Care",
+   "note": "The team's name as the agent says it (\"&\" is said as \"and\")."
+  }
+ },
+ "aliases": {
+  "core.manipulation": "core.out_of_scope",
+  "journey.fraud_sorry": "core.fraud_first",
+  "journey.fraud_open_otp_shared": "core.fraud_open_otp_shared",
+  "journey.fraud_open_unrecognised_debit": "core.fraud_open_unrecognised_debit",
+  "journey.fraud_open_lost_card": "core.fraud_open_lost_card"
+ },
+ "settings": {
+  "departments": {
+   "fraud": {
+    "priority": 1,
+    "always_open": true,
+    "handles": "unauthorised transactions, lost or stolen cards, shared OTP or PIN, phishing"
+   },
+   "credit_cards": {
+    "priority": 2,
+    "always_open": false,
+    "handles": "bills, payments, limits, fees, statements, rewards, replacement"
+   },
+   "debit_cards": {
+    "priority": 3,
+    "always_open": false,
+    "handles": "replacement, PIN, declines, card services"
+   },
+   "payments": {
+    "priority": 2,
+    "always_open": false,
+    "handles": "failed or pending UPI / IMPS / NEFT, ATM cash not dispensed, double charges"
+   },
+   "loans": {
+    "priority": 3,
+    "always_open": false,
+    "handles": "EMIs, foreclosure, statements, rate changes, bounce charges, closure letters"
+   },
+   "deposits": {
+    "priority": 3,
+    "always_open": false,
+    "handles": "FD / RD servicing and closure, account maintenance, KYC, charges"
+   },
+   "digital": {
+    "priority": 3,
+    "always_open": false,
+    "handles": "AU 0101 app, net banking, UPI registration"
+   },
+   "sales": {
+    "priority": 3,
+    "always_open": false,
+    "handles": "opening accounts, new loans, cards and deposits"
+   },
+   "priority": {
+    "priority": 2,
+    "always_open": false,
+    "handles": "Royale customers and their relationship managers"
+   },
+   "general": {
+    "priority": 3,
+    "always_open": false,
+    "handles": "complaints, escalations and anything else"
+   }
+  },
+  "tat_days": {
+   "atm_cash_not_dispensed": 5,
+   "payment_failed_debited": 5,
+   "transfer_not_received": 1,
+   "double_charge": 7,
+   "unrecognised_transaction": 10,
+   "charge_review": 7,
+   "service_complaint": 7,
+   "callback": 1,
+   "lead": 1
+  },
+  "issues": {
+   "atm_cash_not_dispensed": {
+    "department": "payments",
+    "ticket": "complaint",
+    "category": "atm_cash_not_dispensed",
+    "search": "atm"
+   },
+   "payment_failed_debited": {
+    "department": "payments",
+    "ticket": "complaint",
+    "category": "payment_failed_debited",
+    "search": ""
+   },
+   "transfer_not_received": {
+    "department": "payments",
+    "ticket": "complaint",
+    "category": "transfer_not_received",
+    "search": ""
+   },
+   "double_charge": {
+    "department": "payments",
+    "ticket": "dispute",
+    "category": "double_charge",
+    "search": ""
+   },
+   "charge_review": {
+    "department": "deposits",
+    "ticket": "service_request",
+    "category": "charge_review",
+    "search": ""
+   },
+   "service_complaint": {
+    "department": "general",
+    "ticket": "complaint",
+    "category": "service_complaint",
+    "search": ""
+   },
+   "other": {
+    "department": "general",
+    "ticket": "complaint",
+    "category": "service_complaint",
+    "search": ""
+   }
+  }
+ },
+ "prompts": {
+  "strategy": {
+   "direct": "Answer exactly the detail asked, in one to three short sentences.",
+   "product_overview": "Broad question about one product: in 40 to 65 words say what it is and who it suits, its two or three most useful benefits and its main fee. Leave the rest out, then offer to go into one part (for a card: rewards, fees or eligibility).",
+   "full": "The caller asked for the full details: cover every point they asked for in short spoken sentences, in a natural order, without skipping conditions.",
+   "compare": "Compare the products the caller named, side by side on the points that matter most to them (fee, main benefit, who it suits), in short spoken sentences. Cover every named product that has a source; never describe one that has no source.",
+   "overview": "The caller wants the whole picture: give a short spoken overview - the range from lowest to highest and at most three examples - then ask which one they are interested in.",
+   "recommend": "Recommend one or two products from the sources that fit the caller's needs, each with one short reason, and mention the main eligibility condition if the sources give one. Do not list every option. End by asking if they'd like to know more about one of them."
+  },
+  "language": {
+   "en": "reply in English",
+   "hi": "reply in everyday spoken Hindi, in Devanagari script, the way people talk today: keep common banking words in English as people say them (अकाउंट, बैलेंस, चार्ज, मिनिमम बैलेंस, डेबिट कार्ड, पेमेंट, ट्रांज़ैक्शन, EMI, FD), never bookish words (not शुल्क, रख-रखाव, आवश्यकता, न्यूनतम, लेनदेन, भुगतान); keep product names and numbers exactly as written",
+   "hinglish": "reply in Hinglish - conversational Hindi written in Latin script mixed with English, like the caller"
+  }
+ },
+ "pronunciation": {
+  "spelling": {
+   "en": "A.U.",
+   "hi": "एयू"
+  },
+  "rules": {
+   "hi": [
+    [
+     "\\bMohd\\.?(?=\\s)",
+     "Mohammad"
+    ],
+    [
+     "\\bSmt\\.(?=\\s)",
+     "Shrimati"
+    ],
+    [
+     "\\bPvt\\.(?=\\s)",
+     "Private"
+    ],
+    [
+     "Zenith\\s*\\+",
+     "ज़ेनिथ प्लस"
+    ],
+    [
+     "\\bLaksya\\b",
+     "लक्ष्य"
+    ],
+    [
+     "\\bVikaas\\b",
+     "विकास"
+    ],
+    [
+     "\\bAnanta\\b",
+     "अनंता"
+    ],
+    [
+     "\\bRoyale\\b",
+     "रॉयल"
+    ],
+    [
+     "\\bBSBDA\\b",
+     "बी एस बी डी ए"
+    ],
+    [
+     "\\b0101\\b",
+     "शून्य एक शून्य एक"
+    ]
+   ],
+   "en": [
+    [
+     "\\bMohd\\.?(?=\\s)",
+     "Mohammad"
+    ],
+    [
+     "\\bSmt\\.(?=\\s)",
+     "Shrimati"
+    ],
+    [
+     "\\bPvt\\.(?=\\s)",
+     "Private"
+    ],
+    [
+     "Zenith\\s*\\+",
+     "Zenith Plus"
+    ],
+    [
+     "\\b0101\\b",
+     "zero one zero one"
+    ],
+    [
+     "\\bBSBDA\\b",
+     "B S B D A"
+    ]
+   ],
+   "hinglish": [
+    [
+     "\\bMohd\\.?(?=\\s)",
+     "Mohammad"
+    ],
+    [
+     "\\bSmt\\.(?=\\s)",
+     "Shrimati"
+    ],
+    [
+     "\\bPvt\\.(?=\\s)",
+     "Private"
+    ],
+    [
+     "Zenith\\s*\\+",
+     "Zenith Plus"
+    ],
+    [
+     "\\b0101\\b",
+     "zero one zero one"
+    ],
+    [
+     "\\bBSBDA\\b",
+     "B S B D A"
+    ]
+   ]
+  }
+ }
+}

@@ -8,6 +8,8 @@
 
 import re
 
+from app.services.content import Table
+
 _WORD = re.compile(r"[\wऀ-ॿ']+", re.UNICODE)
 _FILLERS = {"so", "you", "know", "hmm", "hm", "um", "uh", "umm", "er", "well", "like", "actually", "basically", "matlab", "toh",
             "woh", "wo", "arey", "are", "yaar", "to", "ok", "okay", "haan", "han", "achha", "acha", "मतलब", "तो", "हम्म"}
@@ -20,15 +22,7 @@ _WAITING = re.compile(r"(are you there|can you hear|hello\??.*waiting|i'?m waiti
 _SYMPATHY = re.compile(r"\b(oh dear|oh no|alas|uff|oh my)\b|ओह|अरे", re.I)
 _HELLO = re.compile(r"^(hi|hello|hey|namaste|namaskar|good (morning|afternoon|evening))\b|नमस्ते", re.I)
 
-REPLIES = {
-    "thanks": {"en": "You're welcome!", "hi": "आपका स्वागत है!", "hinglish": "Aapka swagat hai!"},
-    "bye": {"en": "Thank you for calling AU Bank. Have a good day!", "hi": "AU बैंक को कॉल करने के लिए धन्यवाद। आपका दिन शुभ हो!",
-            "hinglish": "AU Bank ko call karne ke liye thank you. Aapka din accha rahe!"},
-    "waiting": {"en": "Yes, I'm here. Go ahead.", "hi": "जी, मैं यहीं हूँ। बताइए।", "hinglish": "Haan, main yahin hoon. Boliye."},
-    "ack": {"en": "Is there anything else I can check for you?", "hi": "क्या मैं और कुछ देख सकती हूँ?",
-            "hinglish": "Kya main aur kuch check kar sakti hoon?"},
-    "hello_again": {"en": "I'm here. How can I help?", "hi": "जी, बताइए, मैं कैसे मदद करूँ?", "hinglish": "Ji, bataiye, main kaise madad karun?"},
-}
+REPLIES = Table("smalltalk")  # brain/content/catalog.json, "smalltalk.*"
 
 
 def words(text: str) -> list[str]:

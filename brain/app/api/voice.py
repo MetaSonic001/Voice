@@ -37,6 +37,7 @@ from app.api.deps import container, require_key
 from app.container import Container
 from app.metrics import CALLS_REFUSED, LIVE_CALLS, observe_turn
 from app.services.audit import mask_number
+from app.services.content import for_session, use
 from app.services.recordings import CallRecorder
 from app.voice.audio import decode, duration_ms, to_wav
 from app.voice.session import LIVE_SESSIONS, VoiceSession
@@ -208,6 +209,7 @@ async def stream(ws: WebSocket):
 
             on_event("call_started", caller=mask_number(caller), language=first.get("language"), recorded=bool(recorder))
             warm_task = asyncio.create_task(c.voice.warm())  # noqa: F841 opens STT/TTS connections; referenced so it isn't collected
+            use(for_session(session_id))  # greeting and every fixed phrase of this call from its release (canary or main)
             session = VoiceSession(brain=c.conversation, stt=c.voice.stt, tts=c.voice.tts, vad=c.voice.vad_factory(),
                                    phrases=c.voice.phrases, settings=c.settings, send_json=send_json, send_audio=send_audio,
                                    session_id=session_id, on_voice_timings=save_voice_timings,

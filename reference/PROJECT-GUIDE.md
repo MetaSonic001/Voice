@@ -197,7 +197,8 @@ This is the short map. **Section 33 explains every file in detail** (why it exis
 | `retrieval.py`, `kbmeta.py` | Hybrid search; product/variant tags, passage trimming, gates |
 | `chunking.py`, `documents.py`, `worker.py` | Passages; upload, versions, rollback; background ingestion |
 | `numbers.py`, `sentences.py` | Figure check, the text sent to the voice, markup removal; sentence splitting |
-| `personal.py` | Bank-data answers (templates, three languages) |
+| `content.py`, `releases.py` | The journey catalogue (`brain/content/`: every fixed sentence, prompts, team settings) and its releases: draft, checks, translation, canary, rollback (ADR 0032; edited on `/journeys`) |
+| `personal.py` | Bank-data answers (templates from the catalogue, three languages) |
 | `actions.py`, `journeys.py`, `workflows.py`, `confirm.py` | Card actions, fraud / complaint journeys, multi-step workflows, yes/no in code |
 | `auth.py` | Verification state machine (RMN + keypad code) |
 | `guard.py`, `privacy.py` | Injection screen, risk flags, outgoing-speech filter; PII masking |
@@ -1937,7 +1938,7 @@ Today the code knows three languages: `LANGUAGES = ("en", "hi", "hinglish")` in 
 |---|---|---|
 | Language list and router output | `domain.py`, `understanding.py` | A code per language (`bn`, `ta`, …) plus a "mixed" flag |
 | Answer prompt language rule | `conversation.LANGUAGE_INSTRUCTIONS` | One rule per language: everyday style, script, keep the English banking words people use |
-| **Reply templates** (about 270) | `personal.py`, `journeys.py`, `actions.py`, `conversation.py`, `dialogue.py`, `smalltalk.py`, `voice/phrases.py` | Move into **one file per language** (e.g. `locales/ta.yaml`). Draft translations with an LLM **offline**, then native-speaking bank staff review them. A missing entry falls back to English. Nothing is translated live (ADR 0024) |
+| **Reply templates** (307, now in `brain/content/catalog.json`, ADR 0032) | one catalogue; people write English, the LLM drafts the other languages when a release is prepared | Add the language's key to each message (the release flow already translates on prepare); (e.g. `locales/ta.yaml`). Draft translations with an LLM **offline**, then native-speaking bank staff review them. A missing entry falls back to English. Nothing is translated live (ADR 0024) |
 | **Safety word lists** | `guard.py`, `confirm.py`, `understanding.py` safety nets, `personal.account_choice`, `smalltalk.py`, `turntaking.py` | (1) Run the safety nets on **both** the caller's words and the router's English rewrite, so most work in any language; (2) add native lists **only where safety needs code**: yes/no for actions (read in code, ADR 0016), "stop / wait", OTP-shared and fraud words, "talk to a person" |
 | **Digits in other scripts** | `numbers.py`, `conversation.py`, `privacy.py` | Normalise every Indian digit script (Bengali ০–৯, Gujarati ૦–૯, Tamil ௦–௯, Telugu, Kannada, Malayalam, Odia, Gurmukhi) to 0–9 with `unicodedata`; today only Devanagari is converted. Otherwise the figure check misreads numbers and masking misses account numbers |
 | Numbers in words | `numbers.spelled_figures`, `privacy` | Number words per Tier 2 language |
@@ -2454,6 +2455,10 @@ Each file is a FastAPI router: it checks the input, calls one service and return
 - **`smalltalk.py`**, **`confirm.py`** (120 lines together). *Why:* short, common replies need no LLM. *Inside:*
   thanks/bye/"ok"/"yes" with nothing waiting, fragments ("hmm"), "say that again"; and `read_reply()`: yes / no /
   question / unclear in English, Hindi, Hinglish, plus `block_preference()` ("make it permanent").
+
+**The journey catalogue**
+
+- **`content.py`** and **`releases.py`**. *Why:* the product manager owns what the agent says, not the developer (ADR 0032). *Inside:* `content.py` loads `brain/content/` and gives each call its release (`use`, `for_session`; a ContextVar, so a lookup is a dict read); the old table names are read-only views of it. `releases.py` keeps one draft, checks edits, has the LLM write Hindi and Hinglish when a draft is prepared, publishes to a canary share or to all, and compares the two arms from the traces. *Used by:* every module with fixed sentences; `api/content.py` (`/api/v1/content`); `ui/app/journeys`.
 
 **Bank data and actions**
 

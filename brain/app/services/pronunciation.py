@@ -10,21 +10,15 @@ Checked by synthesising each phrase and transcribing it back, plus a listening c
 
 import re
 
-_BOTH = [(r"\bMohd\.?(?=\s)", "Mohammad"), (r"\bSmt\.(?=\s)", "Shrimati"), (r"\bPvt\.(?=\s)", "Private")]
-LEXICON = {
-    "hi": _BOTH + [
-        (r"Zenith\s*\+", "ज़ेनिथ प्लस"), (r"\bLaksya\b", "लक्ष्य"), (r"\bVikaas\b", "विकास"),
-        (r"\bAnanta\b", "अनंता"), (r"\bRoyale\b", "रॉयल"), (r"\bBSBDA\b", "बी एस बी डी ए"), (r"\b0101\b", "शून्य एक शून्य एक"),
-    ],
-    "en": _BOTH + [(r"Zenith\s*\+", "Zenith Plus"), (r"\b0101\b", "zero one zero one"), (r"\bBSBDA\b", "B S B D A")],
-    "hinglish": _BOTH + [(r"Zenith\s*\+", "Zenith Plus"), (r"\b0101\b", "zero one zero one"), (r"\bBSBDA\b", "B S B D A")],
-}
+from app.services.content import SEED
+
+LEXICON = SEED.pronunciation["rules"]  # brain/content/catalog.json "pronunciation" (locked: changed in git)
 _COMPILED = {lang: [(re.compile(p), r) for p, r in rules] for lang, rules in LEXICON.items()}
 
 
 # How "AU" is said, chosen by the owner by listening (6 Nov 2026) and fixed here: English and Hinglish "A.U.",
 # Hindi "एयू". Applied to the text sent to TTS only.
-SPELLING = {"en": "A.U.", "hi": "एयू"}
+SPELLING = SEED.pronunciation["spelling"]
 
 
 def say(text: str, language: str) -> str:

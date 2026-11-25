@@ -8,38 +8,12 @@ import logging
 from pathlib import Path
 
 from app.ports import TTS
+from app.services.content import Table, use
 from app.services.numbers import speech_text
 
 logger = logging.getLogger(__name__)
 
-PHRASES = {
-    "greeting": {
-        # The first line is the disclosure every call must start with: an AI assistant, and the call is recorded.
-        "hi": "नमस्ते! यह AU स्मॉल फाइनेंस बैंक की वर्चुअल असिस्टेंट है। गुणवत्ता और सुरक्षा के लिए यह कॉल रिकॉर्ड की जा रही है। "
-              "आप हिंदी या English में पूछ सकते हैं।",
-        "en": "Hello! This is AU Small Finance Bank's virtual assistant. This call is recorded for quality and security. "
-              "You can ask me in English or Hindi.",
-    },
-    "reprompt": {"en": "Are you still there? You can ask me about our accounts, deposits, cards or loans.",
-                 "hi": "क्या आप लाइन पर हैं? आप हमारे खातों, जमा, कार्ड या लोन के बारे में पूछ सकते हैं।",
-                 "hinglish": "Kya aap line par hain? Aap accounts, deposits, cards ya loans ke baare mein pooch sakte hain."},
-    # Silence while a keypad code is awaited: a reminder about the code, not the general "are you still there?".
-    "code_reminder": {"en": "Please type the six-digit code sent to your mobile on the keypad. Take your time.",
-                      "hi": "कृपया आपके मोबाइल पर भेजा गया छह अंकों का कोड कीपैड पर टाइप कीजिए। आराम से कीजिए।",
-                      "hinglish": "Please aapke mobile par bheja gaya chhe digit ka code keypad par type kijiye. Aaram se kijiye."},
-    "goodbye": {"en": "I haven't heard anything, so I'll end the call now. Thank you for calling AU Bank.",
-                "hi": "मुझे कुछ सुनाई नहीं दिया, इसलिए मैं कॉल समाप्त कर रही हूँ। AU बैंक को कॉल करने के लिए धन्यवाद।",
-                "hinglish": "Mujhe kuch sunai nahi diya, isliye main call end kar rahi hoon. AU Bank ko call karne ke liye dhanyavaad."},
-    "hold": {"en": "Thank you for waiting. Someone from our team will be with you shortly.",
-             "hi": "इंतज़ार के लिए धन्यवाद। हमारी टीम का कोई सदस्य जल्द ही आपसे बात करेगा।",
-             "hinglish": "Wait karne ke liye thank you. Hamari team se koi jaldi hi aapse baat karega."},
-    "unclear_twice": {"en": "I'm sorry, I'm still having trouble hearing you. You can say \"agent\" and I'll connect you to a colleague, or try again from a quieter place.",
-                      "hi": "माफ़ कीजिए, मुझे अब भी सुनने में दिक्कत हो रही है। आप \"एजेंट\" बोलिए, मैं आपको हमारी टीम से जोड़ दूँगी, या किसी शांत जगह से फिर कोशिश कीजिए।",
-                      "hinglish": "Sorry, mujhe ab bhi sunne mein dikkat ho rahi hai. Aap \"agent\" boliye, main aapko team se connect kar dungi, ya kisi shant jagah se phir try kijiye."},
-    "unclear": {"en": "Sorry, I didn't catch that. Could you say it again?",
-                "hi": "माफ़ कीजिए, मैं समझ नहीं पाई। क्या आप फिर से बोल सकते हैं?",
-                "hinglish": "Maaf kijiye, main samajh nahi paayi. Kya aap phir se bol sakte hain?"},
-}
+PHRASES = Table("voice")  # brain/content/catalog.json, "voice.*"
 
 
 def variants(kind: str, language: str) -> list[str]:
@@ -56,17 +30,17 @@ def phrase_text(kind: str, language: str, variant: int = 0) -> str:
 class PhraseCache:
     def __init__(self, tts: TTS, disk_dir: Path | None = None):
         self.tts, self.disk_dir = tts, disk_dir
-        self._cache: dict[tuple[str, str], bytes] = {}
+        self._cache: dict[tuple[str, str], bytes] = {}  # (language, spoken text) -> audio
         self._lock = asyncio.Lock()
 
     async def get(self, kind: str, language: str, variant: int = 0) -> bytes:
         language = language if language in PHRASES[kind] else "en"
         variant %= len(variants(kind, language))
-        key = (kind, language, variant)
+        spoken = speech_text(phrase_text(kind, language, variant), language)  # with the pronunciation list
+        key = (language, spoken)  # by text: a release that rewords a phrase gets new audio, the old stays for other calls
         if key not in self._cache:
             async with self._lock:
                 if key not in self._cache:
-                    spoken = speech_text(phrase_text(kind, language, variant), language)  # with the pronunciation list
                     self._cache[key] = await self._synthesise(spoken, language)
         return self._cache[key]
 
@@ -86,8 +60,11 @@ class PhraseCache:
             path.write_bytes(pcm)
         return pcm
 
-    async def warm(self) -> None:
-        """Pre-synthesise everything so the greeting and the other fixed lines play instantly."""
+    async def warm(self, catalog=None) -> None:
+        """Pre-synthesise everything so the greeting and the other fixed lines play instantly (`catalog`: a release that
+        just went live; run this in its own task, so the release is set for this task only)."""
+        if catalog is not None:
+            use(catalog)
         jobs = [self.get(kind, lang, i) for kind, options in PHRASES.items() for lang in options
                 for i in range(len(variants(kind, lang)))]
         results = await asyncio.gather(*jobs, return_exceptions=True)

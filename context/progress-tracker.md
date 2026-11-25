@@ -25,7 +25,7 @@ numbers, what needs a restart and the next step. Keep it short: move old entries
 
 ## Live state
 
-- **Brain: restart needed** (25 Nov code). No new migration (the latest is 013).
+- **Brain: restart needed** (26 Nov code). **New migration 014** (content releases), applied on start.
 - **API paths changed:** every route is now `/api/v1/...`. The UI, tests, evals, CLI and `requests.http` are updated. `/health`, `/health/ready` and `/metrics` stay at the root.
 - **UI:** `bun run build` passes; the dev UI called `/api/v1/...` with every request 200 (checked 25 Nov).
 - **Docker images:** Dockerfiles and Compose checked (`docker compose config`), **not built**: Docker Desktop wasn't running here. Build them on the company laptop.
@@ -34,7 +34,7 @@ numbers, what needs a restart and the next step. Keep it short: move old entries
 
 | What | Result | Date and notes |
 |---|---|---|
-| Offline tests | **432 pass, 0 fail** | 25 Nov, owner's laptop (the 5 failures of 23 Nov fixed; see below) |
+| Offline tests | **451 pass, 0 fail** (99 s) | 26 Nov (3), owner's laptop. Before the journeys work: 432 in 98 s |
 | Retrieval, no LLM (52 English golden questions with known sources) | RRF hit@5 92.3%, **hit@6 96.2%**; bge reranker hit@5 98.1%; MiniLM-L6 on CPU hit@5 90.4% at ~900 ms | 25 Nov. Why 6 passages without a reranker (ADR 0031) |
 | Same, Hindi / Hinglish in the caller's own words (worst case; real calls use the English rewrite) | Hinglish RRF hit@6 100% (13); Hindi 85.7% (12 of 14; reranker 100%) | 25 Nov |
 | Refusal gate `MIN_DENSE_SCORE` 0.35 (all 105 golden questions) | Answerable 0.48–0.78; unanswerable 0.48–0.67: 0.35 never refuses a good question; no threshold separates the two | 25 Nov: kept 0.35 |
@@ -44,7 +44,32 @@ numbers, what needs a restart and the next step. Keep it short: move old entries
 | First audio of the real answer (voice) | 3.6 s typical, 5.8 s slow | 12 Nov, Groq + Edge. Re-measure on Bedrock (`/bench`) |
 | Search on CPU | rerank 16 passages 13–37 s; one query embedding ~0.2 s | 20 Nov |
 
-## Latest change: 25 Nov (2), uv removed (the office laptop blocks it)
+## Latest change: 26 Nov (2), languages on demand and a responsive UI
+
+| What | Change |
+|---|---|
+| One file per language (ADR 0033) | `brain/content/catalog.json` now holds English only (66 KB); Hindi and Hinglish are `brain/content/languages/hi.json` and `hinglish.json`. Loaded into the same structure: every sentence still identical, export round trip writes nothing |
+| Translate now | On any sentence: pick languages in a dropdown, add an optional note ("more polite"), press Translate now. `POST /api/v1/content/draft/translate` takes `ids`, `languages`, `hint`. Prepare translations takes a language list too. Checked in the UI on Groq (1 call): only Hindi rewritten, note applied, Hinglish untouched |
+| Languages | Settings › Languages: each language's writing style is editable; a new language (name + style) can be added and gets translations ready, marked "not spoken yet" until a developer adds speech and understanding for it |
+| Test console | Rebuilt layout: fills the screen at every size (`100dvh`), chat scrolls on its own, composer pinned at the bottom (auto-growing box, Enter sends, Shift+Enter new line), keypad code shown right above the composer, side cards in a "Details" sheet under 1024 px, long words and links wrap, sample questions on an empty call |
+| Whole app | Top bar: one row from 1280 px, menu button + side sheet below (it overflowed 34 px on phones). Agent desk and call audit no longer forced to full height on phones. `/journeys` one column on phones. All 7 pages: **no sideways scroll at 390, 768, 1024, 1440 px** (measured) |
+| New UI parts | shadcn `dropdown-menu` and `sheet` (on `radix-ui`, already installed). The shadcn CLI also installed an unrelated npm package `cn`: **removed**, `package.json` and `bun.lock` unchanged |
+| Not changed | Logic of the console (sessions, voice, keypad, transfers); no RBAC (as asked) |
+| Fill a language (26 Nov, 3) | Settings › Languages shows how many sentences each language is missing and a **Write them all** button (50 per request, repeats until done or no progress, Stop button). A translation in an added language can be removed per sentence; Hindi and Hinglish can't (callers use them: correct or undo instead). Tested offline (a new language filled in 7 rounds); not run on Groq (~26 calls) |
+
+## Earlier: 26 Nov, one journey catalogue and the `/journeys` admin page (ADR 0032)
+
+| What | Change |
+|---|---|
+| One catalogue | 307 fixed sentences from 9 Python files (+ team names) moved to `brain/content/catalog.json`, grouped 9 domains > 27 journeys > steps; 5 duplicates folded into aliases. Prompts in `brain/content/prompts/*.md`. About 1,100 lines of tables removed from code. Every table, prompt and setting compared before and after: **identical** (18 of 18 sections) |
+| Releases | Migration 014. One draft; checks (placeholders, no new figures, sayable, no OTP request, no links, script); Hindi and Hinglish written by the LLM when the draft is prepared, never in a call; publish to 1–50% (canary) or all; promote, change share, stop, roll back. Each call keeps its release; traces record `content: {release, arm}` |
+| `/journeys` page | Tabs: Journeys (tree, search, edit English, see translations, Organise: add / rename / reorder / move / delete domains, journeys and steps), Prompts (editable and locked), Settings (teams, turnaround days, problem → team), Guardrails and tests (read only), Releases (review, translate, publish, canary comparison, history, roll back) |
+| Checked end to end (Groq, 5 LLM calls) | Edited a sentence on the page → prepared translations (1 call, good Hindi and Hinglish) → published to 50% → a canary caller heard the new sentence, traces had the right arm, comparison table filled → stopped the canary. Deleted a domain and moved its journey: all 307 sentences still placed. One main-side test turn failed on Groq's free-tier limit (invalid JSON, then 8,000 tokens per minute), not this change |
+| Latency | Nothing added to a call: a lookup is a dict read; one tiny poll query every 5 s per brain copy. Offline suite 99 s vs 98 s |
+| Left behind | **Release 1** (the test edit) stays in the history on the owner's laptop database; git's wording is live and the draft is empty |
+| Not built | Approval by a second person (needs staff SSO roles); running the smoke set from the page (~50 LLM calls a run); editing test cases on the page; opening hours per team (still `DESK_HOURS`) |
+
+## Earlier: 25 Nov (2), uv removed (the office laptop blocks it)
 
 | What | Change |
 |---|---|
@@ -109,7 +134,12 @@ clouatre-labs benchmark):
 4. `/bench`: pin this setup. Then `python -m evals.smoke` (Bedrock) and compare with 19/24.
 5. `docker compose up -d --build` once, to prove the images build. Then hand `deploy/README.md` to the infra team.
 
+6. Show `/journeys` to the PM. Before a release goes to 100%: run `python -m evals.smoke` on Bedrock against it (or let a canary reach ~100 calls).
+
 ## Open questions (owner / PM / AU)
+
+- **Who approves a `/journeys` release?** Today whoever has the API key publishes (the name is recorded). A second-person
+  approval needs staff SSO with roles. Does AU want compliance to sign off wording such as the greeting disclosure?
 
 - **AU:**
   - peak calls at once and the hourly curve; is the line 24×7?

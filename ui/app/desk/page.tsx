@@ -71,8 +71,8 @@ export default function DeskPage() {
   const current = board.find((h) => h.id === selected) ?? null;
 
   return (
-    <main className="mx-auto grid h-[calc(100vh-3.5rem)] max-w-[1400px] gap-4 p-4 lg:grid-cols-[360px_1fr]">
-      <Card className="flex min-h-0 flex-col gap-0 py-0">
+    <main className="mx-auto grid max-w-[1400px] gap-4 p-3 sm:p-4 lg:h-[calc(100dvh-3.5rem)] lg:grid-cols-[360px_minmax(0,1fr)]">
+      <Card className="flex max-h-[55dvh] min-h-0 flex-col gap-0 py-0 lg:max-h-none">
         <div className="space-y-3 border-b p-3">
           <div className="flex items-center gap-2">
             <Headset className="size-4" />
@@ -98,7 +98,7 @@ export default function DeskPage() {
         </ScrollArea>
       </Card>
 
-      <div className="min-h-0 overflow-y-auto">
+      <div className="min-h-0 min-w-0 lg:overflow-y-auto">
         {current ? <HandoffView key={current.id} h={current} me={me} onChange={() => void load()} /> : (
           <Card className="grid h-full place-items-center text-center">
             <div className="space-y-2 p-8 text-sm text-muted-foreground">
@@ -288,7 +288,7 @@ function HandoffView({ h, me, onChange }: { h: Handoff; me: string; onChange: ()
             <div className="max-h-72 space-y-2 overflow-y-auto">
               {messages.map((m) => (
                 <div key={m.id} className={cn("flex", m.sender === "agent" ? "justify-end" : "justify-start")}>
-                  <p className={cn("max-w-[75%] rounded-2xl px-3 py-2 text-sm",
+                  <p className={cn("max-w-[85%] rounded-2xl px-3 py-2 text-sm [overflow-wrap:anywhere] sm:max-w-[75%]",
                                    m.sender === "agent" ? "bg-primary text-primary-foreground" : "border bg-card")}>{m.text}</p>
                 </div>
               ))}

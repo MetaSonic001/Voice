@@ -53,6 +53,8 @@ ADRs 0002â€“0021 were **recorded on 6 Nov 2026 for decisions made earlier** (2â€
 | [0029](0029-onnx-runtime-for-cpu-search.md) | ONNX Runtime as an option for the search models on CPU-only machines | Accepted |
 | [0030](0030-ui-on-ecs-ec2.md) | UI on ECS with EC2 capacity (own `t3.small` servers), not Fargate | Superseded by 0031 |
 | [0031](0031-eks-uat-cpu-no-reranker.md) | UAT on EKS (one CPU node), no GPU: reranker off by default (`RERANK=auto`), 6 RRF passages; API under `/api` | Accepted |
+| [0033](0033-one-file-per-language-translate-on-demand.md) | One file per language (`brain/content/languages/`); languages listed in the catalogue; Translate now with a language list and a note | Accepted |
+| [0032](0032-journey-catalogue-and-releases.md) | One journey catalogue in git (`brain/content/`), edited on `/journeys` as releases in Postgres; English written by people, Hindi and Hinglish by the LLM when a draft is prepared; canary rollout | Accepted |
 
 ## Sources on the format
 

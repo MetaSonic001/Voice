@@ -35,7 +35,7 @@ export function LatencyBars({ t }: { t: Record<string, number | null | undefined
   return (
     <div className="space-y-1">
       {steps.map(([k, label]) => (
-        <div key={k} className="grid grid-cols-[11rem_1fr_4rem] items-center gap-2">
+        <div key={k} className="grid grid-cols-[minmax(0,9rem)_1fr_3.5rem] items-center gap-2">
           <span className="truncate">{label}</span>
           <span className="h-1.5 rounded-full bg-primary/70" style={{ width: `${Math.max(2, (100 * Number(t[k])) / longest)}%` }} />
           <span className="text-right font-mono tabular-nums">{t[k]}</span>
@@ -74,7 +74,7 @@ export function AnswerDetails({ traceId, timings }: { traceId: string; timings?:
   return (
     <div className="mt-2 space-y-3 rounded-md border bg-background p-3 text-xs">
       <Section title="Sent to the AI as (after masking)">
-        <p className="font-mono">{trace.question}</p>
+        <p className="font-mono break-words">{trace.question}</p>
       </Section>
 
       {u && (
