@@ -1,0 +1,30 @@
+# One internal load balancer (created by the AWS Load Balancer Controller) on one domain:
+#   https://DOMAIN/api/*  -> the brain (port 8000; WebSockets for live calls)
+#   everything else       -> the UI (port 8080)
+# Replace DOMAIN and CERT_ARN (an ACM certificate for DOMAIN in ap-south-1).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: au-voice
+  namespace: au-voice
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internal                # bank network only
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/certificate-arn: CERT_ARN
+    # A live call is one WebSocket; audio flows all the time, 300 s is the margin for a silent hold.
+    alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=300
+spec:
+  ingressClassName: alb
+  rules:
+    - host: DOMAIN
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service: {name: au-brain, port: {number: 8000}}
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: au-ui, port: {number: 8080}}

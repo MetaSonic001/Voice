@@ -57,14 +57,14 @@ def upload(args) -> None:
         for name in args.files:
             path = Path(name)
             data = {"category": args.category, "purpose": args.purpose} | ({"sheets": args.sheets} if args.sheets else {})
-            r = c.post("/v1/documents", files={"file": (path.name, path.read_bytes())}, data={k: v for k, v in data.items() if v})
+            r = c.post("/api/v1/documents", files={"file": (path.name, path.read_bytes())}, data={k: v for k, v in data.items() if v})
             r.raise_for_status()
             doc = r.json()
             ids.append(doc["id"])
             print(f"{'= duplicate' if doc['deduplicated'] else '+ uploaded '} {path.name} -> {doc['id']}")
         print("waiting for indexing...")
         while True:
-            docs = {d["id"]: d for d in c.get("/v1/documents").json()}
+            docs = {d["id"]: d for d in c.get("/api/v1/documents").json()}
             states = [docs[i]["latest_status"] for i in ids if i in docs]
             if all(s in ("indexed", "failed") for s in states):
                 break
@@ -85,34 +85,34 @@ def _print_reply(reply: dict) -> None:
 
 def ask(args) -> None:
     with _client() as c:
-        r = c.post("/v1/ask", json={"question": args.question, "session_id": args.session})
+        r = c.post("/api/v1/ask", json={"question": args.question, "session_id": args.session})
         r.raise_for_status()
         _print_reply(r.json())
 
 
 def chat(args) -> None:
     with _client() as c:
-        session = c.post("/v1/sessions", json={}).json()["id"]
+        session = c.post("/api/v1/sessions", json={}).json()["id"]
         print(f"session {session} - type a question, empty line to quit")
         while True:
             q = input("\nyou> ").strip()
             if not q:
                 break
-            r = c.post("/v1/ask", json={"question": q, "session_id": session})
+            r = c.post("/api/v1/ask", json={"question": q, "session_id": session})
             r.raise_for_status()
             _print_reply(r.json())
 
 
 def status(args) -> None:
     with _client() as c:
-        for d in c.get("/v1/documents").json():
+        for d in c.get("/api/v1/documents").json():
             print(f"{d['latest_status']:10} v{d['current_version'] or '-'} chunks={d['chunks']:4} "
                   f"{'on ' if d['enabled'] else 'off'} {d['purpose']:9} {d['title']}")
-        print(json.dumps(c.get("/v1/stats").json(), indent=2))
+        print(json.dumps(c.get("/api/v1/stats").json(), indent=2))
 
 
 def _ws_url(language: str | None) -> str:
-    url = BASE.replace("http", "ws", 1) + "/v1/voice/stream"
+    url = BASE.replace("http", "ws", 1) + "/api/v1/voice/stream"
     return url + (f"?key={os.environ['API_KEY']}" if os.environ.get("API_KEY") else "")
 
 
@@ -125,7 +125,7 @@ def _show(event: dict, t0: float) -> None:
 
 def say(args) -> None:
     with _client() as c:
-        r = c.post("/v1/voice/tts", json={"text": args.text, "language": args.lang})
+        r = c.post("/api/v1/voice/tts", json={"text": args.text, "language": args.lang})
         r.raise_for_status()
         Path(args.out).write_bytes(r.content)
         print(f"{args.out}: first audio {r.headers['x-first-audio-ms']} ms, total {r.headers['x-total-ms']} ms")

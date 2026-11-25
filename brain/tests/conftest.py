@@ -20,7 +20,7 @@ def container(tmp_path_factory):
     golden.mkdir()
     settings = Settings(data_dir=tmp / "data", log_dir=tmp / "logs", api_key="", voice_enabled=True,
                         min_rerank_score=0.2, rerank_candidates=8, context_chunks=3, rate_limit_per_min=0,
-                        playback_lead_ms=100, mock_bank=True)
+                        playback_lead_ms=100, mock_bank=True, rerank=True)  # tests run the reranker path (fakes)
     tts = FakeTTS(settings.audio_rate)
     voice = VoiceRuntime(FakeSTT(WS_SCRIPT), tts, FakeVAD, PhraseCache(tts))
     c = build(settings, start_worker=False, golden_dir=golden, reports_dir=tmp / "reports",

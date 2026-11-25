@@ -563,7 +563,7 @@ Grouped by job. Sizes are lines.
 | `adr/` | One file per big decision: context, decision, alternatives, consequences. Read the one that covers a thing before changing it. Accepted ADRs are never rewritten; a new one supersedes |
 | `context/progress-tracker.md` | The diary of the project: what was built, test numbers, what's next, open questions. Read first |
 | `context/pending-work.md` | What is left, for the demo and for production (B2.x items) |
-| `context/architecture.md`, `code-standards.md`, `ai-workflow-rules.md`, `project-overview.md`, `ui-context.md` | Short context notes |
+| `context/architecture.md`, `ui-context.md` | Short context notes (the rules and code standards are in `AGENTS.md`) |
 | `docs/deployment-options-and-costs.md` + `.xlsx` | The AWS design proposals and cost model |
 | `docs/test-call-scripts.md` | Scripts for manual test calls |
 | `deploy/README.md`, `deploy/ecs/*.json` | How to run the images on ECS; task definitions for brain, search server, UI |
@@ -1579,8 +1579,8 @@ The difference between the two brain sizes: the **first deployment** (pilot) is 
 | Region | Mumbai (ap-south-1); Hyderabad (ap-south-2) for disaster recovery (plan) | Data residency in India |
 | Network | One VPC, 2 availability zones, private subnets; a **NAT gateway** only for Sarvam (the one internet service); **VPC endpoints** for Bedrock, S3, Secrets Manager, CloudWatch Logs, ECR | AWS traffic never crosses the internet |
 | Front door | **ALB + WAF**, HTTPS with an ACM certificate (the browser mic needs HTTPS); idle timeout 300 s (WebSocket calls); security group limited to office/VPN IPs (no staff login yet) | One address for UI and API: no CORS |
-| Routing | `/v1/*`, `/health`, `/health/ready`, `/docs`, `/openapi.json` → `au-brain-tg` (port 8000, health check `/health/ready`); everything else → `au-ui-tg` (port 8080, `/healthz`) | |
-| Compute | **ECS**, not EKS (EKS adds about ₹6,862 a month; use it only if it's AU's standard) | Simpler to run |
+| Routing | `/api/*` → the brain (port 8000, health check `/health/ready`); everything else → the UI (port 8080, `/ui-health`). Since 25 Nov every API route is under `/api/v1` | One rule, any domain |
+| Compute | **EKS** (AU's standard, 25 Nov; ADR 0031): UAT is one `m7i.xlarge` node, 1 brain pod (`Recreate`) and 1 UI pod, files in `deploy/eks/`. (Earlier proposal: ECS) | AU runs EKS |
 | Database | RDS PostgreSQL 16/17 for a pilot (`db.t4g.medium`), Aurora later; pgvector built in; the brain creates the extension and tables itself | Same code as the laptop, only `DATABASE_URL` changes |
 | Files | S3 bucket, public access blocked, SSE-KMS; recordings under `brain/recordings/` | Survive restarts; shared by copies |
 | Secrets | Secrets Manager secret `au/brain`: `DATABASE_URL`, `SARVAM_API_KEY`, `RECORDING_KEY` (later `SEARCH_TOKEN`) | Injected as env vars by ECS; never in the image |

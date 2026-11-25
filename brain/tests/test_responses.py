@@ -13,7 +13,7 @@ RAVI = "9000000101"
 
 
 def _ask(client, sid, text):
-    return client.post("/v1/ask", json={"question": text, "session_id": sid}).json()
+    return client.post("/api/v1/ask", json={"question": text, "session_id": sid}).json()
 
 
 def _ravi(container):
@@ -52,10 +52,10 @@ def test_unasked_count_reads_three_then_offers_the_rest(container):
 
 
 def test_saying_go_on_reads_the_rest(client):
-    sid = client.post("/v1/sessions", json={"caller_number": RAVI}).json()["id"]
+    sid = client.post("/api/v1/sessions", json={"caller_number": RAVI}).json()["id"]
     first = _ask(client, sid, "show my last 5 transactions")
     code = re.search(r"(\d{6})", first["auth"]["simulated_sms"]).group(1)
-    client.post("/v1/auth/verify", json={"session_id": sid, "code": code})
+    client.post("/api/v1/auth/verify", json={"session_id": sid, "code": code})
     reply = _ask(client, sid, "What is my transaction in both accounts")
     if "Want the other" in reply["answer"]:
         more = _ask(client, sid, "go on")
@@ -97,7 +97,7 @@ def test_small_talk_is_short_and_fits_the_words_used():
 
 
 def test_greeting_is_said_once_and_a_fragment_gets_silence(client, container):
-    sid = client.post("/v1/sessions", json={}).json()["id"]
+    sid = client.post("/api/v1/sessions", json={}).json()["id"]
     greeted = _ask(client, sid, "hi")
     again = _ask(client, sid, "hello")
     assert greeted["answer"].startswith("Hi") and not again["answer"].startswith("Hi! I'm AU")  # not the full greeting twice
@@ -107,7 +107,7 @@ def test_greeting_is_said_once_and_a_fragment_gets_silence(client, container):
 
 
 def test_repeat_that_says_the_last_answer_again_without_the_llm(client):
-    sid = client.post("/v1/sessions", json={}).json()["id"]
+    sid = client.post("/api/v1/sessions", json={}).json()["id"]
     first = _ask(client, sid, "What is the minimum balance requirement for the savings account?")
     again = _ask(client, sid, "can you repeat that")
     assert again["answer"] == first["answer"] and again["outcome"] == "answered"
@@ -115,7 +115,7 @@ def test_repeat_that_says_the_last_answer_again_without_the_llm(client):
 
 
 def test_asking_for_a_person_transfers_without_a_second_question(client):
-    sid = client.post("/v1/sessions", json={"caller_number": "9000000001"}).json()["id"]
+    sid = client.post("/api/v1/sessions", json={"caller_number": "9000000001"}).json()["id"]
     handed = _ask(client, sid, "I want to talk to a human agent")
     assert handed["outcome"] == "handoff" and "Is that okay?" not in handed["answer"] and handed["handoff"]
 

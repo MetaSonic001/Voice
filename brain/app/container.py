@@ -300,13 +300,14 @@ def build(settings: Settings, *, start_worker: bool = True, overrides: dict | No
     bank, bank_server = (o["bank"], None) if "bank" in o else build_bank(settings, db)
 
     vectors = None
-    if settings.vector_store in ("numpy", "chroma"):  # a Postgres without pgvector (services/vectors.py)
-        from app.services import vectors as vector_stores
+    if settings.vector_store == "numpy":  # a Postgres without pgvector (services/vectors.py)
+        from app.services.vectors import NumpyVectors
 
         db.ensure_plain_embeddings()
-        vectors = (vector_stores.NumpyVectors(embedder.name, embedder.dim) if settings.vector_store == "numpy"
-                   else vector_stores.ChromaVectors(settings.data_dir / "chroma", embedder.name, embedder.dim))
+        vectors = NumpyVectors(embedder.name, embedder.dim)
         vectors.sync(db)
+    elif settings.vector_store != "pgvector":
+        raise ValueError(f"unknown VECTOR_STORE '{settings.vector_store}' (use pgvector or numpy)")
     else:
         db.ensure_vector_index(embedder.name, embedder.dim)
     documents = DocumentService(db, store, ParserRouter(), embedder, settings, vectors)

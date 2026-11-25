@@ -1,0 +1,49 @@
+# The staff screens (static pages served by nginx) on EKS for UAT. Replace ACCOUNT_ID and VERSION.
+# Built with NEXT_PUBLIC_API_URL=/ (the default), so the pages call /api on their own address.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: au-ui
+  namespace: au-voice
+spec:
+  replicas: 1          # stateless: raise freely
+  selector:
+    matchLabels: {app: au-ui}
+  template:
+    metadata:
+      labels: {app: au-ui}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101   # nginx-unprivileged's user
+      containers:
+        - name: ui
+          image: ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/au-voice:ui-VERSION
+          imagePullPolicy: IfNotPresent
+          ports:
+            - {name: http, containerPort: 8080}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 256Mi}
+          readinessProbe:
+            httpGet: {path: /ui-health, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /ui-health, port: http}
+            periodSeconds: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: au-ui
+  namespace: au-voice
+  annotations:
+    alb.ingress.kubernetes.io/healthcheck-path: /ui-health
+spec:
+  selector: {app: au-ui}
+  ports:
+    - {name: http, port: 8080, targetPort: http}

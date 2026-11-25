@@ -9,7 +9,7 @@ def _settings(**kw):
     base = dict(llm_provider="bedrock", understand_model="in.openai.gpt-5.6-luna", answer_model="in.openai.gpt-5.6-luna",
                 understand_reasoning_effort="low", answer_reasoning_effort="none", stt_provider="sarvam",
                 sarvam_stt_model="saaras:v4", tts_provider="sarvam", sarvam_tts_model="bulbul:v4-flash",
-                search_provider="local", search_runtime="torch", device="auto", vector_store="chroma")
+                search_provider="local", search_runtime="torch", device="auto", vector_store="pgvector", rerank=True)
     return SimpleNamespace(**(base | kw))
 
 
@@ -34,19 +34,19 @@ def test_delta_direction():
 
 
 def test_bench_api_groups_real_turns_and_pins_a_frozen_benchmark(client, container):
-    client.post("/v1/ask", json={"question": "What is the minimum balance requirement for the savings account?"})
-    r = client.get("/v1/bench").json()
+    client.post("/api/v1/ask", json={"question": "What is the minimum balance requirement for the savings account?"})
+    r = client.get("/api/v1/bench").json()
     assert r["current_setup_id"] == container.conversation.setup_id
     assert r["current"]["turns"] >= 1
     assert "first_reply_ms" in r["current"]["latency"]  # timed on every path
     assert {row["key"] for row in r["rows"]} >= {"voice_to_voice_ms", "understand_ms", "llm_ttft_ms", "smoke_pass_pct"}
-    pinned = client.post("/v1/bench/baseline", json={"label": "fake LLM"}).json()
+    pinned = client.post("/api/v1/bench/baseline", json={"label": "fake LLM"}).json()
     assert pinned["setup_id"] == container.conversation.setup_id and pinned["label"] == "fake LLM"
     turns_then = pinned["snapshot"]["turns"]
-    client.post("/v1/ask", json={"question": "What is the minimum balance requirement for the savings account?"})
-    r = client.get("/v1/bench").json()
+    client.post("/api/v1/ask", json={"question": "What is the minimum balance requirement for the savings account?"})
+    r = client.get("/api/v1/bench").json()
     assert r["baseline_from"] == "pinned" and r["baseline_is_current"]
     assert r["baseline"]["turns"] == turns_then  # frozen: more turns don't move the benchmark
     assert r["current"]["turns"] == turns_then + 1
-    assert client.delete("/v1/bench/baseline").json() == {"baseline_from": "auto"}
-    assert client.post("/v1/bench/baseline", json={"setup_id": "nosuchsetup"}).status_code == 404
+    assert client.delete("/api/v1/bench/baseline").json() == {"baseline_from": "auto"}
+    assert client.post("/api/v1/bench/baseline", json={"setup_id": "nosuchsetup"}).status_code == 404

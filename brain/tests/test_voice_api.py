@@ -14,7 +14,7 @@ RATE = 16000
 
 @pytest.fixture(scope="module")
 def kb(client, container):
-    r = client.post("/v1/documents", files={"file": ("voice-kb.md", KB_V1.replace(b"AU Test", b"AU Voice Test").replace(b"Savings Account", b"Voice Account"))})
+    r = client.post("/api/v1/documents", files={"file": ("voice-kb.md", KB_V1.replace(b"AU Test", b"AU Voice Test").replace(b"Savings Account", b"Voice Account"))})
     assert r.status_code == 201
     container.worker.run_pending()
     return r.json()
@@ -25,25 +25,25 @@ def _question_wav() -> bytes:
 
 
 def test_stt_and_tts_endpoints(client):
-    stt = client.post("/v1/voice/stt", files={"file": ("q.wav", _question_wav(), "audio/wav")}).json()
+    stt = client.post("/api/v1/voice/stt", files={"file": ("q.wav", _question_wav(), "audio/wav")}).json()
     assert stt["text"].startswith("What is the minimum balance")
-    r = client.post("/v1/voice/tts", json={"text": "Hello there", "language": "en"})
+    r = client.post("/api/v1/voice/tts", json={"text": "Hello there", "language": "en"})
     assert r.status_code == 200 and r.headers["content-type"] == "audio/wav" and r.content[:4] == b"RIFF"
-    assert client.post("/v1/voice/tts", json={"text": "x", "language": "fr"}).status_code == 422
+    assert client.post("/api/v1/voice/tts", json={"text": "x", "language": "fr"}).status_code == 422
 
 
 def test_voice_turn_from_file(client, kb):
-    r = client.post("/v1/voice/turn", files={"file": ("q.wav", _question_wav(), "audio/wav")}).json()
+    r = client.post("/api/v1/voice/turn", files={"file": ("q.wav", _question_wav(), "audio/wav")}).json()
     assert r["outcome"] == "answered" and "10,000" in r["answer"]
     assert base64.b64decode(r["audio_wav_base64"])[:4] == b"RIFF"
     assert {"stt_ms", "understand_ms", "first_audio_ms", "total_ms"} <= set(r["timings"])
-    trace = client.get(f"/v1/traces/{r['trace_id']}").json()
+    trace = client.get(f"/api/v1/traces/{r['trace_id']}").json()
     assert "voice" in trace["data"]
 
 
 def test_live_call_over_websocket(client, kb):
     events, audio = [], bytearray()
-    with client.websocket_connect("/v1/voice/stream") as ws:
+    with client.websocket_connect("/api/v1/voice/stream") as ws:
         ws.send_text(json.dumps({"type": "start", "greet": False, "language": "en"}))
         assert json.loads(ws.receive_text())["type"] == "ready"
         pcm = silence(200, RATE) + tone(800, RATE, freq=300, amplitude=6000) + silence(1200, RATE)
@@ -85,12 +85,12 @@ def test_live_calls_over_the_limit_are_refused(client, container):
     old = container.settings.max_live_calls
     container.settings.max_live_calls = 1
     try:
-        with client.websocket_connect("/v1/voice/stream") as first:
+        with client.websocket_connect("/api/v1/voice/stream") as first:
             first.send_text(json.dumps({"type": "start", "greet": False, "language": "en"}))
             assert json.loads(first.receive_text())["type"] == "ready"
             assert live_calls() == 1
             assert client.get("/health/ready").json()["checks"]["live_calls"] == "1/1"
-            with client.websocket_connect("/v1/voice/stream") as second:
+            with client.websocket_connect("/api/v1/voice/stream") as second:
                 busy = json.loads(second.receive_text())
                 assert busy["type"] == "busy" and busy["limit"] == 1
                 with pytest.raises(WebSocketDisconnect) as closed:
@@ -98,7 +98,7 @@ def test_live_calls_over_the_limit_are_refused(client, container):
                 assert closed.value.code == BUSY_CLOSE
             first.send_text(json.dumps({"type": "stop"}))
         wait_free()
-        with client.websocket_connect("/v1/voice/stream") as third:  # a line is free again
+        with client.websocket_connect("/api/v1/voice/stream") as third:  # a line is free again
             third.send_text(json.dumps({"type": "start", "greet": False, "language": "en"}))
             assert json.loads(third.receive_text())["type"] == "ready"
             third.send_text(json.dumps({"type": "stop"}))

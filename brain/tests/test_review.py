@@ -12,7 +12,7 @@ RAVI = "9000000101"
 
 
 def _ask(client, sid, text):
-    return client.post("/v1/ask", json={"question": text, "session_id": sid}).json()
+    return client.post("/api/v1/ask", json={"question": text, "session_id": sid}).json()
 
 
 class Judge:
@@ -32,7 +32,7 @@ class Judge:
 
 
 def _call(client, container, questions, caller=None):
-    sid = client.post("/v1/sessions", json={"caller_number": caller} if caller else {}).json()["id"]
+    sid = client.post("/api/v1/sessions", json={"caller_number": caller} if caller else {}).json()["id"]
     for q in questions:
         _ask(client, sid, q)
     return sid
@@ -108,15 +108,15 @@ async def test_a_critical_claim_with_no_real_evidence_needs_a_person(client, con
 def test_review_api_labels_and_calibration(client, container, monkeypatch):
     monkeypatch.setattr(container.reviews, "llm", Judge())
     sid = _call(client, container, ["What is the minimum balance requirement for the savings account?"])
-    review = client.post(f"/v1/calls/{sid}/review").json()
+    review = client.post(f"/api/v1/calls/{sid}/review").json()
     assert review["mode"] == "judged" and review["score"] == 4.8
-    assert client.get(f"/v1/calls/{sid}").json()["review"]["session_id"] == sid
-    row = next(r for r in client.get("/v1/calls?limit=200").json() if r["id"] == sid)
+    assert client.get(f"/api/v1/calls/{sid}").json()["review"]["session_id"] == sid
+    row = next(r for r in client.get("/api/v1/calls?limit=200").json() if r["id"] == sid)
     assert row["review_score"] == 4.8 and row["review_mode"] == "judged"
-    labelled = client.post(f"/v1/calls/{sid}/review/human", json={"scores": {"task_completion": 4, "correctness": 5, "conversation": 3,
+    labelled = client.post(f"/api/v1/calls/{sid}/review/human", json={"scores": {"task_completion": 4, "correctness": 5, "conversation": 3,
                                                                            "compliance": 5}, "critical": False, "note": "ok"}).json()
     assert labelled["human"]["scores"]["conversation"] == 3
-    cal = client.get("/v1/reviews/calibration").json()
+    cal = client.get("/api/v1/reviews/calibration").json()
     assert cal["labelled_calls"] >= 1 and cal["agreement_within_one_point"]["conversation"] == 100 and cal["critical_failure_recall"] is None
     # the judge said 4 for conversation, the person 3: not an exact match, and the judge is the more generous one
     assert cal["exact_agreement"]["conversation"] < 100 and cal["judge_minus_human"]["conversation"] > 0
@@ -138,8 +138,8 @@ async def test_a_failed_hard_rule_is_critical_whatever_the_judge_says(client, co
 def test_flagged_calls_can_be_listed_on_their_own(client, container, monkeypatch):
     monkeypatch.setattr(container.reviews, "llm", Judge(needs_human_review=True))
     sid = _call(client, container, ["What is the minimum balance requirement for the savings account?"])
-    client.post(f"/v1/calls/{sid}/review")
-    assert sid in [r["id"] for r in client.get("/v1/calls?needs_review=true").json()]
+    client.post(f"/api/v1/calls/{sid}/review")
+    assert sid in [r["id"] for r in client.get("/api/v1/calls?needs_review=true").json()]
 
 
 async def test_ai_summary_is_kept_only_when_every_figure_is_in_the_record(client, container):
@@ -155,9 +155,9 @@ async def test_ai_summary_is_kept_only_when_every_figure_is_in_the_record(client
 
 
 def test_the_desk_sees_the_transcript_read_only(client, container):
-    sid = client.post("/v1/sessions", json={"caller_number": "9000000001"}).json()["id"]
+    sid = client.post("/api/v1/sessions", json={"caller_number": "9000000001"}).json()["id"]
     handed = _ask(client, sid, "I want to talk to a human agent")
-    detail = client.get(f"/v1/desk/handoffs/{handed['handoff']['id']}").json()
+    detail = client.get(f"/api/v1/desk/handoffs/{handed['handoff']['id']}").json()
     assert detail["transcript"][0]["caller"] == "I want to talk to a human agent" and detail["verification"]["verified"] is False
     assert detail["note"]["headline"]
     assert not re.search(r"\d{9,}", str(detail["transcript"]))
@@ -194,7 +194,7 @@ async def test_summary_counts_recurring_problems_across_calls(client, container,
     for _ in range(2):
         sid = _call(client, container, ["What is the minimum balance requirement for the savings account?"])
         await container.reviews.review(sid, force_judge=True)
-    summary = client.get("/v1/reviews/summary").json()
+    summary = client.get("/api/v1/reviews/summary").json()
     top = next(i for i in summary["recurring_issues"] if i["category"] == "poor_voice_response")
     assert top["calls"] >= 2 and top["agent_caused"] >= 2 and top["example"]["fix_area"] == "answer_prompt"
     assert summary["agent_issues_by_fix_area"]["answer_prompt"] >= 2 and summary["judged_calls"] >= 2
@@ -206,11 +206,11 @@ async def test_findings_become_a_fix_list_that_keeps_what_was_marked_done(client
     monkeypatch.setattr(container.reviews, "llm", Judge(findings=[finding]))
     sid = _call(client, container, ["What is the minimum balance requirement for the savings account?"])
     await container.reviews.review(sid, force_judge=True)
-    mine = [f for f in client.get("/v1/fixes").json() if str(f["session_id"]) == sid]
+    mine = [f for f in client.get("/api/v1/fixes").json() if str(f["session_id"]) == sid]
     assert len(mine) == 1 and mine[0]["turn"] == 1 and mine[0]["fix_area"] == "router"
-    assert client.patch(f"/v1/fixes/{mine[0]['id']}", json={"status": "done", "note": "fixed in prompt"}).json()["status"] == "done"
+    assert client.patch(f"/api/v1/fixes/{mine[0]['id']}", json={"status": "done", "note": "fixed in prompt"}).json()["status"] == "done"
     await container.reviews.review(sid, force_judge=True)  # a new review keeps the done to-do and does not add it again
-    rows = [f for f in client.get("/v1/fixes?status=all").json() if str(f["session_id"]) == sid]
+    rows = [f for f in client.get("/api/v1/fixes?status=all").json() if str(f["session_id"]) == sid]
     assert [r["status"] for r in rows] == ["done"]
 
 

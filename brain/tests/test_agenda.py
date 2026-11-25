@@ -151,7 +151,7 @@ def test_coverage_finds_missed_words_in_hindi_and_english_alike():
 # ───────── the versioned save ─────────
 
 def test_two_turns_saving_at_once_keep_both_turns_work(client, container):
-    sid = client.post("/v1/sessions", json={"caller_number": RAVI}).json()["id"]
+    sid = client.post("/api/v1/sessions", json={"caller_number": RAVI}).json()["id"]
     store = container.conversation.states
     a, b = store.load(sid), store.load(sid)
     agenda.add(a, [_balance()])
@@ -177,15 +177,15 @@ def test_review_flags_a_question_left_unanswered():
 # ───────── whole conversations (fake LLM) ─────────
 
 def _ask(client, sid, text):
-    return client.post("/v1/ask", json={"question": text, "session_id": sid}).json()
+    return client.post("/api/v1/ask", json={"question": text, "session_id": sid}).json()
 
 
 def _verified(client, question):
-    sid = client.post("/v1/sessions", json={"caller_number": RAVI}).json()["id"]
+    sid = client.post("/api/v1/sessions", json={"caller_number": RAVI}).json()["id"]
     first = _ask(client, sid, question)
     assert first["outcome"] == "auth_required"
     code = re.search(r"(\d{6})", first["auth"]["simulated_sms"]).group(1)
-    return sid, client.post("/v1/auth/verify", json={"session_id": sid, "code": code}).json()["reply"]
+    return sid, client.post("/api/v1/auth/verify", json={"session_id": sid, "code": code}).json()["reply"]
 
 
 FIVE = ("what is my balance in both accounts and then show my transactions of account 4521 and then when is my next emi "
@@ -196,7 +196,7 @@ def test_verification_in_the_middle_keeps_both_requests(client, container):
     """Smoke A3 (17 Nov): the second request was lost when the text was read again after the code."""
     sid, reply = _verified(client, "block my credit card ending 6712 temporarily and then what is my balance in both accounts")
     assert reply["outcome"] == "confirm" and "6712" in reply["answer"]
-    trace = client.get(f"/v1/traces/{reply['trace_id']}").json()
+    trace = client.get(f"/api/v1/traces/{reply['trace_id']}").json()
     assert [r["kind"] for r in trace["data"]["understanding"]["requests"]] == ["action", "personal"]
     assert [i["status"] for i in container.conversation.states.load(sid).agenda] == ["waiting", "pending"]
     declined = _ask(client, sid, "no")
@@ -248,7 +248,7 @@ def test_skip_choose_and_a_question_in_the_middle(client, container):
 def test_a_missed_question_is_found_by_the_coverage_check(client):
     sid, _ = _verified(client, "what is my balance in both accounts")
     reply = _ask(client, sid, "what is my balance in both accounts and then FAKE_MISS show my transactions of account 4521 please right now")
-    trace = client.get(f"/v1/traces/{reply['trace_id']}").json()
+    trace = client.get(f"/api/v1/traces/{reply['trace_id']}").json()
     assert trace["data"]["coverage_retry"]["added"] >= 1
     assert "4512" in reply["answer"] and len(re.findall(r"₹", reply["answer"])) >= 3  # both answered
 

@@ -23,7 +23,7 @@ class MustNotRun:
 
 @pytest.fixture
 def rerank_off(client, container):
-    r = client.post("/v1/documents", files={"file": ("lab-savings.md", KB)}, data={"category": "deposits"})
+    r = client.post("/api/v1/documents", files={"file": ("lab-savings.md", KB)}, data={"category": "deposits"})
     assert r.status_code in (200, 201), r.text  # the second test gets the same file back (deduplicated)
     container.worker.run_pending()
     s, retriever = container.settings, container.retriever
@@ -31,12 +31,17 @@ def rerank_off(client, container):
     s.rerank, retriever.reranker = False, MustNotRun()
     yield s
     s.rerank, s.min_dense_score, retriever.reranker = saved
+    # Take the test product out again: in the shared KB a second "savings account" makes later savings questions ask
+    # "which one?" (variant gate), which broke test_voice_api when the whole suite ran.
+    doc_id = r.json().get("document_id") or r.json().get("id")
+    if doc_id:
+        client.delete(f"/api/v1/documents/{doc_id}")
 
 
 def test_answers_without_calling_the_reranker(client, rerank_off):
-    reply = client.post("/v1/ask", json=QUESTION).json()
+    reply = client.post("/api/v1/ask", json=QUESTION).json()
     assert reply["outcome"] == "answered", reply
-    trace = client.get(f"/v1/traces/{reply['trace_id']}").json()["data"]
+    trace = client.get(f"/api/v1/traces/{reply['trace_id']}").json()["data"]
     assert trace["retrieval"]["reranker"] == "off" and trace["retrieval"]["closest_dense"] > 0
     assert "rerank_ms" not in trace["timings"]
     scores = [h["rerank_score"] for h in trace["retrieval"]["reranked"]]
@@ -46,7 +51,7 @@ def test_answers_without_calling_the_reranker(client, rerank_off):
 
 def test_refuses_when_nothing_is_close_by_meaning(client, rerank_off):
     rerank_off.min_dense_score = 0.999
-    reply = client.post("/v1/ask", json=QUESTION).json()
+    reply = client.post("/api/v1/ask", json=QUESTION).json()
     assert reply["outcome"] == "refused", reply
 
 

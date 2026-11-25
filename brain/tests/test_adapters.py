@@ -26,7 +26,7 @@ class ScriptedLLM:
 
 @pytest.fixture
 def convo(container, client):
-    client.post("/v1/documents", files={"file": ("rules-kb.md", b"# AU Rules Card\n## Fees\n- Annual fee is Rs 4,999 plus taxes.\n"
+    client.post("/api/v1/documents", files={"file": ("rules-kb.md", b"# AU Rules Card\n## Fees\n- Annual fee is Rs 4,999 plus taxes.\n"
                                                                  b"- Fee waived on annual spend of Rs 8 lakh.\n")})
     container.worker.run_pending()
 

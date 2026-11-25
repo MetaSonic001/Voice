@@ -30,11 +30,6 @@ dependencies = [
     "truststore>=0.10",  # USE_SYSTEM_CERTS=true: HTTPS trusts the OS certificate store (pure Python, no DLL; used by pip)
 ]
 
-[project.optional-dependencies]
-# VECTOR_STORE=chroma: vector search for a Postgres without pgvector (local POC only; AWS uses pgvector on RDS).
-# Install with `uv sync --extra chroma`.
-chroma = ["chromadb>=1.0"]
-
 [project.scripts]
 brain = "app.cli:main"
 

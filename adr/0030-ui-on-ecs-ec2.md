@@ -1,6 +1,6 @@
 # ADR-0030: UI on ECS with EC2 capacity (small servers of its own), not Fargate
 
-- **Status:** Accepted (replaces the UI part of [0028](0028-ecs-on-ec2-for-the-brain.md); the rest of 0028 stands)
+- **Status:** Superseded by [0031](0031-eks-uat-cpu-no-reranker.md) (25 Nov 2026: AU's platform is EKS)
 - **Date:** 2026-11-23
 - **Deciders:** project owner
 

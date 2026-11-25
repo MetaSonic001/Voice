@@ -5,16 +5,12 @@
 #
 # Build from the repository root (the dummy-data workbook lives outside brain/).
 #
-# One Dockerfile, two images (deploy/README.md, deploy/aws-pilot-guide.md):
-#   au-brain (on AWS: ECS on EC2 / Managed Instances, no GPU; ADR 0028):
-#       docker build --platform linux/amd64 --build-arg SEARCH_MODELS=0 -f brain/Dockerfile -t au-brain .
-#       run with SEARCH_PROVIDER=sagemaker (or http, for a dedicated GPU search server)
-#   au-search (the search models, on a GPU):
-#       docker build --platform linux/amd64 -f brain/Dockerfile -t au-search .        (default build, models inside)
-#       on SageMaker: SageMaker runs `serve` (port 8080)
-#       on a GPU server: python -m app search --host 0.0.0.0 --port 8200            (needs SEARCH_TOKEN)
-#   A brain with the models inside (SEARCH_PROVIDER=local) is the default build too; that is for a single GPU machine
-#   only (on CPU a rerank takes 20-37 s), not for AWS.
+# SEARCH_MODELS picks which search models go inside the image (they load from /app/models):
+#   embed  the UAT image for EKS (no GPU, ADR 0031): bge-m3 only; the reranker is off on a CPU (RERANK=auto)
+#       docker build --platform linux/amd64 --build-arg SEARCH_MODELS=embed -f brain/Dockerfile -t au-voice:brain-<version> .
+#   1      both models (default): a GPU machine with SEARCH_PROVIDER=local, or the GPU search server
+#          (`python -m app search`, or SageMaker's `serve` on port 8080) for later
+#   0      none: Docker Compose on a laptop mounts brain/models instead (compose.yaml)
 # Settings are environment variables (brain/.env.example); nothing secret is baked in. See deploy/README.md.
 
 ARG PYTHON_IMAGE=python:3.12-slim-bookworm
@@ -35,10 +31,14 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-project
 
 # The models (~4.5 GB) next, so a code change doesn't download them again. The script checks each weights file's SHA-256.
-# SEARCH_MODELS=0 leaves them out: for a brain that uses the GPU search server (SEARCH_PROVIDER=http).
+# SEARCH_MODELS: 1 = both, embed = bge-m3 only, 0 = none (see the top of this file).
 ARG SEARCH_MODELS=1
 COPY brain/scripts ./scripts
-RUN if [ "$SEARCH_MODELS" = "1" ]; then /app/.venv/bin/python scripts/download_models.py; else mkdir -p models; fi
+RUN case "$SEARCH_MODELS" in \
+      1) /app/.venv/bin/python scripts/download_models.py ;; \
+      embed) /app/.venv/bin/python scripts/download_models.py --embed-only ;; \
+      *) mkdir -p models ;; \
+    esac
 
 # Then the code, installed in place (app/config.py finds models/, seed/ and evals/ next to app/).
 COPY brain/app ./app
@@ -73,6 +73,6 @@ RUN printf '#!/bin/sh\nexec python -m app search --sagemaker "$@"\n' > /usr/loca
 
 USER app
 EXPOSE 8000 8200 8080
-# ECS/ALB checks: GET /health (process up) and GET /health/ready (database reachable). Models load before the port
-# opens (~1-2 min), so give the container a start period of 300 s.
+# Health checks (EKS probes, load balancer): GET /health (process up) and GET /health/ready (database reachable).
+# Models load before the port opens (~1-2 min), so allow up to 5 minutes for the first answer (deploy/eks/brain.yaml).
 CMD ["python", "-m", "app", "serve", "--host", "0.0.0.0", "--port", "8000"]

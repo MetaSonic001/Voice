@@ -1,0 +1,120 @@
+# The brain (Python API + voice engine) on EKS for UAT: one pod on one CPU node (ADR 0031).
+# Replace before applying: ACCOUNT_ID, VERSION, BUCKET_NAME. Namespace au-voice (kubectl create namespace au-voice).
+#
+# Why one copy and "Recreate": the keypad-code secret and the rate limits are held in memory (pending-work B2.3), so two
+# copies must never run at once. A deploy is a short break (about 1-2 minutes: the image is cached on the node, the
+# models load). Scaling out later = fix B2.3, then raise replicas and switch to RollingUpdate. Nothing else changes.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: au-brain
+  namespace: au-voice
+# The IAM role is linked with EKS Pod Identity (no annotation needed here):
+#   aws eks create-pod-identity-association --cluster-name <cluster> --namespace au-voice \
+#     --service-account au-brain --role-arn arn:aws:iam::ACCOUNT_ID:role/<the app role>
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: au-brain-config
+  namespace: au-voice
+data:
+  # Every setting is in brain/app/config.py (brain/.env.example explains each). Secrets come from au-brain-env.
+  AWS_REGION: ap-south-1
+  LLM_PROVIDER: bedrock
+  UNDERSTAND_MODEL: in.openai.gpt-5.6-luna   # India profile only (ADR 0026)
+  ANSWER_MODEL: in.openai.gpt-5.6-luna
+  JUDGE_MODEL: in.openai.gpt-5.6-luna
+  STT_PROVIDER: sarvam
+  TTS_PROVIDER: sarvam
+  SPEECH_FALLBACK: "false"     # the fallback (Groq Whisper, Edge) is outside India: off on AWS
+  SEARCH_PROVIDER: local       # bge-m3 inside this pod, on the CPU
+  DEVICE: cpu
+  RERANK: auto                 # off on a CPU: RRF order, refusal gate MIN_DENSE_SCORE (ADR 0031)
+  VECTOR_STORE: pgvector       # RDS PostgreSQL with the vector extension
+  FILE_STORE: s3
+  S3_BUCKET: BUCKET_NAME
+  S3_PREFIX: brain/
+  MOCK_BANK: "true"            # UAT: the mock bank until AU's APIs are connected
+  CORS_ORIGINS: ""             # the UI is on the same address
+  LOG_CONSOLE: json            # one JSON line per log entry, to stdout -> CloudWatch Logs
+  MAX_LIVE_CALLS: "9"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: au-brain
+  namespace: au-voice
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: {app: au-brain}
+  template:
+    metadata:
+      labels: {app: au-brain}
+    spec:
+      serviceAccountName: au-brain
+      terminationGracePeriodSeconds: 300   # live calls get up to 5 minutes to finish on a deploy
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001                   # the "app" user in brain/Dockerfile
+        fsGroup: 10001
+      containers:
+        - name: brain
+          image: ACCOUNT_ID.dkr.ecr.ap-south-1.amazonaws.com/au-voice:brain-VERSION
+          imagePullPolicy: IfNotPresent    # fixed version tags: the ~7 GB image is pulled once per node
+          ports:
+            - {name: http, containerPort: 8000}
+          envFrom:
+            - configMapRef: {name: au-brain-config}
+            - secretRef: {name: au-brain-env}   # DATABASE_URL, SARVAM_API_KEY, RECORDING_KEY (secrets.yaml)
+          resources:
+            requests: {cpu: "2500m", memory: 6Gi}
+            limits: {memory: 10Gi}         # no CPU limit: voice detection must not be throttled
+          startupProbe:                    # the models load before the port opens (1-3 min on a CPU)
+            httpGet: {path: /health, port: http}
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:                  # database reachable
+            httpGet: {path: /health/ready, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: secrets, mountPath: /mnt/secrets, readOnly: true}
+            - {name: data, mountPath: /app/data}
+            - {name: logs, mountPath: /app/logs}
+      volumes:
+        - name: secrets                    # mounting it is what makes the CSI driver create au-brain-env
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes: {secretProviderClass: au-brain-secrets}
+        - name: data                       # scratch only: files, recordings and call records go to S3
+          emptyDir: {}
+        - name: logs
+          emptyDir: {sizeLimit: 1Gi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: au-brain
+  namespace: au-voice
+  annotations:
+    alb.ingress.kubernetes.io/healthcheck-path: /health/ready
+    # On a deploy the load balancer keeps sending an open call's audio to the old pod for up to 5 minutes.
+    alb.ingress.kubernetes.io/target-group-attributes: deregistration_delay.timeout_seconds=300
+spec:
+  selector: {app: au-brain}
+  ports:
+    - {name: http, port: 8000, targetPort: http}

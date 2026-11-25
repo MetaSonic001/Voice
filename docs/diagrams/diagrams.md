@@ -1,5 +1,7 @@
 # Diagrams
 
+> **25 Nov 2026:** UAT runs on AWS EKS (one CPU node, `/api/*` → brain, ADR 0031, `deploy/README.md`). The AWS diagrams below show the earlier ECS proposal; the parts and data flows are the same, only the container platform differs.
+
 All project diagrams in one place, in Mermaid. They render on GitHub, in VS Code (with a Mermaid extension) and at mermaid.live.
 Each section has a short explanation to use when presenting it.
 

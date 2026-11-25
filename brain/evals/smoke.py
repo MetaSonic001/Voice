@@ -151,7 +151,7 @@ def _forget(client, sessions: list[str]) -> None:
     """A test run is not a call: its sessions (turns, handoffs, alerts) are deleted, so /calls lists real calls only.
     The results stay in the report."""
     for sid in sessions:
-        client.delete(f"/v1/calls/{sid}")
+        client.delete(f"/api/v1/calls/{sid}")
 
 
 def _ravi_cards_active(conn) -> None:
@@ -179,16 +179,16 @@ async def run(only: list[str] | None, pack: str = "smoke", keep: bool = False) -
                 conn.execute("UPDATE corebank.credit_cards SET status = 'active' WHERE cif LIKE 'CIF9001%%' AND status = 'temp_blocked'")
                 _ravi_cards_active(conn)  # Ravi's cards are all active when seeded; a test may block one for good
             c.llm.inner = Down() if item.get("llm_down") else patient
-            sid = client.post("/v1/sessions", json={"caller_number": item["caller"]} if item["caller"] else {}).json()["id"]
+            sid = client.post("/api/v1/sessions", json={"caller_number": item["caller"]} if item["caller"] else {}).json()["id"]
             sessions.append(sid)
             steps, ok_all = [], True
             for turn in item["turns"]:
                 misses = replay.misses
-                r = client.post("/v1/ask", json={"question": turn["say"], "session_id": sid}).json()
+                r = client.post("/api/v1/ask", json={"question": turn["say"], "session_id": sid}).json()
                 if r.get("outcome") == "auth_required" and (r.get("auth") or {}).get("simulated_sms"):
                     code = re.search(r"(\d{6})", r["auth"]["simulated_sms"]).group(1)
-                    r = client.post("/v1/auth/verify", json={"session_id": sid, "code": code}).json()["reply"] or {}
-                trace = client.get(f"/v1/traces/{r['trace_id']}").json() if r.get("trace_id") else {}
+                    r = client.post("/api/v1/auth/verify", json={"session_id": sid, "code": code}).json()["reply"] or {}
+                trace = client.get(f"/api/v1/traces/{r['trace_id']}").json() if r.get("trace_id") else {}
                 checks = check(turn, r, trace)
                 error = str((trace.get("data") or {}).get("error") or "")
                 if "per day" in error:  # Groq's daily limit: stop here, keep what ran

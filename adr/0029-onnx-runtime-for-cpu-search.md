@@ -1,6 +1,6 @@
 # ADR-0029: ONNX Runtime as an option for the search models on CPU-only laptops
 
-- **Status:** Proposed (built 20 Nov 2026; the owner decides whether to keep it)
+- **Status:** Accepted (25 Nov 2026: kept as the CPU option for the query embedding on the company laptop and EKS, where there is no GPU; ADR 0031)
 - **Date:** 2026-11-20
 - **Deciders:** project owner
 
@@ -44,4 +44,4 @@ one commit and checked by SHA-256. AWS is unchanged (PyTorch on a GPU behind Sag
 
 ## Links
 
-`brain/app/adapters/models.py`, `brain/app/container.py` (`build_search`), `brain/scripts/download_models.py`, ADR 0028 (AWS layout).
+`brain/app/adapters/models.py`, `brain/app/container.py` (`build_search`), `brain/scripts/download_models.py`, ADR 0031 (AWS layout).

@@ -55,7 +55,7 @@ def detect_type(filename: str, data: bytes) -> str:
 class DocumentService:
     def __init__(self, db: Database, store: FileStore, parser: ParserRouter, embedder: Embedder, settings, vectors=None):
         self.db, self.store, self.parser, self.embedder, self.settings = db, store, parser, embedder, settings
-        self.vectors = vectors  # NumpyVectors or ChromaVectors (VECTOR_STORE=numpy|chroma); None = pgvector inside Postgres
+        self.vectors = vectors  # NumpyVectors (VECTOR_STORE=numpy); None = pgvector inside Postgres
 
     # ---------- upload ----------
 
@@ -171,7 +171,7 @@ class DocumentService:
                 else:
                     conn.execute("INSERT INTO chunk_embeddings (chunk_id, model, embedding) VALUES (%s, %s, %s::real[])",
                                  (chunk_id, self.embedder.name, [float(x) for x in vec]))
-            if self.vectors is not None:  # inside the transaction: if Chroma fails, Postgres rolls back too
+            if self.vectors is not None:  # inside the transaction: if the vector store fails, Postgres rolls back too
                 self.vectors.delete_version(version_id)
                 self.vectors.add(chunk_ids, [list(map(float, vec)) for vec in vectors], [version_id] * len(chunk_ids),
                                  [str(v["document_id"])] * len(chunk_ids))

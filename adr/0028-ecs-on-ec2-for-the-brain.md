@@ -1,6 +1,6 @@
 # ADR-0028: Brain on ECS with EC2 capacity (Managed Instances), UI on Fargate, search on SageMaker
 
-- **Status:** Accepted. The UI part is superseded by [0030](0030-ui-on-ecs-ec2.md) (UI on EC2, 23 Nov 2026)
+- **Status:** Superseded by [0031](0031-eks-uat-cpu-no-reranker.md) (25 Nov 2026: AU's platform is EKS). The UI part was superseded earlier by [0030](0030-ui-on-ecs-ec2.md)
 - **Date:** 2026-11-19
 - **Deciders:** project owner
 

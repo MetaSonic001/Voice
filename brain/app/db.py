@@ -85,9 +85,9 @@ def _log_tail(path: Path, lines: int = 8) -> str:
 
 class Database:
     def __init__(self, database_url: str, data_dir: Path, vector_store: str = "pgvector"):
-        """vector_store "numpy" or "chroma": the database needs no pgvector extension (embeddings are a plain real[])."""
+        """vector_store "numpy": the database needs no pgvector extension (embeddings are a plain real[])."""
         self._server = None
-        self.pgvector = vector_store not in ("numpy", "chroma")
+        self.pgvector = vector_store != "numpy"
         if not database_url:
             self._server, database_url = _start_private_server(data_dir / "pg")
         self.url = database_url
@@ -124,7 +124,7 @@ class Database:
         """Partial HNSW index for one embedding model. Search uses the same cast and WHERE clause."""
         safe = "".join(c if c.isalnum() else "_" for c in model.lower())[:40]
         with self.startup_lock() as conn:  # two copies creating the same index at once: one would fail
-            if _embedding_type(conn) != "vector":  # created by 001_init.sql, or used before with VECTOR_STORE=chroma
+            if _embedding_type(conn) != "vector":  # created by 001_init.sql, or used before with VECTOR_STORE=numpy (or the removed chroma)
                 conn.execute("ALTER TABLE chunk_embeddings ALTER COLUMN embedding TYPE vector USING embedding::vector")
             conn.execute(
                 f"CREATE INDEX IF NOT EXISTS emb_hnsw_{safe}_{dim} ON chunk_embeddings "
@@ -132,7 +132,7 @@ class Database:
             )
 
     def ensure_plain_embeddings(self) -> None:
-        """VECTOR_STORE=chroma: embeddings as a plain real[] column. A database used before with pgvector is converted
+        """VECTOR_STORE=numpy: embeddings as a plain real[] column. A database used before with pgvector is converted
         (its HNSW indexes dropped first); that needs the extension, which such a database has."""
         with self.startup_lock() as conn:
             if _embedding_type(conn) == "vector":

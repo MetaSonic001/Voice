@@ -15,14 +15,14 @@ def _code(reply: dict) -> str:
 
 
 def _ask(client, sid, text):
-    return client.post("/v1/ask", json={"question": text, "session_id": sid}).json()
+    return client.post("/api/v1/ask", json={"question": text, "session_id": sid}).json()
 
 
 def _verified(client, caller, question):
-    sid = client.post("/v1/sessions", json={"caller_number": caller}).json()["id"]
+    sid = client.post("/api/v1/sessions", json={"caller_number": caller}).json()["id"]
     first = _ask(client, sid, question)
     assert first["outcome"] == "auth_required"
-    ok = client.post("/v1/auth/verify", json={"session_id": sid, "code": _code(first)}).json()
+    ok = client.post("/api/v1/auth/verify", json={"session_id": sid, "code": _code(first)}).json()
     return sid, ok["reply"]
 
 
@@ -52,7 +52,7 @@ def test_card_block_needs_a_clear_yes_and_is_read_back(client, container):
     _ask(client, sid, "unblock my credit card ending 6712")
     assert _ask(client, sid, "yes")["outcome"] == "action_done"
     assert _card(container, "6712")["status"] == "active"
-    events = client.get(f"/v1/calls/{sid}").json()["events"]
+    events = client.get(f"/api/v1/calls/{sid}").json()["events"]
     assert [e["detail"]["done"] for e in events if e["kind"] == "card_action"] == [True, True]
 
 
@@ -74,7 +74,7 @@ def test_fraud_blocks_first_then_disputes_and_transfers(client, container):
     handed = _ask(client, sid, "yes please")
     assert handed["outcome"] == "handoff" and handed["handoff"]["department"] == "fraud"
     assert "AU-DSP-" in handed["answer"]
-    board = client.get("/v1/desk/handoffs").json()["handoffs"]
+    board = client.get("/api/v1/desk/handoffs").json()["handoffs"]
     mine = next(h for h in board if h["session_id"] == sid)
     assert mine["priority"] == 1 and mine["status"] == "waiting" and "Imran Khan" in mine["note"]["summary"]
     assert any("blocked" in d or "block" in d for d in mine["note"]["done"])
@@ -88,23 +88,23 @@ def test_atm_complaint_explains_then_raises_a_ticket(client):
 
 
 def test_transfer_asks_first_then_reaches_the_desk(client):
-    sid = client.post("/v1/sessions", json={"caller_number": "9000000001"}).json()["id"]
+    sid = client.post("/api/v1/sessions", json={"caller_number": "9000000001"}).json()["id"]
     handed = _ask(client, sid, "I want to talk to a human agent")  # an explicit request is the consent: no "Is that okay?"
     assert handed["outcome"] == "handoff" and "Is that okay?" not in handed["answer"]
-    status = client.get(f"/v1/handoffs/{sid}").json()
+    status = client.get(f"/api/v1/handoffs/{sid}").json()
     assert status["status"] == "waiting" and status["position"] >= 1
     hid = handed["handoff"]["id"]
-    client.post(f"/v1/desk/handoffs/{hid}/accept", json={"agent_name": "Sana (Customer Care)"})
-    client.post(f"/v1/desk/handoffs/{hid}/messages", json={"text": "Hi, I'm Sana. How can I help?"})
-    seen = client.get(f"/v1/handoffs/{sid}").json()
+    client.post(f"/api/v1/desk/handoffs/{hid}/accept", json={"agent_name": "Sana (Customer Care)"})
+    client.post(f"/api/v1/desk/handoffs/{hid}/messages", json={"text": "Hi, I'm Sana. How can I help?"})
+    seen = client.get(f"/api/v1/handoffs/{sid}").json()
     assert seen["status"] == "active" and seen["messages"][0]["text"].startswith("Hi, I'm Sana")
-    client.post(f"/v1/desk/handoffs/{hid}/complete", json={"disposition": "resolved", "notes": "explained charges"})
-    kinds = [e["kind"] for e in client.get(f"/v1/calls/{sid}").json()["events"]]
+    client.post(f"/api/v1/desk/handoffs/{hid}/complete", json={"disposition": "resolved", "notes": "explained charges"})
+    kinds = [e["kind"] for e in client.get(f"/api/v1/calls/{sid}").json()["events"]]
     assert {"handoff_requested", "handoff_accepted", "handoff_completed"} <= set(kinds)
 
 
 def test_an_offer_to_connect_is_a_real_question(client):
-    sid = client.post("/v1/sessions", json={}).json()["id"]
+    sid = client.post("/api/v1/sessions", json={}).json()["id"]
     refused = _ask(client, sid, "zxq qwv plorb")
     assert refused["outcome"] == "refused" and "Shall I?" in refused["answer"]
     assert _ask(client, sid, "yes please")["outcome"] == "handoff"

@@ -1,10 +1,12 @@
 # Local development with Docker Desktop: Postgres with pgvector, the brain and the test UI.
-# (AWS does not use this file: see deploy/README.md.)
+# (AWS does not use this file: EKS uses deploy/eks/, see deploy/README.md.)
 #
 # Once: copy .env.example to .env (next to this file) and set PG_PASSWORD. brain/.env holds the brain's own settings.
 #   docker compose up -d db              only the database (for running the brain and UI normally, without Docker)
-#   docker compose up -d --build         database + brain + UI: UI on http://localhost:3000, API on http://localhost:8000
+#   docker compose up -d --build         database + brain + UI: UI on http://localhost:3000, API on http://localhost:8000/api
+#   docker compose -f compose.yaml -f compose.gpu.yaml up -d --build    the same with the NVIDIA GPU (reranker on)
 #   docker compose down                  stop (the database is kept in the volume "pgdata"; add -v to delete it)
+# Before the first start: the search models in brain/models (brain/README "Setup with Docker Desktop").
 #
 # The same database serves both ways of running: the brain in Docker reaches it as db:5432, the brain run normally
 # (uv run python app.py) as 127.0.0.1:5432 (DATABASE_URL in brain/.env). Run one brain at a time: both use port 8000.
@@ -49,13 +51,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    deploy:
-      resources:
-        reservations:
-          devices:  # the laptop's NVIDIA GPU for the search models; remove this block to run on CPU (much slower)
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+    # No GPU here: the search models run on the CPU and the reranker is off (RERANK=auto). With an NVIDIA GPU, add
+    # compose.gpu.yaml (see the top of this file).
 
   ui:
     build:

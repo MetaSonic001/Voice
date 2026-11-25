@@ -24,11 +24,13 @@ Each part starts with a **simple picture** (how you'd explain it to a child), th
 | Document | What it is for |
 |---|---|
 | `README.md` | The short map for everyone: what it is, how to run it, where to look |
-| `context/progress-tracker.md` | Where we are: what is live, the numbers, the latest changes (the full dated log to 22 Nov 2026 is `context/progress-archive.md`) |
+| `context/progress-tracker.md` | Where we are: what is live, the numbers, the latest changes (the full dated log to 23 Nov 2026 is `context/progress-archive.md`) |
 | `context/pending-work.md` | The to-do list for the local demo and for AWS |
 | `adr/` | Why each big decision was made (Architecture Decision Records) |
 | `brain/README.md`, `ui/README.md` | Setup, settings and commands for each part |
-| `docs/deployment-options-and-costs.md` + `.xlsx` | The current AWS proposal and cost estimate |
+| `deploy/README.md`, `deploy/eks/` | The UAT deployment on AWS EKS (ADR 0031): what to set up, the IAM role, the steps |
+| Google Sheet "AU voice agent - AWS and Sarvam cost estimate" | Cost estimates (tab UAT is current; the production tabs date from the ECS plan of 13–23 Nov) |
+| `AGENTS.md` (`CLAUDE.md` imports it) | The rules for any AI coding agent working on the repo |
 | `reference/aws-primer.md` | AWS explained from scratch |
 | `reference/briefing-security-state-scale.md` | Long-form answers prepared for review meetings (summarised in section 26) |
 | `docs/test-call-scripts.md` | Test calls to run by hand |
@@ -100,7 +102,7 @@ The old `ROADMAP.md`, `PHASE-4-PLAN.md`, `reference/voice-agent-playbook.md` and
 
 There are three ways to talk to it: **type**, record a **voice note**, or hold a **live call** in the browser. All three use the same brain.
 
-**The rules behind everything** (from the project owner, also in `CLAUDE.md`):
+**The rules behind everything** (from the project owner, also in `AGENTS.md`):
 - The LLM only **understands and phrases**. **Code decides** routing, permissions, which bank calls to make and whether an action is allowed.
 - Every number in an answer comes from a KB source or bank data. The figure check enforces it.
 - The OTP and PIN never go through speech-to-text, the LLM or the logs. They are keypad-only.
@@ -1302,6 +1304,8 @@ The same day: the dialogue layer (section 24.3), passage trimming, product ident
 ---
 
 ## 26. Going live on AU's stack (Cisco, AWS, Sarvam)
+
+> **25 Nov 2026: UAT runs on EKS, not ECS** (ADR 0031, `deploy/README.md`): one CPU node (`m7i.xlarge`), one brain pod and one UI pod, an internal ALB (`/api/*` → brain), RDS PostgreSQL with pgvector, S3, Secrets Manager, CloudWatch, Bedrock GPT-5.6 Luna. No GPU and no SageMaker for UAT, so the reranker is off (`RERANK=auto`) and 6 RRF passages go to the answer model. Where this section says ECS, task definitions or the search server on SageMaker, read it as the earlier proposal (12–23 Nov); the sizing reasoning (calls per process, Sarvam limits, B2.x items) still holds.
 
 Labels: **Measured** = a real number from this project. **Estimate** = a worked calculation, to be confirmed by a load test. **Confirm** = depends on AU's setup or a contract. Nothing here is built unless it says so.
 

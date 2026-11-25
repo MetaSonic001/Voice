@@ -4,7 +4,7 @@ from datetime import date
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -51,9 +51,8 @@ class Settings(BaseSettings):
     # ── Storage ──
     data_dir: Path = ROOT / "data"
     database_url: str = ""  # empty = private Postgres (pgserver) under data_dir/pg
-    # Vector search: "pgvector" (default; HNSW index inside Postgres, also on AWS RDS) | "numpy" (exact search in
-    # memory, no extra library) | "chroma" (in-process Chroma under data_dir/chroma). numpy and chroma are for a
-    # Postgres without the pgvector extension. In all three, Postgres keeps every vector.
+    # Vector search: "pgvector" (default; HNSW index inside Postgres: Docker locally, RDS on AWS) | "numpy" (exact
+    # search in memory, no extra library; the fallback for a Postgres without pgvector). Postgres keeps every vector.
     vector_store: str = "pgvector"
     # Trust the operating system's certificate store for HTTPS (truststore) instead of Python's own list (certifi).
     # Needed behind an office proxy that inspects HTTPS with the company's root certificate (Sarvam, Bedrock, Groq
@@ -68,17 +67,25 @@ class Settings(BaseSettings):
     dense_query: str = "english"  # embed the English rewrite ("english") or the caller's own words ("original")
     dense_k: int = 30
     keyword_k: int = 30
-    # false = no reranker (23 Nov 2026, while the company laptop has no GPU: reranking 16 passages on its CPU takes ~20 s).
-    # The passages keep the hybrid-search order (RRF); the reranker model is not loaded. Turn it back on with a GPU.
-    rerank: bool = True
+    # The cross-encoder reranker after RRF. "auto" (default) = on only where it is fast: a GPU in this process, or the
+    # GPU search server / SageMaker (SEARCH_PROVIDER=http|sagemaker). On a CPU (the company laptop, EKS for UAT) it is
+    # off: reranking 16 passages there takes 13-37 s. Off = the passages keep the RRF order, the model isn't loaded, and
+    # the refusal gate uses MIN_DENSE_SCORE (ADR 0031). true / false force it. After start-up this is always a bool.
+    rerank: bool | str = "auto"
     rerank_candidates: int = 16
     rerank_max_tokens: int = 384
     context_chunks: int = 5
+    # Reranker off: the RRF order is less precise, so one more passage goes to the answer model. Measured 25 Nov on
+    # the 52 English golden questions with known sources: the right passage is in RRF's top 5 for 92.3%, top 6 96.2%,
+    # top 8 still 96.2%. The answer model picks what it uses and cites it (ADR 0031).
+    context_chunks_rrf: int = 6
     min_rerank_score: float = 0.03  # below this, the top chunk is not trusted (refuse)
-    # RERANK=false only: the refusal gate. The best embedding similarity (bge-m3 cosine) between the search query and the
-    # passages; below this the KB has nothing on the question (refuse). NOT calibrated: 0.35 refuses only clearly
-    # unrelated questions; a related but unanswerable one ("HDFC's FD rate") reaches the answer model, which says
-    # NO_ANSWER when the sources don't answer it. Tune it from real turns: /calls shows "closest passage by meaning".
+    # Reranker off only: the refusal gate. The best embedding similarity (bge-m3 cosine) between the search query and the
+    # passages; below this the KB has nothing on the question (refuse). Checked 25 Nov on all 105 golden questions: every
+    # answerable one scored 0.48-0.78, so 0.35 never refuses a good question. Answerable and unanswerable questions overlap
+    # (unanswerable 0.48-0.67), so no threshold can separate them: a related but unanswerable one ("HDFC's FD rate")
+    # reaches the answer model, which says NO_ANSWER, and the figure check stops invented numbers. Watch /calls
+    # ("closest passage by meaning") on real Hindi / Hinglish calls before raising it.
     min_dense_score: float = 0.35
     history_turns: int = 6  # recent turns the understanding step sees; caller facts (senior citizen...) last the whole call
 
@@ -167,9 +174,40 @@ class Settings(BaseSettings):
     log_dir: Path = ROOT / "logs"
     worker_poll_s: float = 1.0
 
+    @model_validator(mode="after")
+    def _resolve_rerank(self):
+        if isinstance(self.rerank, str):
+            value = self.rerank.strip().lower()
+            if value in ("true", "1", "yes", "on"):
+                self.rerank = True
+            elif value in ("false", "0", "no", "off"):
+                self.rerank = False
+            elif value == "auto":
+                self.rerank = _gpu_search(self)
+            else:
+                raise ValueError(f"RERANK must be auto, true or false (got '{self.rerank}')")
+        return self
+
     @property
     def files_dir(self) -> Path:
         return self.data_dir / "files"
+
+
+def _gpu_search(s: "Settings") -> bool:
+    """Is there a GPU for the search models? A remote search server is a GPU by design; locally, ONNX is CPU-only,
+    DEVICE=cpu/cuda says so, and DEVICE=auto asks PyTorch (the same check the model loader makes)."""
+    if s.search_provider in ("http", "sagemaker"):
+        return True
+    if s.search_runtime == "onnx" or s.device == "cpu":
+        return False
+    if s.device == "cuda":
+        return True
+    try:
+        import torch
+
+        return bool(torch.cuda.is_available())
+    except Exception:  # no PyTorch, or a broken CUDA install: treat as CPU
+        return False
 
 
 @lru_cache

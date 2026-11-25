@@ -9,7 +9,7 @@ one of the test customers. It also shows verification (keypad + simulated SMS).
   speech-to-text time. The bubble text is exactly what speech-to-text produced.
 - **Each answer's "Details":** what was sent to the AI (masked); how it was understood; the grounding level; where
   the time went; the passages with scores; the per-sentence number check; the bank data read; **Correct / Wrong**
-  (saved on the trace and counted in `/v1/stats`).
+  (saved on the trace and counted in `/api/v1/stats`).
 - **Knowledge used in this call:** documents cited by this call's answers are highlighted.
 - Every conversation is saved: the header links to it in the call audit.
 
@@ -34,8 +34,11 @@ bun install      # first time only
 bun run dev      # http://localhost:3000 (the brain must be running: python app.py)
 ```
 
-- **API address:** `NEXT_PUBLIC_API_URL`, default `http://127.0.0.1:8000`. See `.env.example`.
-- **Production:** `bun run build` writes static files to `out/`. Host them anywhere (S3 + CloudFront, nginx); no Node server is needed.
+- **API address:** `NEXT_PUBLIC_API_URL` = the brain's address, default `http://127.0.0.1:8000`. The client adds `/api`
+  (every brain route is under `/api/v1/...`). `/` = the brain is on the same address (AWS: the load balancer sends
+  `/api/*` to the brain). See `.env.example`.
+- **Production:** `ui/Dockerfile` builds the static files (`bun run build` → `out/`) and serves them with nginx on port
+  8080 (health check `/ui-health`). No Node server runs. On AWS it is the `ui-<version>` image on EKS (`deploy/eks/ui.yaml`).
 - **Components:** [shadcn/ui](https://ui.shadcn.com) (new-york style), copied from the official registry into
   `components/ui/` so the code is in the repo and reviewable. They build on Radix UI. Dependencies, pinned exactly:
   next, react, radix-ui, class-variance-authority, clsx, tailwind-merge, lucide-react (icons), sonner (toasts),

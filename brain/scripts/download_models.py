@@ -10,9 +10,12 @@
   exactly the same tensors as BAAI's `.bin`, so embeddings are identical and the KB needs no re-indexing.
 - `--onnx`: the ONNX versions instead, for SEARCH_RUNTIME=onnx (CPU machines; ADR 0029). bge-m3 from BAAI's own `onnx/`
   folder; the reranker from onnx-community (Hugging Face's converter, full precision). Both pinned to one commit.
+- `--embed-only`: only bge-m3. For a machine without a GPU, where the reranker is off (RERANK=auto), such as the
+  EKS image for UAT: 2.2 GB less to download and to pull.
 Safe to re-run: complete, verified files are skipped.
 
     uv run python scripts/download_models.py --onnx
+    uv run python scripts/download_models.py --embed-only
 """
 
 import hashlib
@@ -83,12 +86,17 @@ def fetch_repo(repo: str, files: list[str], attempts: int = 8, target: Path | No
 
 
 if __name__ == "__main__":
+    embed_only = "--embed-only" in sys.argv[1:]
     if "--onnx" in sys.argv[1:]:
         for folder, (repo, revision, files) in ONNX.items():
+            if embed_only and "rerank" in folder:
+                continue
             print(f"{repo} -> models/{folder}:")
             fetch_repo(repo, files, target=MODELS / folder, revision=revision)
     else:
         for repo, files in REPOS.items():
+            if embed_only and "rerank" in repo:
+                continue
             print(f"{repo}:")
             fetch_repo(repo, files)
     print("All models ready.")

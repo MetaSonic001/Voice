@@ -13,11 +13,11 @@ RAVI = "9000000101"
 
 
 def _ask(client, sid, text):
-    return client.post("/v1/ask", json={"question": text, "session_id": sid}).json()
+    return client.post("/api/v1/ask", json={"question": text, "session_id": sid}).json()
 
 
 def _session(client, caller=RAVI):
-    return client.post("/v1/sessions", json={"caller_number": caller}).json()["id"]
+    return client.post("/api/v1/sessions", json={"caller_number": caller}).json()["id"]
 
 
 def test_markdown_never_reaches_the_voice_or_the_screen():
@@ -77,7 +77,7 @@ def test_fewer_transactions_than_asked_is_said_honestly(client):
     sid = _session(client)
     first = _ask(client, sid, "Show my last 5 transactions on account 4512")
     code = re.search(r"(\d{6})", first["auth"]["simulated_sms"]).group(1)
-    reply = client.post("/v1/auth/verify", json={"session_id": sid, "code": code}).json()["reply"]
+    reply = client.post("/api/v1/auth/verify", json={"session_id": sid, "code": code}).json()["reply"]
     assert reply["answer"].startswith("There's only one transaction on your account ending 4512")
     assert "inactive" in reply["answer"]
 
@@ -92,7 +92,7 @@ def test_interest_in_credit_cards_asks_needs_first_without_verification(client, 
 
 
 def test_general_fd_rule_then_offer_to_check_their_own(client, container):
-    client.post("/v1/documents", files={"file": ("fd-rules-kb.md", b"# AU Fixed Deposit Rules\n## Premature withdrawal\n"
+    client.post("/api/v1/documents", files={"file": ("fd-rules-kb.md", b"# AU Fixed Deposit Rules\n## Premature withdrawal\n"
                                                  b"- A fixed deposit can be withdrawn before maturity with a penalty on the interest rate.\n",
                                                  "text/markdown")})
     container.worker.run_pending()
@@ -229,7 +229,7 @@ def test_card_not_working_checks_the_card_and_offers_the_fix(client, container):
     sid = _session(client, "9000000103")  # Arjun: debit card temporarily blocked, shop payments off
     first = _ask(client, sid, "My debit card is not working at shops")
     code = re.search(r"(\d{6})", first["auth"]["simulated_sms"]).group(1)
-    reply = client.post("/v1/auth/verify", json={"session_id": sid, "code": code}).json()["reply"]
+    reply = client.post("/api/v1/auth/verify", json={"session_id": sid, "code": code}).json()["reply"]
     assert "blocked" in reply["answer"] and "unblock your card ending" in reply["answer"]  # the cause, then the fix offered
     assert "how much" not in reply["answer"].lower()  # not treated as a payment dispute
     assert container.traces.pending(sid)["kind"] == "action"  # a yes unblocks it (read back first)
@@ -239,7 +239,7 @@ def test_blocked_card_unblock_then_carries_on_with_the_requested_setting(client,
     sid = _session(client, "9000000103")  # Arjun: debit card ending 5521 temporarily blocked, international off
     first = _ask(client, sid, "Please switch on international payments on my debit card")
     code = re.search(r"(\d{6})", first["auth"]["simulated_sms"]).group(1)
-    reply = client.post("/v1/auth/verify", json={"session_id": sid, "code": code}).json()["reply"]
+    reply = client.post("/api/v1/auth/verify", json={"session_id": sid, "code": code}).json()["reply"]
     assert reply["outcome"] == "confirm" and "unblock" in reply["answer"]
     after = _ask(client, sid, "yes")  # unblocked, and the request is not forgotten: the next step is asked straight away
     assert after["outcome"] == "confirm" and "international" in after["answer"].lower() and "AU" in after["answer"]
@@ -257,7 +257,7 @@ def test_card_call_cfdda8da_keeps_the_shop_problem_after_another_request(client,
     sid = _session(client, "9000000103")  # Arjun: debit card 5521 temporarily blocked, shop payments and international off
     first = _ask(client, sid, "My debit card is not working at shops")
     code = re.search(r"(\d{6})", first["auth"]["simulated_sms"]).group(1)
-    client.post("/v1/auth/verify", json={"session_id": sid, "code": code})
+    client.post("/api/v1/auth/verify", json={"session_id": sid, "code": code})
     abroad = _ask(client, sid, "Can I use it abroad? I'm travelling next week")
     assert "complaint" not in abroad["answer"].lower() and "how much" not in abroad["answer"].lower()
     switch = _ask(client, sid, "Please switch on international payments on my debit card")
@@ -273,8 +273,8 @@ def test_each_turn_records_the_bank_systems_it_called(client, container):
     sid = _session(client)
     first = _ask(client, sid, "What is my balance in both accounts?")
     code = re.search(r"(\d{6})", first["auth"]["simulated_sms"]).group(1)
-    client.post("/v1/auth/verify", json={"session_id": sid, "code": code})
-    turns = client.get(f"/v1/calls/{sid}").json()["turns"]
+    client.post("/api/v1/auth/verify", json={"session_id": sid, "code": code})
+    turns = client.get(f"/api/v1/calls/{sid}").json()["turns"]
     calls = [c for t in turns for c in t["bank_calls"]]
     systems = {c["system"] for c in calls}
     assert {"cif", "cbs"} <= systems and all(c["status"] == 200 for c in calls if c["system"] == "cbs")

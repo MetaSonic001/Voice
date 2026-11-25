@@ -1,6 +1,6 @@
 # ADR-0004: Hybrid retrieval: vectors + keywords, merged by RRF, then a reranker
 
-- **Status:** Accepted
+- **Status:** Accepted. The reranker step runs only with a GPU since 25 Nov 2026 (`RERANK=auto`, [0031](0031-eks-uat-cpu-no-reranker.md)); hybrid search and RRF are unchanged
 - **Date:** 2026-11-03
 - **Deciders:** project owner
 

@@ -1528,7 +1528,8 @@ class Conversation:
             "fused_top": [h.brief() | {"text": h.text} for h in fused[:15]],
             "reranked": [h.brief() | {"text": h.text} for h in reranked],
         }
-        context: list[Hit] = [h for h in reranked[: self.s.context_chunks]
+        n_context = self.s.context_chunks if self.s.rerank else self.s.context_chunks_rrf
+        context: list[Hit] = [h for h in reranked[:n_context]
                               if (h.rerank_score or 0) >= self.s.min_rerank_score * 0.5]
         if self.s.rerank:
             weak = not context or (reranked[0].rerank_score or 0) < self.s.min_rerank_score

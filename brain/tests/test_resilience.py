@@ -77,7 +77,7 @@ async def test_twenty_simultaneous_sessions_do_not_block_or_mix(client, containe
     import asyncio
     import time
 
-    sids = [client.post("/v1/sessions", json={}).json()["id"] for _ in range(20)]
+    sids = [client.post("/api/v1/sessions", json={}).json()["id"] for _ in range(20)]
     started = time.perf_counter()
     replies = await asyncio.gather(*[container.conversation.ask(f"hello number {i}", sid) for i, sid in enumerate(sids)])
     assert all(r.outcome == "smalltalk" or r.answer for r in replies) and len({r.session_id for r in replies}) == 20
@@ -107,7 +107,7 @@ def test_the_prefetched_customer_is_shared_within_a_turn_and_dropped_after_a_cha
 
 
 def test_stats_report_stage_latency_percentiles(client, container):
-    client.post("/v1/ask", json={"question": "What is the minimum balance requirement for the savings account?"})
-    stats = client.get("/v1/stats?hours=1").json()
+    client.post("/api/v1/ask", json={"question": "What is the minimum balance requirement for the savings account?"})
+    stats = client.get("/api/v1/stats?hours=1").json()
     assert "total_ms" in stats["stages_ms"] and {"p50", "p95", "p99"} <= set(stats["stages_ms"]["total_ms"])
     assert set(stats["llm_retries_and_fallbacks"]) == {"rate_limit_retries", "fallback_used", "router_repaired_in_code", "router_retried"}

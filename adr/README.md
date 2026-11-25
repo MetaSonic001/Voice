@@ -8,9 +8,9 @@ An **ADR** is a short note that records **one** important technical decision: th
 - **Status:**
   - **Proposed:** written, not yet agreed.
   - **Accepted:** agreed; the code follows it.
+  - **Superseded by NNNN:** replaced by a newer ADR (kept for the reasoning).
   - **Deprecated:** no longer relevant.
-  - **Superseded by NNNN:** replaced by a newer ADR.
-- **Don't rewrite an accepted ADR to change the decision.** Write a new ADR and mark the old one *Superseded*. Small clarifications and corrections are fine.
+- **Don't rewrite an accepted ADR to change the decision.** Write a new ADR and mark the old one *Superseded*. Small clarifications and corrections are fine. Superseded ADRs stay: they record why the earlier option was dropped, and the repository may move without its git history.
 - **Keep the set small.** One file per decision that really stands on its own. When two ADRs record the same decision, or one only replaced another, merge them into the lower number and keep the history in its text. Removed numbers are never reused.
 - **When to write one:** a choice that is expensive to reverse, affects several parts of the system, or that someone will later ask "why did we do it this way?" about. Not for small code choices.
 - **Template:** [`template.md`](template.md).
@@ -19,7 +19,7 @@ An **ADR** is a short note that records **one** important technical decision: th
 
 ADRs 0002–0021 were **recorded on 6 Nov 2026 for decisions made earlier** (2–6 Nov). The dates show when each decision was actually made. Where the Phase 4 build differs from an ADR, the ADR has an "Implementation notes" section.
 
-**Merged on 14 Nov 2026** (the owner asked for no unnecessary ADRs): 0001 (record ADRs) → this README; 0013 (speaker echo not fixed) and 0028 (echo fixed with a loopback) → 0012; 0023 (bank-data templates) → 0024. Older documents that cite those numbers mean the ADR they were merged into.
+**Merged on 14 Nov 2026** (the owner asked for no unnecessary ADRs): 0001 (record ADRs) → this README; 0013 (speaker echo not fixed) and the first 0028 (echo fixed with a loopback) → 0012 (the number 0028 was then reused on 19 Nov for the ECS decision); 0023 (bank-data templates) → 0024. Older documents that cite those numbers mean the ADR they were merged into.
 
 ## Index
 
@@ -49,9 +49,10 @@ ADRs 0002–0021 were **recorded on 6 Nov 2026 for decisions made earlier** (2�
 | [0025](0025-selective-bank-reads.md) | Read only the bank data a request needs (build with the real AU adapter) | Accepted (design) |
 | [0026](0026-stateless-llm-calls-india-only.md) | Stateless LLM calls; the conversation stays in our database; India-only inference | Accepted |
 | [0027](0027-access-control-token-at-bank-rls-with-sso.md) | Customer data guarded at the bank's APIs; database row-level security comes with staff SSO | Accepted |
-| [0028](0028-ecs-on-ec2-for-the-brain.md) | Brain on ECS with EC2 capacity (Managed Instances), UI on Fargate, search on SageMaker | Accepted (UI part superseded by 0030) |
-| [0029](0029-onnx-runtime-for-cpu-search.md) | ONNX Runtime as an option for the search models on CPU-only laptops | Proposed |
-| [0030](0030-ui-on-ecs-ec2.md) | UI on ECS with EC2 capacity (own `t3.small` servers), not Fargate | Accepted |
+| [0028](0028-ecs-on-ec2-for-the-brain.md) | Brain on ECS with EC2 capacity (Managed Instances), UI on Fargate, search on SageMaker | Superseded by 0031 |
+| [0029](0029-onnx-runtime-for-cpu-search.md) | ONNX Runtime as an option for the search models on CPU-only machines | Accepted |
+| [0030](0030-ui-on-ecs-ec2.md) | UI on ECS with EC2 capacity (own `t3.small` servers), not Fargate | Superseded by 0031 |
+| [0031](0031-eks-uat-cpu-no-reranker.md) | UAT on EKS (one CPU node), no GPU: reranker off by default (`RERANK=auto`), 6 RRF passages; API under `/api` | Accepted |
 
 ## Sources on the format
 

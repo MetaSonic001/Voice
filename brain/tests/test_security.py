@@ -12,7 +12,7 @@ RAVI = "9000000101"
 
 
 def _ask(client, sid, text):
-    return client.post("/v1/ask", json={"question": text, "session_id": sid}).json()
+    return client.post("/api/v1/ask", json={"question": text, "session_id": sid}).json()
 
 
 @pytest.mark.parametrize("text,expected", [
@@ -24,7 +24,7 @@ def test_code_entry_shape(text, expected):
 
 
 def test_typed_code_is_never_stored_logged_or_sent_to_the_llm(client, container):
-    sid = client.post("/v1/sessions", json={"caller_number": RAVI}).json()["id"]
+    sid = client.post("/api/v1/sessions", json={"caller_number": RAVI}).json()["id"]
     first = _ask(client, sid, "What is my balance in both accounts?")
     assert first["outcome"] == "auth_required"
     code = re.search(r"\b(\d{6})\b", first["auth"]["simulated_sms"]).group(1)
@@ -44,7 +44,7 @@ def test_typed_code_is_never_stored_logged_or_sent_to_the_llm(client, container)
 
 
 async def test_a_code_heard_by_speech_recognition_is_not_accepted(client, container):
-    sid = client.post("/v1/sessions", json={"caller_number": RAVI}).json()["id"]
+    sid = client.post("/api/v1/sessions", json={"caller_number": RAVI}).json()["id"]
     first = _ask(client, sid, "What is my balance in both accounts?")
     code = re.search(r"(\d{6})", first["auth"]["simulated_sms"]).group(1)
 
@@ -52,7 +52,7 @@ async def test_a_code_heard_by_speech_recognition_is_not_accepted(client, contai
     done = events[-1].reply
     assert done.outcome == "auth_required" and "keypad" in done.answer
     assert container.auth.status(sid)["verified"] is False  # not verified by what the microphone heard
-    assert client.get(f"/v1/sessions/{sid}").json()["turns"][-1]["question"] == "[code]"
+    assert client.get(f"/api/v1/sessions/{sid}").json()["turns"][-1]["question"] == "[code]"
 
 
 @pytest.mark.parametrize("text", [
@@ -87,9 +87,9 @@ def test_instruction_like_text_in_documents_is_flagged():
 def test_clean_slate_removes_calls_but_keeps_the_knowledge_base(client, container, tmp_path):
     from app.services import maintenance
 
-    sid = client.post("/v1/sessions", json={"caller_number": RAVI}).json()["id"]
+    sid = client.post("/api/v1/sessions", json={"caller_number": RAVI}).json()["id"]
     _ask(client, sid, "What is the minimum balance for a savings account?")
-    client.post("/v1/ask", json={"question": "What is the minimum balance for a savings account?"})  # no call (like an eval turn)
+    client.post("/api/v1/ask", json={"question": "What is the minimum balance for a savings account?"})  # no call (like an eval turn)
     with container.db.connection() as conn:
         docs_before = conn.execute("SELECT count(*) AS n FROM documents").fetchone()["n"]
         loose_before = conn.execute("SELECT count(*) AS n FROM traces WHERE session_id IS NULL").fetchone()["n"]

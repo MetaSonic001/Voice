@@ -10,8 +10,8 @@ Two ways to run it:
 
 | Mode | Set | What runs |
 |---|---|---|
-| **Brain only** (RAG bot, text) | `VOICE_ENABLED=false` | documents, `/v1/ask`, evals. No voice models or routes. |
-| **Brain + voice** (default) | `VOICE_ENABLED=true` | everything above + `/v1/voice/*` (REST + live WebSocket call) |
+| **Brain only** (RAG bot, text) | `VOICE_ENABLED=false` | documents, `/api/v1/ask`, evals. No voice models or routes. |
+| **Brain + voice** (default) | `VOICE_ENABLED=true` | everything above + `/api/v1/voice/*` (REST + live WebSocket call) |
 
 ## What it does
 
@@ -33,62 +33,69 @@ Two ways to run it:
 | **Traces** | Every question stores: understanding, both search lists with ranks/scores, reranker scores, chunks used, citations, check results, model and prompt versions, timings per step, tokens. |
 | **Evaluations** | Golden set (105 questions: EN/HI/Hinglish, answer/clarify/refuse/verify/handoff) → pass rate, fact accuracy, retrieval hit@k/MRR, latency p50/p95 per step, cost, Markdown report, run comparison. |
 | **Voice call** | Streaming pipeline: Silero VAD → STT (Groq Whisper / Sarvam) → brain (streamed sentence by sentence) → TTS (Edge / Sarvam) → paced audio. Details below. |
-| **Security** | Prompt-injection defence: retrieved text and caller words are data, a `manipulation` intent gets a fixed reply, and the agent never reveals its instructions. One masking rule set (`app/services/privacy.py`) is applied before the LLM, in traces and in every log line: OTP/PIN after a keyword, account/card/phone/Aadhaar numbers in digits *or spoken as words* (English, Hinglish, Devanagari), PAN, e-mail and UPI IDs. API key and rate limits (`/v1/auth` included). Unverified callers never get account data. |
+| **Security** | Prompt-injection defence: retrieved text and caller words are data, a `manipulation` intent gets a fixed reply, and the agent never reveals its instructions. One masking rule set (`app/services/privacy.py`) is applied before the LLM, in traces and in every log line: OTP/PIN after a keyword, account/card/phone/Aadhaar numbers in digits *or spoken as words* (English, Hinglish, Devanagari), PAN, e-mail and UPI IDs. API key and rate limits (`/api/v1/auth` included). Unverified callers never get account data. |
 | **Test UI** | `../ui`: chat, voice note, live call (with a "focus on my voice" gate for background voices), keypad, simulated SMS, timings and trace links. |
-| **Ops** | JSON logs (`logs/app.jsonl`, masked), Prometheus `/metrics`, `/health`, `/health/ready`, `/v1/stats`. |
+| **Ops** | JSON logs (`logs/app.jsonl`, masked), Prometheus `/metrics`, `/health`, `/health/ready`, `/api/v1/stats`. |
 
-## Setup (Windows, no Docker)
+## Setup
 
-Requirements: Python 3.12 and [uv](https://docs.astral.sh/uv/).
+Three ways to run the same code. All of them use Postgres with pgvector; the first two use the Docker one.
 
-First time:
-```bash
-cd brain
-uv sync
-cp .env.example .env
-uv run python scripts/download_models.py
-```
-- `uv sync` installs everything (CUDA 12.8 PyTorch; runs on CPU if there's no GPU).
-- In `.env`, put your Groq key (already done on this machine).
-- The model download is about 4.4 GB, once: bge-m3 and the reranker. It resumes and verifies checksums.
+| Way | Database | Brain and UI | When |
+|---|---|---|---|
+| **A. Docker Postgres + brain and UI run normally** (recommended for development) | `docker compose up -d db` | `python app.py`, `bun run dev` | Day-to-day work on either laptop |
+| **B. Everything in Docker** | the same | `docker compose up -d --build` | A clean run like AWS, or a demo |
+| C. Private Postgres (pgserver under `data/pg`) | none to start | `python app.py` with no `DATABASE_URL` | Owner's laptop only (old data lives there) |
 
-Every time:
-```bash
-python app.py
-```
-Run it with the venv active (`.venv\Scripts\activate`), or as `uv run python app.py`. It serves http://127.0.0.1:8000, docs at `/docs`; the first start takes about a minute to load the models. Then, in another terminal:
-```bash
-cd ../ui
-bun run dev
-```
-That's the test UI at http://localhost:3000.
+### First time (both laptops)
 
-- **Postgres** runs privately from `data/pg` through `pgserver` (pip-installed, includes pgvector). No Docker, no install. Set `DATABASE_URL` to use any other Postgres with pgvector instead. For a Postgres **without** pgvector, set `VECTOR_STORE=numpy` (exact search in memory, no extra library; fine to ~50,000 chunks) or `VECTOR_STORE=chroma` (in-process Chroma under `data/chroma`; install with `uv sync --extra chroma`). Postgres keeps everything, including the vectors as plain arrays (`app/services/vectors.py`). On the office laptop, Application Control blocks both pgvector's and Chroma's DLLs, so use `numpy` there.
-- **Models**: if `models/bge-m3` and `models/bge-reranker-v2-m3` exist they're loaded from there (offline); otherwise they're downloaded from Hugging Face on first start.
-- **Bank data (MVP 2)**: read-only from `../Sample Questions/Inbound_Voice_Agent_Dummy_Data.xlsx` (the file is never changed or indexed). "Today" is fixed at 31 Dec 2026, because the dummy transactions end then (`DEMO_TODAY`).
-- **GPU**: `DEVICE=auto` (default) uses an NVIDIA GPU in fp16 when present (here an RTX 3050: rerank ~0.5 s instead of ~25 s on CPU). `GET /health/ready` and the startup log show the device. **No GPU:** `SEARCH_RUNTIME=onnx` runs the same models with ONNX Runtime (run `scripts/download_models.py --onnx` first): identical results, query embedding ~3x faster, reranking no faster (ADR 0029).
-- **Search models in another process** (optional; AWS uses it): `SEARCH_PROVIDER=local` (default) loads the two models in the brain. `SEARCH_PROVIDER=http` calls a search server instead, started with `uv run python -m app search` (port 8200, on the GPU machine; set the same `SEARCH_TOKEN` on both sides when it listens beyond 127.0.0.1). `SEARCH_PROVIDER=sagemaker` with `SAGEMAKER_ENDPOINT=<name>` calls the same server image hosted as a SageMaker endpoint (AWS credentials allowed `sagemaker:InvokeEndpoint`; no models needed on this machine). Same models, same scores in all three. If the server is down, product questions get the "system problem" reply with a hand-over; everything else keeps working. See `deploy/README.md`.
-- **Live-call limit**: `MAX_LIVE_CALLS=9` (default; `0` = no limit). One process takes at most this many live voice calls; the next caller gets a `busy` event and the WebSocket closes with code 1013. `/health/ready` shows `live_calls`; `/metrics` has `brain_live_calls` and `brain_calls_refused_total`. Why 9: PROJECT-GUIDE §26.11.
+1. Python packages. Owner's laptop: `uv sync` (Python 3.12). Company laptop: the conda environment with `pip install -e .`
+   (Python 3.14 works so far; AWS runs 3.12). PyTorch is the CUDA 12.8 build; it runs on a CPU too.
+2. Settings: `cp .env.example .env`, then fill in:
+   - **the LLM:** Groq key (owner's laptop), or the Bedrock block (company laptop: `LLM_PROVIDER=bedrock`,
+     `AWS_BEARER_TOKEN_BEDROCK`, `in.openai.gpt-5.6-luna` for the three models);
+   - `DATABASE_URL` for the Docker Postgres (next step), `MOCK_BANK=true`;
+   - behind the office proxy, `USE_SYSTEM_CERTS=true`.
+3. Docker Postgres (repo root): copy `.env.example` to `.env` and set `PG_PASSWORD` (letters and digits: it goes into a
+   URL). Run `docker compose up -d db`. In `brain/.env`:
+   `DATABASE_URL=postgresql://au:<password>@127.0.0.1:5432/au_voice`.
+4. Search models (once, about 4.4 GB, resumes and checks hashes): `python scripts/download_models.py`.
+   Without a GPU the reranker is never loaded, so `--embed-only` (2.2 GB) is enough.
+5. Start: `python app.py` (http://127.0.0.1:8000, API under `/api`, docs at `/docs`; about a minute to load), then
+   `cd ../ui && bun run dev` (http://localhost:3000).
+6. The new database is empty. On the first start the brain creates every table (the migrations, in seconds) and seeds
+   the mock bank. Upload the knowledge base on `/kb`, or
+   `python -m app upload "../Sample Questions/Knowledge Base/CC KB.docx" ...` with the brain running.
 
-## Setup with Docker Desktop (Postgres + pgvector; optionally the brain and UI too)
+### Everything in Docker (way B)
 
-`compose.yaml` in the repository root runs Postgres 16 with pgvector (`pgvector/pgvector:0.8.0-pg16`), the brain and the
-UI. The same database serves the brain in Docker and the brain run normally, so you can switch between them.
+- `docker compose up -d --build` (the first build takes several minutes). UI http://localhost:3000, API http://localhost:8000/api.
+- It reads `brain/.env`, mounts `brain/models` and `brain/data` (so nothing is downloaded twice), and talks to the same
+  database as way A.
+- **GPU:** the default runs on the CPU, with the reranker off. On a laptop with an NVIDIA GPU, run
+  `docker compose -f compose.yaml -f compose.gpu.yaml up -d --build` instead.
+- Run one brain at a time, since both use port 8000: `docker compose stop brain` before `python app.py`.
+- `docker compose down` keeps the data (volume `pgdata`); `down -v` deletes the database.
 
-1. Once: copy `.env.example` (repository root) to `.env` and set `PG_PASSWORD` (letters and digits only: it goes into a
-   URL). Add the same password to `brain/.env`:
-   `DATABASE_URL=postgresql://au:<password>@127.0.0.1:5432/au_voice`
-2. Database only, brain and UI run normally: `docker compose up -d db`, then `uv run python app.py` and `bun run dev`.
-3. Everything in Docker: `docker compose up -d --build` (first build: several minutes). UI http://localhost:3000, API
-   http://localhost:8000. The brain uses the GPU (NVIDIA, through Docker Desktop's WSL 2 engine); the models come
-   from `brain/models` and files from `brain/data`, both mounted, so nothing is downloaded again.
-4. Run one brain at a time (both use port 8000): `docker compose stop brain` before `uv run python app.py`.
+### Things worth knowing
 
-On the first start the brain creates every table itself (the migrations in `app/migrations`, in order, in seconds) and
-seeds the mock bank; nothing needs to be run by hand. The new database starts empty: upload the knowledge base again
-(the /kb page, or `uv run python -m app upload "../Sample Questions/Knowledge Base/CC KB.docx" ...` with the brain running). Calls
-recorded in the old private database (`data/pg`) stay there; it is used again only if `DATABASE_URL` is removed.
-`docker compose down` stops everything and keeps the data (volume `pgdata`); `down -v` deletes the database.
+- **API paths:** every route is under `/api` (`/api/v1/ask`, `/api/v1/voice/stream`...). `/health`, `/health/ready` and
+  `/metrics` stay at the root. On AWS one load balancer rule sends `/api/*` here (ADR 0031).
+- **GPU and the reranker:** `RERANK=auto` (default) turns the reranker on only with a GPU (`DEVICE=auto` finds it; fp16)
+  or a GPU search server. Without one it is off: the passages keep the hybrid-search (RRF) order, 6 of them go to the
+  answer model (`CONTEXT_CHUNKS_RRF`), and a question with no passage close by meaning is refused (`MIN_DENSE_SCORE`).
+  Measured on the 52 English golden questions with known sources: the right passage is in RRF's top 6 for 96.2% (the reranker's
+  top 5: 98.1%). A small CPU reranker (MiniLM) was tried: about 900 ms and no better at top 5, so not used.
+  `/health/ready` shows `reranker` (`off` when off).
+- **Vector search:** pgvector (default). For a Postgres without it: `VECTOR_STORE=numpy` (exact search in memory,
+  fine to ~50,000 chunks). Chroma was removed on 25 Nov (Docker Postgres has pgvector).
+- **Models** load from `models/bge-m3` and `models/bge-reranker-v2-m3` (offline). `SEARCH_RUNTIME=onnx` runs them with
+  ONNX Runtime on a CPU (`download_models.py --onnx` first; ADR 0029): query embedding ~3x faster.
+- **Search in another process** (later, with a GPU): `SEARCH_PROVIDER=http` (`python -m app search` on the GPU machine,
+  port 8200, same `SEARCH_TOKEN` both sides) or `sagemaker`. Same models and scores; no re-indexing.
+- **Bank data:** the mock bank, seeded from `../Sample Questions/Inbound_Voice_Agent_Dummy_Data.xlsx` (never changed or
+  indexed). "Today" is fixed at 31 Dec 2026 (`DEMO_TODAY`).
+- **Live-call limit:** `MAX_LIVE_CALLS=9` per process; the next caller gets `busy` (WebSocket close 1013). Why 9: PROJECT-GUIDE §26.11.
 
 ## Use it
 
@@ -115,15 +122,15 @@ The UI's **Knowledge base** page (`/kb`) lists every ingested document. It shows
 Easiest in the UI: pick **Calling from** (a test customer, an unregistered number, or withheld), ask "What is my balance?", copy the code from the simulated SMS panel into the keypad. The question that was waiting is then answered.
 Through the API:
 ```bash
-curl -X POST localhost:8000/v1/sessions -H "content-type: application/json" -d "{\"caller_number\": \"7107420369\"}"
-curl -X POST localhost:8000/v1/ask -H "content-type: application/json" -d "{\"question\": \"What is my balance?\", \"session_id\": \"SESSION\"}"
-curl -X POST localhost:8000/v1/auth/verify -H "content-type: application/json" -d "{\"session_id\": \"SESSION\", \"code\": \"123456\"}"
+curl -X POST localhost:8000/api/v1/sessions -H "content-type: application/json" -d "{\"caller_number\": \"7107420369\"}"
+curl -X POST localhost:8000/api/v1/ask -H "content-type: application/json" -d "{\"question\": \"What is my balance?\", \"session_id\": \"SESSION\"}"
+curl -X POST localhost:8000/api/v1/auth/verify -H "content-type: application/json" -d "{\"session_id\": \"SESSION\", \"code\": \"123456\"}"
 ```
 - **Step 1** creates the session; its response has `"id": SESSION`.
 - **Step 2** asks the question. The response has `auth.simulated_sms` with the code.
 - **Step 3** verifies the code and answers the waiting question.
 
-`GET /v1/demo/callers` lists test customers with different product mixes.
+`GET /api/v1/demo/callers` lists test customers with different product mixes.
 
 ### 4. Everything through the API
 - **Browser:** <http://127.0.0.1:8000/docs> (interactive API page: try every endpoint there).
@@ -131,14 +138,14 @@ curl -X POST localhost:8000/v1/auth/verify -H "content-type: application/json" -
 
 | Area | Endpoints |
 |---|---|
-| Documents | `POST /v1/documents` · `GET /v1/documents` · `GET /v1/documents/{id}` · `GET /v1/documents/{id}/chunks` · `PATCH /v1/documents/{id}` · `DELETE /v1/documents/{id}[?purge=true]` · `POST /v1/documents/{id}/versions` · `POST /v1/documents/{id}/versions/{n}/activate` · `POST /v1/documents/{id}/reindex` · `POST /v1/reindex` · `GET /v1/jobs` |
-| Conversation | `POST /v1/sessions` (`caller_number`) · `GET /v1/sessions/{id}` · `POST /v1/ask` · `POST /v1/search` |
-| Verification | `POST /v1/auth/verify` · `POST /v1/auth/resend` · `GET /v1/auth/{session_id}` · `POST /v1/auth/end` · `GET /v1/demo/callers` (dev) |
-| Traces | `GET /v1/traces[?outcome=refused]` · `GET /v1/traces/{id}` · `POST /v1/traces/{id}/feedback` (correct / wrong, from testing) |
-| Voice | `GET /v1/voice/providers` · `POST /v1/voice/stt` · `POST /v1/voice/tts` · `POST /v1/voice/turn` · `WS /v1/voice/stream` |
-| Ops | `GET /health` · `GET /health/ready` · `GET /metrics` · `GET /v1/stats` · `GET /v1/bench` · `POST`/`DELETE /v1/bench/baseline` |
+| Documents | `POST /api/v1/documents` · `GET /api/v1/documents` · `GET /api/v1/documents/{id}` · `GET /api/v1/documents/{id}/chunks` · `PATCH /api/v1/documents/{id}` · `DELETE /api/v1/documents/{id}[?purge=true]` · `POST /api/v1/documents/{id}/versions` · `POST /api/v1/documents/{id}/versions/{n}/activate` · `POST /api/v1/documents/{id}/reindex` · `POST /api/v1/reindex` · `GET /api/v1/jobs` |
+| Conversation | `POST /api/v1/sessions` (`caller_number`) · `GET /api/v1/sessions/{id}` · `POST /api/v1/ask` · `POST /api/v1/search` |
+| Verification | `POST /api/v1/auth/verify` · `POST /api/v1/auth/resend` · `GET /api/v1/auth/{session_id}` · `POST /api/v1/auth/end` · `GET /api/v1/demo/callers` (dev) |
+| Traces | `GET /api/v1/traces[?outcome=refused]` · `GET /api/v1/traces/{id}` · `POST /api/v1/traces/{id}/feedback` (correct / wrong, from testing) |
+| Voice | `GET /api/v1/voice/providers` · `POST /api/v1/voice/stt` · `POST /api/v1/voice/tts` · `POST /api/v1/voice/turn` · `WS /api/v1/voice/stream` |
+| Ops | `GET /health` · `GET /health/ready` · `GET /metrics` · `GET /api/v1/stats` · `GET /api/v1/bench` · `POST`/`DELETE /api/v1/bench/baseline` |
 
-`POST /v1/ask` returns:
+`POST /api/v1/ask` returns:
 ```json
 {
   "trace_id": "…", "session_id": null, "outcome": "answered", "intent": "general", "language": "en",
@@ -160,7 +167,7 @@ uv run python -m evals.golden_run        # runs evals/golden/v1.yaml (105 questi
 uv run python -m evals.golden_run mine   # another set: evals/golden/mine.yaml
 ```
 - **Where results go:** a Markdown report in `evals/reports/` (the path is printed at the end).
-- **Not over the API:** the `/v1/evals` endpoints and `brain eval` were removed on 18 Nov 2026. They had no pacing or replay cache, so one run could use up the day's Groq requests, and a live endpoint that spends LLM quota does not belong in the deployed app.
+- **Not over the API:** the `/api/v1/evals` endpoints and `brain eval` were removed on 18 Nov 2026. They had no pacing or replay cache, so one run could use up the day's Groq requests, and a live endpoint that spends LLM quota does not belong in the deployed app.
 - **What it shows:** pass rate, correct outcome, correct facts, retrieval hit@1/3/5 and MRR, answers blocked by the figure check, latency per step (p50/p95), and cost per question. These are broken down **by language** and **by expected behaviour**.
 - **Failures:** every failure is listed with its trace link.
 - **Comparing configurations:** change a model or setting in `.env`, run again, and compare the two reports.
@@ -169,13 +176,13 @@ uv run python -m evals.golden_run mine   # another set: evals/golden/mine.yaml
 ### 6. Logs, traces and metrics
 - **Logs:** the console shows one readable line per event (`LOG_CONSOLE=json` for JSON on stdout in production). `logs/app.jsonl` has the same events as JSON lines (request, turn, ingestion, job, eval), with `request_id`/`trace_id`, rotated at 10 MB × 5. Long digit runs and API keys are masked.
 - **Postgres:** the private database stops when the API stops (Ctrl+C). After a crash or a killed terminal, the next start waits for Postgres's crash recovery automatically.
-- **Traces:** `GET /v1/traces/{id}` shows *why* an answer came out:
+- **Traces:** `GET /api/v1/traces/{id}` shows *why* an answer came out:
   - the understanding result;
   - the dense and keyword hits, merged ranks and rerank scores;
   - the chunks given to the model;
   - the raw model output, the check results, and timings.
 - **Metrics:** `GET /metrics` exposes request counts and latency per route, outcomes by language, and latency per pipeline stage.
-- **Stats:** `GET /v1/stats` gives a quick summary for the last 24 h. `GET /v1/bench` (the `/bench` page) compares the running setup with a benchmark: speed per stage, eval pass rates and answer quality, real turns only. Reasoning per step: `UNDERSTAND_REASONING_EFFORT`, `ANSWER_REASONING_EFFORT` (none | low | medium | high; default low).
+- **Stats:** `GET /api/v1/stats` gives a quick summary for the last 24 h. `GET /api/v1/bench` (the `/bench` page) compares the running setup with a benchmark: speed per stage, eval pass rates and answer quality, real turns only. Reasoning per step: `UNDERSTAND_REASONING_EFFORT`, `ANSWER_REASONING_EFFORT` (none | low | medium | high; default low).
 - **No reranker (`RERANK=false`):** for a machine without a GPU, where reranking takes ~20 s. The reranker model is not loaded, the passages keep the hybrid-search order, and the refusal gate uses embedding similarity (`MIN_DENSE_SCORE`, default 0.35, not calibrated yet). `/bench` shows it as its own setup ("Reranker: off"). Back on: `RERANK=true` and a restart.
 
 ### 7. Try the voice agent
@@ -188,7 +195,7 @@ uv run brain say "सीनियर सिटीजन के लिए ते�
 uv run brain voice data/audio/q.wav --out data/audio/reply.wav
 
 # One turn over REST (any audio file; also in requests.http and /docs)
-curl -F file=@data/audio/q.wav http://127.0.0.1:8000/v1/voice/turn
+curl -F file=@data/audio/q.wav http://127.0.0.1:8000/api/v1/voice/turn
 ```
 Example `brain voice` output:
 ```
@@ -227,8 +234,8 @@ Every conversation (typed, voice notes, live calls) is saved as a **call record*
   Account figures never go to the log: the line says which fields were given.
 - **Live alerts** (toast in every page, with a link to the call): the caller asks for a person; the agent is
   struggling (2 unanswered or 3 weakly grounded replies in a call); system health (2+ LLM/STT/TTS errors in 5 minutes).
-- API: `GET /v1/calls`, `GET /v1/calls/{id}`, `GET /v1/calls/{id}/transcript.txt`, `GET /v1/calls/{id}/recordings/{rid}`,
-  `GET /v1/alerts?after=`. They need `X-API-Key` when `API_KEY` is set.
+- API: `GET /api/v1/calls`, `GET /api/v1/calls/{id}`, `GET /api/v1/calls/{id}/transcript.txt`, `GET /api/v1/calls/{id}/recordings/{rid}`,
+  `GET /api/v1/alerts?after=`. They need `X-API-Key` when `API_KEY` is set.
 
 ### 9. Phase 3: actions, fraud, complaints, transfers to a person
 The same AI agent handles every call; what changes is what it may do and who it hands over to.
@@ -275,18 +282,18 @@ The same AI agent handles every call; what changes is what it may do and who it 
   mentions the named one is labelled "[about X; use only what it says about Y]".
 - **Router output repair** (`understanding.repair`): when the provider rejects the router's JSON for a value outside a
   list, code repairs the returned generation (no second call); the lenient retry is only for a cut-off generation.
-  `/v1/stats` counts both (`router_repaired_in_code`, `router_retried`).
+  `/api/v1/stats` counts both (`router_repaired_in_code`, `router_retried`).
 - **Post-call judge** (`services/review.py`): code checks on every call; a hard-rule failure makes the call critical
   whatever the judge's average. The judge (a different model) scores five dimensions as a phone call is heard, with
-  verified quotes. `/v1/reviews/calibration` compares it with people's labels (exact, within one point, judge-minus-person,
+  verified quotes. `/api/v1/reviews/calibration` compares it with people's labels (exact, within one point, judge-minus-person,
   missed critical calls). Treat it as uncalibrated until about 50 calls are labelled.
   Each review also lists up to 5 **findings**: the failure label (20 kinds, e.g. unresolved request, lost context,
   unnecessary verification, poor voice response), who caused it (the agent, a bank system, a gap in the documents, an
   unclear caller, not enough evidence - only the agent's own mistakes lower its scores), what happened, a checked quote,
   why it matters, the fix and where to fix it (router, retrieval, answer prompt, bank answer wording, workflow, code,
-  knowledge base, voice). `GET /v1/reviews/summary?days=30` counts the recurring problems across calls (biggest first);
+  knowledge base, voice). `GET /api/v1/reviews/summary?days=30` counts the recurring problems across calls (biggest first);
   `/calls` shows it as "Quality across calls" when no call is open. Every finding also becomes a to-do on the fix list
-  (`fix_items`, `GET /v1/fixes`, `PATCH /v1/fixes/{id}`, UI `/fixes`). The judge diagnoses; a person decides the changes.
+  (`fix_items`, `GET /api/v1/fixes`, `PATCH /api/v1/fixes/{id}`, UI `/fixes`). The judge diagnoses; a person decides the changes.
 - **Golden-run evidence**: the clean slate keeps turns that belong to no call.
 
 ### 10. Tests
@@ -338,7 +345,7 @@ The MVP 2 tests cover:
 ## How it works
 
 ```
-POST /v1/ask ──▶ Conversation (channel-agnostic core)
+POST /api/v1/ask ──▶ Conversation (channel-agnostic core)
                   1 understand   Groq gpt-oss-20b, strict JSON  ─ language, intent, standalone question, EN keywords
                   2 route        general → 3 ; personal → verified? answer from bank data : send a code
                                  action/issue/human → transfer offer
@@ -370,7 +377,7 @@ no input   reprompt after 8 s, polite goodbye + hang-up after the second
 greeting   the disclosure: an AI assistant, and the call is recorded (also stored as a call event)
 recording  both sides captured in memory, encoded to Opus and encrypted when the call ends
 ```
-**WebSocket protocol** (`/v1/voice/stream`, header `X-API-Key` or `?key=` when `API_KEY` is set):
+**WebSocket protocol** (`/api/v1/voice/stream`, header `X-API-Key` or `?key=` when `API_KEY` is set):
 - client → `{"type":"start","language":"hi"|"en","greet":true,"session_id":optional,"caller_number":optional}`, then
   binary PCM16 mono 16 kHz frames (any size; 20 ms recommended). Optional messages:
   - `{"type":"otp","code":"123456"}`: the keypad code;
@@ -447,7 +454,7 @@ phrases of a paid voice are kept in `data/tts-cache` so restarts don't buy them 
 `STT_PROVIDER` / `TTS_PROVIDER` and restart.
 | Files | local disk | S3 (or MinIO) | `FILE_STORE=s3`, `S3_BUCKET`, `S3_PREFIX`, `S3_ENDPOINT_URL` (MinIO only) |
 | Database | private pgserver | RDS / Aurora Postgres + pgvector | `DATABASE_URL` |
-| Embedder | bge-m3 | same, or any | `EMBED_MODEL`, `EMBED_DIM`, then `POST /v1/reindex` (embeddings stored per model) |
+| Embedder | bge-m3 | same, or any | `EMBED_MODEL`, `EMBED_DIM`, then `POST /api/v1/reindex` (embeddings stored per model) |
 
 Any other OpenAI-compatible LLM (OpenAI, Azure, vLLM, Ollama) works through `LLM_BASE_URL`.
 Adding a new kind of provider takes one class that implements the port in `ports.py`, plus one branch in `container.py`.

@@ -17,15 +17,15 @@ KB_Q = "What is the minimum balance requirement for the savings account?"
 
 def _chat(client, caller="9000000101", verify=True):
     """A text chat with a knowledge-base answer and, when `verify`, a keypad verification and a card request."""
-    sid = client.post("/v1/sessions", json={"caller_number": caller}).json()["id"]
+    sid = client.post("/api/v1/sessions", json={"caller_number": caller}).json()["id"]
     if verify:
-        first = client.post("/v1/ask", json={"question": "Please block my credit card ending 6712 temporarily",
+        first = client.post("/api/v1/ask", json={"question": "Please block my credit card ending 6712 temporarily",
                                              "session_id": sid}).json()
         code = re.search(r"\b(\d{6})\b", first["auth"]["simulated_sms"]).group(1)
-        client.post("/v1/auth/verify", json={"session_id": sid, "code": code})
-        client.post("/v1/ask", json={"question": "no, don't", "session_id": sid})
+        client.post("/api/v1/auth/verify", json={"session_id": sid, "code": code})
+        client.post("/api/v1/ask", json={"question": "no, don't", "session_id": sid})
     else:
-        client.post("/v1/ask", json={"question": KB_Q, "session_id": sid})
+        client.post("/api/v1/ask", json={"question": KB_Q, "session_id": sid})
     return sid
 
 
@@ -91,7 +91,7 @@ def test_a_quiet_chat_is_exported_by_the_sweep_and_new_turns_export_again(client
     sid = _chat(client, verify=False)
     assert records.sweep()["exported"] >= 1
     key = next(k for k in s3.objects if sid in k)
-    client.post("/v1/ask", json={"question": KB_Q, "session_id": sid})  # the chat goes on after the export
+    client.post("/api/v1/ask", json={"question": KB_Q, "session_id": sid})  # the chat goes on after the export
     assert records.sweep()["exported"] >= 1
     with records.files.local_path(key.removeprefix("brain/call_records/")) as path:
         assert len(json.loads(path.read_text(encoding="utf-8"))["turns"]) == 2
@@ -101,7 +101,7 @@ def test_rows_newer_than_the_record_are_never_removed(client, container, s3_reco
     records, _ = s3_records
     sid = _chat(client, verify=False)
     records.export(sid)
-    client.post("/v1/ask", json={"question": KB_Q, "session_id": sid})  # after the export, before the sweep
+    client.post("/api/v1/ask", json={"question": KB_Q, "session_id": sid})  # after the export, before the sweep
     records.s = records.s.model_copy(update={"call_idle_min": 60})  # still active: not exported again yet
     time.sleep(0.2)
     records.sweep()

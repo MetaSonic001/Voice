@@ -8,7 +8,8 @@ from app.api.deps import container
 from app.container import Container
 from app.services.benchmark import Benchmarks
 
-router = APIRouter(tags=["ops"])
+router = APIRouter(tags=["ops"])  # /health, /health/ready, /metrics: at the root (probes and checks reach the pod directly)
+api_router = APIRouter(tags=["ops"])  # under /api with the rest of the API (main.API_PREFIX)
 
 
 @router.get("/health")
@@ -49,7 +50,7 @@ def metrics():
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
-@router.get("/v1/stats")
+@api_router.get("/v1/stats")
 def stats(hours: int = 24, c: Container = Depends(container)):
     return c.traces.stats(hours)
 
@@ -59,14 +60,14 @@ class PinBody(BaseModel):
     label: str = Field("", max_length=80)
 
 
-@router.get("/v1/bench")
+@api_router.get("/v1/bench")
 def bench(c: Container = Depends(container)):
     """The running setup's speed and quality against the benchmark to beat (pinned, or the last other setup with
     enough real turns). Only real turns count: eval replay-cache hits are left out."""
     return Benchmarks(c.db).compare(c.conversation.setup_id)
 
 
-@router.post("/v1/bench/baseline")
+@api_router.post("/v1/bench/baseline")
 def pin_baseline(body: PinBody, c: Container = Depends(container)):
     """Keep a setup as the benchmark: its numbers are frozen now and stay until replaced."""
     pinned = Benchmarks(c.db).pin(body.setup_id or c.conversation.setup_id, body.label)
@@ -75,7 +76,7 @@ def pin_baseline(body: PinBody, c: Container = Depends(container)):
     return pinned
 
 
-@router.delete("/v1/bench/baseline")
+@api_router.delete("/v1/bench/baseline")
 def unpin_baseline(c: Container = Depends(container)):
     """Back to the automatic benchmark (the last other setup with enough turns)."""
     Benchmarks(c.db).unpin()

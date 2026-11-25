@@ -1,4 +1,4 @@
-"""Hybrid retrieval: dense (pgvector, or numpy / Chroma per VECTOR_STORE) + keyword (Postgres full-text) -> Reciprocal Rank Fusion -> rerank.
+"""Hybrid retrieval: dense (pgvector, or numpy per VECTOR_STORE) + keyword (Postgres full-text) -> Reciprocal Rank Fusion -> rerank.
 
 Dense search handles meaning and other languages (Hindi/Hinglish questions over English documents);
 keyword search handles exact terms and product names. RRF merges both lists without tuning weights;
@@ -51,7 +51,7 @@ def rrf_fuse(dense: list[Hit], keyword: list[Hit]) -> list[Hit]:
 class Retriever:
     def __init__(self, db: Database, embedder: Embedder, reranker: Reranker, settings, vectors=None):
         self.db, self.embedder, self.reranker, self.s = db, embedder, reranker, settings
-        self.vectors = vectors  # NumpyVectors or ChromaVectors (VECTOR_STORE=numpy|chroma); None = pgvector inside Postgres
+        self.vectors = vectors  # NumpyVectors (VECTOR_STORE=numpy); None = pgvector inside Postgres
         self._last_used = time.monotonic()
 
     def embed(self, text: str) -> list[float]:
@@ -81,7 +81,7 @@ class Retriever:
         return [Hit(**_hit(r), dense_score=float(r["score"])) for r in rows]
 
     def _dense_store(self, vector: list[float], k: int) -> list[Hit]:
-        """The vector store (numpy or Chroma) finds the nearest chunks among the searchable document versions; Postgres supplies their text.
+        """The numpy vector store finds the nearest chunks among the searchable document versions; Postgres supplies their text.
         `c.active` is checked again, so a document turned off a moment ago never comes back."""
         with self.db.connection() as conn:
             versions = [str(r["v"]) for r in conn.execute(

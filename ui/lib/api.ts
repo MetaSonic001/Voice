@@ -1,8 +1,10 @@
-// Thin client for the brain API (FastAPI). Set NEXT_PUBLIC_API_URL if the API isn't on 127.0.0.1:8000.
-// "/" means the API is on the same address as these pages (on AWS the load balancer routes /v1/* to the brain).
+// Thin client for the brain API (FastAPI). NEXT_PUBLIC_API_URL is the brain's address (default 127.0.0.1:8000).
+// "/" means the brain is on the same address as these pages: on AWS the load balancer sends /api/* to the brain.
+// Every API route is under /api (brain/app/main.py API_PREFIX), so calls go to <address>/api/v1/...
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
-export const API = API_URL === "/" ? "" : API_URL.replace(/\/+$/, "");
+const BRAIN = API_URL === "/" ? "" : API_URL.replace(/\/+$/, "");
+export const API = `${BRAIN}/api`;
 const KEY = process.env.NEXT_PUBLIC_API_KEY; // local testing only: never ship a real key to a browser
 
 export type Auth = {
@@ -289,7 +291,7 @@ export const desk = {
 
 // Same-address API ("/"): build ws:// or wss:// from this page's own address.
 export const wsUrl = (path: string) =>
-  (API || window.location.origin).replace(/^http/, "ws") + path + (KEY ? `?key=${encodeURIComponent(KEY)}` : "");
+  (BRAIN || window.location.origin).replace(/^http/, "ws") + "/api" + path + (KEY ? `?key=${encodeURIComponent(KEY)}` : "");
 export const traceUrl = (id: string) => `${API}/v1/traces/${id}`;
 
 // ───────── speed and quality per setup (/bench; brain services/benchmark.py) ─────────

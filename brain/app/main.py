@@ -75,16 +75,21 @@ def create_app(container: Container | None = None) -> FastAPI:
         app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST", "PATCH", "DELETE"],
                            allow_headers=["content-type", "x-api-key", "x-request-id"])
 
-    for module in (documents, conversation, auth, calls, desk, ops):
-        app.include_router(module.router)
+    # Every API route is under /api (/api/v1/...), so one load balancer rule (/api/*) sends the API to the brain and
+    # everything else to the UI. Health checks and metrics stay at the root: probes reach the pod directly.
+    for module in (documents, conversation, auth, calls, desk):
+        app.include_router(module.router, prefix=API_PREFIX)
+    app.include_router(ops.api_router, prefix=API_PREFIX)
+    app.include_router(ops.router)
     if settings.voice_enabled:
         from app.api import voice  # imports audio libraries only when voice is on
 
-        app.include_router(voice.router)
+        app.include_router(voice.router, prefix=API_PREFIX)
     return app
 
 
-LIMITED_PATHS = ("/v1/ask", "/v1/search", "/v1/voice", "/v1/auth", "/v1/handoffs")
+API_PREFIX = "/api"
+LIMITED_PATHS = tuple(API_PREFIX + p for p in ("/v1/ask", "/v1/search", "/v1/voice", "/v1/auth", "/v1/handoffs"))
 
 
 class RateLimiter:

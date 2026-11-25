@@ -95,23 +95,23 @@ def test_open_bind_needs_a_token():
 def test_ask_through_the_search_server(client, container, server_url):
     """The whole question path with search over HTTP gives the same answer as in-process; with search down, the
     caller gets the safe 'system problem' reply and a hand-over, never an invented answer."""
-    r = client.post("/v1/documents", files={"file": ("search-kb.md", KB)}, data={"category": "deposits"})
+    r = client.post("/api/v1/documents", files={"file": ("search-kb.md", KB)}, data={"category": "deposits"})
     assert r.status_code == 201, r.text
     container.worker.run_pending()
     q = {"question": "What is the minimum balance requirement for the savings account?"}
-    local = client.post("/v1/ask", json=q).json()
+    local = client.post("/api/v1/ask", json=q).json()
     retriever = container.retriever
     saved = retriever.embedder, retriever.reranker
     try:
         http = _client(server_url)
         retriever.embedder, retriever.reranker = HttpEmbedder(http), HttpReranker(http)
-        remote = client.post("/v1/ask", json=q).json()
+        remote = client.post("/api/v1/ask", json=q).json()
         assert (remote["outcome"], remote["answer"]) == (local["outcome"], local["answer"])
         assert remote["citations"] == local["citations"]
 
         down = _client(f"http://127.0.0.1:{_free_port()}")
         retriever.embedder, retriever.reranker = HttpEmbedder(down), HttpReranker(down)
-        failed = client.post("/v1/ask", json=q).json()
+        failed = client.post("/api/v1/ask", json=q).json()
         assert failed["outcome"] == "error" and failed["route"] == "handoff"
     finally:
         retriever.embedder, retriever.reranker = saved

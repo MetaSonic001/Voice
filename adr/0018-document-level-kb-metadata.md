@@ -45,6 +45,6 @@ Two sources disagreed on FD rates. The 23 Apr 2026 rate card says up to **7.75%*
 
 ## Implementation notes (6 Nov 2026)
 
-- Built from the heading path ("CASA+TD KB › AU Swadesh Savings Account › ..." gives family and variant); document type and authority from title rules, correctable on the KB page (`PATCH /v1/documents/{id}` `tags`). The variant gate fires only when the family has at least two variants and the best passage is variant-specific or the top three mix variants; comparisons are left to the answer step. A rate question keeps the dated rate card. Expired, superseded and instruction-like passages are dropped.
+- Built from the heading path ("CASA+TD KB › AU Swadesh Savings Account › ..." gives family and variant); document type and authority from title rules, correctable on the KB page (`PATCH /api/v1/documents/{id}` `tags`). The variant gate fires only when the family has at least two variants and the best passage is variant-specific or the top three mix variants; comparisons are left to the answer step. A rate question keeps the dated rate card. Expired, superseded and instruction-like passages are dropped.
 - The CASA+TD copy with 7.75% / 7.35% is in `brain/seed/`; the source file is untouched. The Green FD's 7.90% could not be checked (no row in the rate card) and was left as it is.
 - Not yet measured on the golden set with the real LLM.

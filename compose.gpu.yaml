@@ -1,0 +1,12 @@
+# Adds the laptop's NVIDIA GPU to the brain (search models on the GPU, so the reranker is on: RERANK=auto).
+# Needs Docker Desktop with the WSL 2 backend and a current NVIDIA driver.
+#   docker compose -f compose.yaml -f compose.gpu.yaml up -d --build
+services:
+  brain:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

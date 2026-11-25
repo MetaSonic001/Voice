@@ -13,15 +13,15 @@ RAVI, IMRAN = "9000000101", "9000000105"
 
 
 def _ask(client, sid, text):
-    return client.post("/v1/ask", json={"question": text, "session_id": sid}).json()
+    return client.post("/api/v1/ask", json={"question": text, "session_id": sid}).json()
 
 
 def _verified(client, caller, question):
-    sid = client.post("/v1/sessions", json={"caller_number": caller}).json()["id"]
+    sid = client.post("/api/v1/sessions", json={"caller_number": caller}).json()["id"]
     first = _ask(client, sid, question)
     assert first["outcome"] == "auth_required"
     code = re.search(r"(\d{6})", first["auth"]["simulated_sms"]).group(1)
-    return sid, client.post("/v1/auth/verify", json={"session_id": sid, "code": code}).json()["reply"]
+    return sid, client.post("/api/v1/auth/verify", json={"session_id": sid, "code": code}).json()["reply"]
 
 
 def test_nothing_to_match_means_nothing_is_guessed(client, container):
@@ -100,24 +100,24 @@ def test_bank_down_still_gets_a_fraud_report_to_the_fraud_team(client, container
 
 @pytest.mark.parametrize("risky", ["I don't recognise this", "my card is lost"])
 def test_a_risk_is_never_answered_as_a_plain_enquiry(client, risky):
-    sid = client.post("/v1/sessions", json={"caller_number": RAVI}).json()["id"]
+    sid = client.post("/api/v1/sessions", json={"caller_number": RAVI}).json()["id"]
     assert _ask(client, sid, risky)["outcome"] == "auth_required"  # protected path: verify, then the fraud workflow
 
 
 def test_an_open_request_is_asked_about_only_when_the_caller_gave_no_reason(client, container):
-    sid = client.post("/v1/sessions", json={"caller_number": "9000000102"}).json()["id"]  # Priya
+    sid = client.post("/api/v1/sessions", json={"caller_number": "9000000102"}).json()["id"]  # Priya
     first = _ask(client, sid, "What is my balance in all accounts?")
     code = re.search(r"(\d{6})", first["auth"]["simulated_sms"]).group(1)
-    quiet = client.post("/v1/auth/verify", json={"session_id": sid, "code": code}).json()
+    quiet = client.post("/api/v1/auth/verify", json={"session_id": sid, "code": code}).json()
     assert "open complaint" not in quiet["message"]  # nothing open: nothing said
 
     cif = container.bank.find_by_mobile("9000000102").cif
     container.service_desk.create_ticket(session_id=None, cif=cif, kind="complaint", category="payment_failed_debited",
                                          department="payments", summary="UPI debited but not credited ₹98765", detail={}, tat_days=5)
-    sid2 = client.post("/v1/sessions", json={"caller_number": "9000000102"}).json()["id"]
+    sid2 = client.post("/api/v1/sessions", json={"caller_number": "9000000102"}).json()["id"]
     first = _ask(client, sid2, "What is my balance in all accounts?")
     code = re.search(r"(\d{6})", first["auth"]["simulated_sms"]).group(1)
-    verified = client.post("/v1/auth/verify", json={"session_id": sid2, "code": code}).json()
+    verified = client.post("/api/v1/auth/verify", json={"session_id": sid2, "code": code}).json()
     # the caller already said why they called (their balance): helped with that, not asked about the old complaint
     assert "open complaint" not in verified["message"]
     customer = container.bank.customer(cif)  # with no question waiting, the open request is asked about, never assumed
@@ -134,7 +134,7 @@ def test_after_a_system_error_yes_transfers_without_the_llm(client, container, m
         raise RuntimeError("LLM HTTP 429: rate limit")
 
     monkeypatch.setattr(container.conversation, "understand", down)
-    sid = client.post("/v1/sessions", json={}).json()["id"]
+    sid = client.post("/api/v1/sessions", json={}).json()["id"]
     failed = _ask(client, sid, "2 साल की FD पर ब्याज कितना होता है?")
     assert failed["outcome"] == "error"
     handed = _ask(client, sid, "हाँ मुझे किसी team के साथ दे दो।")  # the LLM is still down: read in code
